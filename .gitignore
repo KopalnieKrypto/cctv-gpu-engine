@@ -1,0 +1,30 @@
+# Models (large binaries)
+models/*.onnx
+models/*.pt
+
+# Test data
+test-data/*.mp4
+test-data/*.avi
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Environment
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.docker/
+
+# IDE
+.idea/
+.vscode/
+*.swp
