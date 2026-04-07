@@ -110,11 +110,7 @@ class TestGpuExtra:
 
     def test_gpu_extra_contains_required_packages_with_linux_marker(self):
         pyproject = _load_pyproject()
-        gpu_specs: list[str] = (
-            pyproject["project"]
-            .get("optional-dependencies", {})
-            .get("gpu", [])
-        )
+        gpu_specs: list[str] = pyproject["project"].get("optional-dependencies", {}).get("gpu", [])
 
         assert gpu_specs, (
             "[project.optional-dependencies].gpu is missing or empty — "
@@ -138,8 +134,7 @@ class TestGpuExtra:
             name = _dep_names([spec])[0]
             if name in required:
                 assert _has_linux_marker(spec), (
-                    f"gpu extra entry {spec!r} must carry "
-                    f"`; sys_platform == 'linux'` marker"
+                    f"gpu extra entry {spec!r} must carry `; sys_platform == 'linux'` marker"
                 )
 
 
@@ -151,9 +146,7 @@ class TestCpuStubExtra:
     def test_cpu_stub_extra_contains_onnxruntime(self):
         pyproject = _load_pyproject()
         cpu_stub_specs: list[str] = (
-            pyproject["project"]
-            .get("optional-dependencies", {})
-            .get("cpu-stub", [])
+            pyproject["project"].get("optional-dependencies", {}).get("cpu-stub", [])
         )
 
         assert cpu_stub_specs, (
@@ -171,17 +164,14 @@ class TestCpuStubExtra:
         would defeat the purpose of having a separate lightweight extra."""
         pyproject = _load_pyproject()
         cpu_stub_specs: list[str] = (
-            pyproject["project"]
-            .get("optional-dependencies", {})
-            .get("cpu-stub", [])
+            pyproject["project"].get("optional-dependencies", {}).get("cpu-stub", [])
         )
 
         names = set(_dep_names(cpu_stub_specs))
         forbidden = {"onnxruntime-gpu", "nvidia-cublas-cu12"}
         leaked = forbidden & names
         assert not leaked, (
-            f"cpu-stub extra leaked GPU packages: {sorted(leaked)}. "
-            f"Move them to the `gpu` extra."
+            f"cpu-stub extra leaked GPU packages: {sorted(leaked)}. Move them to the `gpu` extra."
         )
 
 
@@ -199,9 +189,7 @@ class TestMakefileTargets:
     def test_sync_dev_target_runs_uv_sync_with_cpu_stub_extra(self):
         recipe = _makefile_target_recipe("sync-dev")
         assert recipe is not None, "Makefile is missing the `sync-dev` target"
-        assert "uv sync" in recipe, (
-            f"sync-dev recipe must invoke `uv sync`, got:\n{recipe}"
-        )
+        assert "uv sync" in recipe, f"sync-dev recipe must invoke `uv sync`, got:\n{recipe}"
         assert "--extra cpu-stub" in recipe, (
             f"sync-dev recipe must pass `--extra cpu-stub`, got:\n{recipe}"
         )
@@ -209,19 +197,13 @@ class TestMakefileTargets:
     def test_sync_gpu_target_runs_uv_sync_with_gpu_extra(self):
         recipe = _makefile_target_recipe("sync-gpu")
         assert recipe is not None, "Makefile is missing the `sync-gpu` target"
-        assert "uv sync" in recipe, (
-            f"sync-gpu recipe must invoke `uv sync`, got:\n{recipe}"
-        )
-        assert "--extra gpu" in recipe, (
-            f"sync-gpu recipe must pass `--extra gpu`, got:\n{recipe}"
-        )
+        assert "uv sync" in recipe, f"sync-gpu recipe must invoke `uv sync`, got:\n{recipe}"
+        assert "--extra gpu" in recipe, f"sync-gpu recipe must pass `--extra gpu`, got:\n{recipe}"
 
     def test_test_target_runs_pytest(self):
         recipe = _makefile_target_recipe("test")
         assert recipe is not None, "Makefile is missing the `test` target"
-        assert "pytest" in recipe, (
-            f"test recipe must invoke pytest, got:\n{recipe}"
-        )
+        assert "pytest" in recipe, f"test recipe must invoke pytest, got:\n{recipe}"
 
     def test_test_gpu_target_runs_pipeline_analyze(self):
         """`test-gpu` is the end-to-end GPU smoke test invoked on cctv-vps after

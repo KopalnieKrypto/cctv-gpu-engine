@@ -31,8 +31,7 @@ def _detection_to_dict(det: Detection) -> dict:
         "confidence": float(det.confidence),
         "activity": det.activity,
         "keypoints": [
-            {"x": float(kp.x), "y": float(kp.y), "vis": float(kp.vis)}
-            for kp in det.keypoints
+            {"x": float(kp.x), "y": float(kp.y), "vis": float(kp.vis)} for kp in det.keypoints
         ],
     }
 

@@ -29,9 +29,7 @@ def _detection(activity: str = "standing", confidence: float = 0.9) -> Detection
 
 
 class TestAnalyzeCLI:
-    def test_outputs_json_with_person_count_and_per_detection_data(
-        self, mocker, capsys
-    ):
+    def test_outputs_json_with_person_count_and_per_detection_data(self, mocker, capsys):
         # Mock extractor → returns a dummy frame
         fake_frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         mocker.patch(
@@ -49,11 +47,15 @@ class TestAnalyzeCLI:
             return_value=fake_detector,
         )
 
-        exit_code = main([
-            "video.mp4",
-            "--timestamp", "12.5",
-            "--model", "models/yolo11n-pose.onnx",
-        ])
+        exit_code = main(
+            [
+                "video.mp4",
+                "--timestamp",
+                "12.5",
+                "--model",
+                "models/yolo11n-pose.onnx",
+            ]
+        )
 
         assert exit_code == 0
         captured = capsys.readouterr()
@@ -75,6 +77,7 @@ class TestAnalyzeCLI:
 
         # Detector was loaded with the requested model path and called once
         from pipeline.analyze import load_pose_model as patched_loader
+
         patched_loader.assert_called_once_with("models/yolo11n-pose.onnx")
         fake_detector.detect.assert_called_once()
 
@@ -90,11 +93,15 @@ class TestAnalyzeCLI:
             return_value=fake_detector,
         )
 
-        exit_code = main([
-            "video.mp4",
-            "--timestamp", "0",
-            "--model", "models/yolo11n-pose.onnx",
-        ])
+        exit_code = main(
+            [
+                "video.mp4",
+                "--timestamp",
+                "0",
+                "--model",
+                "models/yolo11n-pose.onnx",
+            ]
+        )
 
         assert exit_code == 0
         payload = json.loads(capsys.readouterr().out)
@@ -112,11 +119,15 @@ class TestAnalyzeCLI:
             side_effect=RuntimeError("CUDAExecutionProvider not available"),
         )
 
-        exit_code = main([
-            "video.mp4",
-            "--timestamp", "5",
-            "--model", "models/yolo11n-pose.onnx",
-        ])
+        exit_code = main(
+            [
+                "video.mp4",
+                "--timestamp",
+                "5",
+                "--model",
+                "models/yolo11n-pose.onnx",
+            ]
+        )
 
         assert exit_code != 0
         captured = capsys.readouterr()

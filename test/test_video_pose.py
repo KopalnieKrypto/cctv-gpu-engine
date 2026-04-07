@@ -44,10 +44,22 @@ ACTIVITY_COLORS = {
 
 # Skeleton edges for COCO 17.
 SKELETON_EDGES = [
-    (0, 1), (0, 2), (1, 3), (2, 4),               # head
-    (5, 6), (5, 7), (7, 9), (6, 8), (8, 10),      # torso + arms
-    (5, 11), (6, 12), (11, 12),                    # torso
-    (11, 13), (13, 15), (12, 14), (14, 16),        # legs
+    (0, 1),
+    (0, 2),
+    (1, 3),
+    (2, 4),  # head
+    (5, 6),
+    (5, 7),
+    (7, 9),
+    (6, 8),
+    (8, 10),  # torso + arms
+    (5, 11),
+    (6, 12),
+    (11, 12),  # torso
+    (11, 13),
+    (13, 15),
+    (12, 14),
+    (14, 16),  # legs
 ]
 
 # Sample videos for different activity testing (Mixkit, free, no watermark)
@@ -60,6 +72,7 @@ SAMPLE_VIDEOS = {
 
 # ── Data structures ───────────────────────────────────────────────────────────
 
+
 @dataclass
 class FrameResult:
     timestamp_s: float
@@ -69,6 +82,7 @@ class FrameResult:
 
 
 # ── Drawing / annotation ──────────────────────────────────────────────────────
+
 
 def draw_annotations(img_bgr: np.ndarray, detections: list[Detection]) -> np.ndarray:
     """Draw bboxes, skeleton, and activity labels on a BGR image."""
@@ -82,16 +96,14 @@ def draw_annotations(img_bgr: np.ndarray, detections: list[Detection]) -> np.nda
         label = f"{det.activity} {det.confidence:.2f}"
         (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
         cv2.rectangle(img, (x1, y1 - th - 8), (x1 + tw + 4, y1), color, -1)
-        cv2.putText(img, label, (x1 + 2, y1 - 4),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+        cv2.putText(img, label, (x1 + 2, y1 - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
 
         kps = det.keypoints
-        for (a, b) in SKELETON_EDGES:
+        for a, b in SKELETON_EDGES:
             if kps[a].vis > 0.5 and kps[b].vis > 0.5:
-                cv2.line(img,
-                         (int(kps[a].x), int(kps[a].y)),
-                         (int(kps[b].x), int(kps[b].y)),
-                         color, 2)
+                cv2.line(
+                    img, (int(kps[a].x), int(kps[a].y)), (int(kps[b].x), int(kps[b].y)), color, 2
+                )
         for kp in kps:
             if kp.vis > 0.5:
                 cv2.circle(img, (int(kp.x), int(kp.y)), 4, (0, 255, 255), -1)
@@ -100,6 +112,7 @@ def draw_annotations(img_bgr: np.ndarray, detections: list[Detection]) -> np.nda
 
 
 # ── Main pipeline ──────────────────────────────────────────────────────────────
+
 
 def download_video(url: str, dest: Path) -> Path:
     if dest.exists():
@@ -122,9 +135,18 @@ def extract_frames(video_path: Path, frames_dir: Path, fps: int = 1) -> list[Pat
 
     print(f"  Extracting frames at {fps}fps...")
     subprocess.run(
-        ["ffmpeg", "-i", str(video_path), "-vf", f"fps={fps}", "-q:v", "2",
-         str(frames_dir / "frame_%06d.jpg")],
-        check=True, capture_output=True,
+        [
+            "ffmpeg",
+            "-i",
+            str(video_path),
+            "-vf",
+            f"fps={fps}",
+            "-q:v",
+            "2",
+            str(frames_dir / "frame_%06d.jpg"),
+        ],
+        check=True,
+        capture_output=True,
     )
     frames = sorted(frames_dir.glob("frame_*.jpg"))
     print(f"  Extracted {len(frames)} frames")
@@ -150,16 +172,20 @@ def run_inference(
         activity_counts = Counter(d.activity for d in detections)
         timestamp_s = float(idx)  # 1fps → frame index = seconds
 
-        results.append(FrameResult(
-            timestamp_s=timestamp_s,
-            person_count=len(detections),
-            activities=dict(activity_counts),
-            detections=detections,
-        ))
+        results.append(
+            FrameResult(
+                timestamp_s=timestamp_s,
+                person_count=len(detections),
+                activities=dict(activity_counts),
+                detections=detections,
+            )
+        )
 
         acts_str = ", ".join(f"{k}:{v}" for k, v in sorted(activity_counts.items()))
-        print(f"  Frame {idx:3d} | t={timestamp_s:6.1f}s | persons={len(detections):2d} "
-              f"| {acts_str} | {latency:.0f}ms")
+        print(
+            f"  Frame {idx:3d} | t={timestamp_s:6.1f}s | persons={len(detections):2d} "
+            f"| {acts_str} | {latency:.0f}ms"
+        )
 
     return results
 
@@ -197,8 +223,10 @@ def save_keyframes(
         out_path = output_dir / f"keyframe_{rank:02d}_t{results[idx].timestamp_s:.0f}s.png"
         cv2.imwrite(str(out_path), annotated)
         saved.append(out_path)
-        print(f"  Saved keyframe: {out_path.name} (t={results[idx].timestamp_s:.0f}s, "
-              f"persons={results[idx].person_count})")
+        print(
+            f"  Saved keyframe: {out_path.name} (t={results[idx].timestamp_s:.0f}s, "
+            f"persons={results[idx].person_count})"
+        )
 
     return saved
 
@@ -240,8 +268,12 @@ def main():
     parser = argparse.ArgumentParser(description="YOLO-pose video inference smoke test")
     parser.add_argument("--model", default="./yolo11n-pose.onnx", help="Path to pose ONNX model")
     parser.add_argument("--video-url", default=None, help="URL of sample video")
-    parser.add_argument("--scene", default="park", choices=SAMPLE_VIDEOS.keys(),
-                        help="Preset scene: walking, park, street")
+    parser.add_argument(
+        "--scene",
+        default="park",
+        choices=SAMPLE_VIDEOS.keys(),
+        help="Preset scene: walking, park, street",
+    )
     parser.add_argument("--fps", type=int, default=1, help="Frame extraction rate")
     args = parser.parse_args()
 

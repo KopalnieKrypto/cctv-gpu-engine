@@ -77,8 +77,8 @@ class TestPostprocessConfidenceFilter:
         # 3 candidate boxes: above, below, and exactly on the threshold
         output = _make_yolo_output(
             boxes=[
-                (100.0, 100.0, 50.0, 100.0, 0.9),     # keep (well above)
-                (200.0, 200.0, 50.0, 100.0, 0.10),    # drop (well below)
+                (100.0, 100.0, 50.0, 100.0, 0.9),  # keep (well above)
+                (200.0, 200.0, 50.0, 100.0, 0.10),  # drop (well below)
                 (300.0, 300.0, 50.0, 100.0, CONFIDENCE_THRESHOLD - 0.001),  # drop (just below)
             ]
         )
@@ -89,9 +89,7 @@ class TestPostprocessConfidenceFilter:
         assert detections[0].confidence == pytest.approx(0.9, abs=1e-5)
 
     def test_returns_empty_list_when_no_detections_pass_threshold(self):
-        output = _make_yolo_output(
-            boxes=[(100.0, 100.0, 50.0, 100.0, 0.05)]
-        )
+        output = _make_yolo_output(boxes=[(100.0, 100.0, 50.0, 100.0, 0.05)])
 
         detections = postprocess(output, orig_w=640, orig_h=640)
 
