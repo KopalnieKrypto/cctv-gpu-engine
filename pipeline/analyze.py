@@ -1,16 +1,19 @@
-"""Single-frame YOLO-pose CLI — issue #2 proof of concept.
+"""YOLO-pose surveillance CLI.
 
-Usage::
+Two modes:
 
-    python -m pipeline.analyze video.mp4 --timestamp 12.5 \\
-        --model models/yolo11n-pose.onnx
+* **Single-frame** (issue #2 PoC) — ``--timestamp T`` runs pose inference on
+  one frame at ``T`` seconds and prints a JSON document to stdout. Useful as
+  a smoke-test for the GPU stack on a fresh machine.
 
-Extracts one frame at the given timestamp, runs YOLO-pose inference on the
-GPU, classifies activity for each detected person, and prints a JSON document
-to stdout. Exits with a non-zero status (and logs to stderr) on any pipeline
-failure — most importantly when CUDA is unavailable, so an investor running
-this on a machine without a GPU sees a clear message instead of a silent
-fallback.
+* **Full-video** (issue #4) — ``--output report.html`` streams the entire
+  video at 1 fps via ffmpeg, runs pose inference on every frame, aggregates
+  the detections into a :class:`pipeline.aggregator.ReportData`, and writes
+  a self-contained HTML report (vendored Chart.js, base64 keyframes).
+
+The two modes share the same model loader and Detection objects so any GPU
+issue (missing CUDA EP, silent CPU fallback) raises the same RuntimeError
+in both paths.
 """
 
 from __future__ import annotations
@@ -20,9 +23,14 @@ import json
 import sys
 from pathlib import Path
 
+from pipeline.aggregator import Aggregator
 from pipeline.frame_extractor import extract_frame_at
 from pipeline.pose_detector import load_pose_model
 from pipeline.postprocessing import Detection
+from pipeline.report_renderer import render_report
+from pipeline.video_frames import iter_frames
+
+DEFAULT_FPS = 1
 
 
 def _detection_to_dict(det: Detection) -> dict:
@@ -39,27 +47,35 @@ def _detection_to_dict(det: Detection) -> dict:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pipeline.analyze",
-        description="Single-frame YOLO-pose surveillance analysis (issue #2 PoC)",
+        description="YOLO-pose surveillance analysis (single-frame or full-video mode)",
     )
     parser.add_argument("video", help="Path to input MP4 file")
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument(
         "--timestamp",
         type=float,
-        required=True,
-        help="Seek timestamp in seconds (e.g. 12.5)",
+        help="Single-frame mode: seek timestamp in seconds (e.g. 12.5)",
+    )
+    mode.add_argument(
+        "--output",
+        type=str,
+        help="Full-video mode: path to write the standalone HTML report",
     )
     parser.add_argument(
         "--model",
         default="models/yolo11n-pose.onnx",
         help="Path to the YOLO-pose ONNX model file",
     )
+    parser.add_argument(
+        "--fps",
+        type=int,
+        default=DEFAULT_FPS,
+        help="Sampling frame rate for full-video mode (default: 1)",
+    )
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = _build_parser()
-    args = parser.parse_args(argv)
-
+def _run_single_frame(args: argparse.Namespace) -> int:
     try:
         frame = extract_frame_at(Path(args.video), timestamp_s=args.timestamp)
         detector = load_pose_model(args.model)
@@ -77,6 +93,38 @@ def main(argv: list[str] | None = None) -> int:
     json.dump(payload, sys.stdout)
     sys.stdout.write("\n")
     return 0
+
+
+def _run_full_video(args: argparse.Namespace) -> int:
+    try:
+        detector = load_pose_model(args.model)
+        aggregator = Aggregator(fps=args.fps)
+        for timestamp_s, frame in iter_frames(args.video, fps=args.fps):
+            detections = detector.detect(frame)
+            aggregator.add_frame(timestamp_s=timestamp_s, frame=frame, detections=detections)
+        report_data = aggregator.build_report_data()
+        html = render_report(report_data)
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    out_path = Path(args.output)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(html, encoding="utf-8")
+    print(
+        f"wrote report to {out_path} "
+        f"({report_data.total_frames} frames, {len(report_data.keyframes)} keyframes)",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    if args.output is not None:
+        return _run_full_video(args)
+    return _run_single_frame(args)
 
 
 if __name__ == "__main__":

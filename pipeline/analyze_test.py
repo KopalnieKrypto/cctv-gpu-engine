@@ -132,3 +132,72 @@ class TestAnalyzeCLI:
         assert exit_code != 0
         captured = capsys.readouterr()
         assert "CUDAExecutionProvider" in captured.err
+
+
+class TestAnalyzeFullVideoMode:
+    def test_output_mode_writes_standalone_html_with_summary(self, mocker, tmp_path):
+        # Two frames: first frame has 2 walking persons, second frame has 1 standing
+        fake_frame = np.zeros((40, 60, 3), dtype=np.uint8)
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            return_value=iter(
+                [
+                    (0.0, fake_frame),
+                    (1.0, fake_frame),
+                ]
+            ),
+        )
+
+        fake_detector = MagicMock()
+        fake_detector.detect.side_effect = [
+            [_detection(activity="walking"), _detection(activity="walking")],
+            [_detection(activity="standing")],
+        ]
+        mocker.patch(
+            "pipeline.analyze.load_pose_model",
+            return_value=fake_detector,
+        )
+
+        out_path = tmp_path / "report.html"
+        exit_code = main(
+            [
+                "video.mp4",
+                "--output",
+                str(out_path),
+                "--model",
+                "models/yolo11n-pose.onnx",
+            ]
+        )
+
+        assert exit_code == 0
+        assert out_path.exists()
+        html = out_path.read_text(encoding="utf-8")
+        assert "<!DOCTYPE html>" in html or "<!doctype html>" in html.lower()
+        # Detector ran for every frame
+        assert fake_detector.detect.call_count == 2
+        # Walking dominates → present in summary table
+        assert "walking" in html.lower()
+
+    def test_output_mode_handles_video_with_no_people(self, mocker, tmp_path):
+        fake_frame = np.zeros((40, 60, 3), dtype=np.uint8)
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            return_value=iter([(0.0, fake_frame), (1.0, fake_frame)]),
+        )
+
+        fake_detector = MagicMock()
+        fake_detector.detect.return_value = []  # never any persons
+        mocker.patch(
+            "pipeline.analyze.load_pose_model",
+            return_value=fake_detector,
+        )
+
+        out_path = tmp_path / "empty.html"
+        exit_code = main(
+            ["video.mp4", "--output", str(out_path), "--model", "models/yolo11n-pose.onnx"]
+        )
+
+        assert exit_code == 0
+        html = out_path.read_text(encoding="utf-8")
+        # No keyframes section content beyond the empty placeholder
+        assert "No keyframes" in html or "no persons" in html.lower()

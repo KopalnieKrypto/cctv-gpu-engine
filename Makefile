@@ -16,7 +16,9 @@ TEST_VIDEO ?= test-data/sample.mp4
 TEST_TIMESTAMP ?= 5
 MODEL ?= models/yolo11n-pose.onnx
 
-.PHONY: sync-dev sync-gpu test test-gpu
+REPORT_OUTPUT ?= report.html
+
+.PHONY: sync-dev sync-gpu test test-gpu report-gpu
 
 sync-dev:
 	uv sync --extra cpu-stub
@@ -31,3 +33,10 @@ test-gpu:
 	@test -f $(MODEL) || { echo "ERROR: $(MODEL) missing — run ./setup-models.sh"; exit 1; }
 	@test -f $(TEST_VIDEO) || { echo "ERROR: $(TEST_VIDEO) missing — set TEST_VIDEO=path/to/video.mp4"; exit 1; }
 	uv run python -m pipeline.analyze $(TEST_VIDEO) --timestamp $(TEST_TIMESTAMP) --model $(MODEL)
+
+# End-to-end full-video smoke test (issue #4): streams every frame at 1 fps,
+# runs YOLO-pose on each, and writes a standalone HTML report.
+report-gpu:
+	@test -f $(MODEL) || { echo "ERROR: $(MODEL) missing — run ./setup-models.sh"; exit 1; }
+	@test -f $(TEST_VIDEO) || { echo "ERROR: $(TEST_VIDEO) missing — set TEST_VIDEO=path/to/video.mp4"; exit 1; }
+	uv run python -m pipeline.analyze $(TEST_VIDEO) --output $(REPORT_OUTPUT) --model $(MODEL)
