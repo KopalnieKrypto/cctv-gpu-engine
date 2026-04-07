@@ -6,9 +6,20 @@ Batch surveillance video analysis: MP4 → YOLO-pose → activity classification
 
 - CLI: `python pipeline/analyze.py input.mp4 --output report.html`
 - Model: `models/yolo11n-pose.onnx` (download via `setup-models.sh`)
-- Test: `cd test && ./run_test.sh`
+- Sync deps (dev/macOS): `make sync-dev` (CPU stub onnxruntime, ~50MB)
+- Sync deps (Linux+GPU): `make sync-gpu` (onnxruntime-gpu + cublas, ~1.5GB)
+- Run unit tests: `make test`
+- Run end-to-end GPU smoke test: `make test-gpu`
 - GPU service: `docker compose up` (polls R2 for pending jobs)
 - Client agent: `docker compose -f docker-compose.client.yml up` (Flask UI :8080)
+
+## Remote infrastructure
+
+- **VPS with NVIDIA GPU**: reachable via `ssh cctv-vps`. Use this for any test that requires real CUDA/onnxruntime-gpu (the `make sync-gpu`, `make test-gpu`, container builds, R2 worker tests). Local macOS dev box only runs CPU-stub unit tests.
+
+## TODO (deferred)
+
+- `gpu-service/Dockerfile` and `client-agent/Dockerfile` are not yet created — both directories are empty placeholders. When implementing them, base GPU image on `nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04` and use `uv sync --extra gpu` (NOT bare `uv sync`) so the lightweight default doesn't accidentally ship without the GPU runtime.
 
 ## Architecture
 

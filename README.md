@@ -49,9 +49,31 @@ open http://localhost:8080
 
 ### Local Pipeline (development)
 
+Two install profiles — pick the one that matches your machine:
+
 ```bash
-python pipeline/analyze.py input.mp4 --output report.html
+# macOS / dev box (no NVIDIA GPU): CPU-only onnxruntime stub, ~50MB
+make sync-dev
+
+# Linux + NVIDIA GPU: real onnxruntime-gpu + cublas, ~1.5GB
+make sync-gpu
 ```
+
+Then run unit tests or the GPU smoke test:
+
+```bash
+make test                                          # unit tests (no GPU needed)
+make test-gpu TEST_VIDEO=test-data/your.mp4        # end-to-end CUDA inference
+```
+
+Or invoke the CLI directly:
+
+```bash
+uv run python -m pipeline.analyze input.mp4 --timestamp 12.5 --model models/yolo11n-pose.onnx
+```
+
+> A bare `uv sync` (no `--extra`) installs only numpy/pillow/opencv — handy for
+> reading the code or running lint without pulling the ONNX runtime.
 
 ## Report Output
 

@@ -7,14 +7,26 @@ dependencies = [
     "numpy>=1.26,<2.0",
     "pillow>=10.0",
     "opencv-python-headless>=4.8",
-    # Linux: real GPU runtime. The [cuda,cudnn] extras pull nvrtc/runtime/cufft/
-    # curand/cudnn but NOT cublas, so we add nvidia-cublas-cu12 manually —
-    # without it onnxruntime silently falls back to CPU (libcublasLt.so.12 missing).
+]
+
+# ONNX Runtime is opt-in to keep `uv sync` lightweight (~50MB instead of ~1.5GB).
+# Pick exactly one extra:
+#   uv sync --extra gpu       → real GPU runtime (Linux + NVIDIA only, used in
+#                                gpu-service container and on the cctv-vps box)
+#   uv sync --extra cpu-stub  → CPU-only onnxruntime, just so `import onnxruntime`
+#                                works for unit tests on macOS / dev boxes. The
+#                                production code path is guarded by
+#                                `load_pose_model` and never falls back to CPU.
+[project.optional-dependencies]
+gpu = [
+    # The [cuda,cudnn] extras pull nvrtc/runtime/cufft/curand/cudnn but NOT
+    # cublas, so we add nvidia-cublas-cu12 manually — without it onnxruntime
+    # silently falls back to CPU (libcublasLt.so.12 missing).
     "onnxruntime-gpu[cuda,cudnn]>=1.17 ; sys_platform == 'linux'",
     "nvidia-cublas-cu12>=12.0 ; sys_platform == 'linux'",
-    # macOS / dev: CPU-only stub so imports work in unit tests. Production
-    # GPU code path is guarded by `load_pose_model` and never runs CPU.
-    "onnxruntime>=1.17 ; sys_platform != 'linux'",
+]
+cpu-stub = [
+    "onnxruntime>=1.17",
 ]
 
 [dependency-groups]
@@ -24,7 +36,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["pipeline"]
+testpaths = ["pipeline", "tests"]
 python_files = ["*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
