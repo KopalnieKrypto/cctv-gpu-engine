@@ -22,7 +22,8 @@ Batch surveillance video analysis: MP4 → YOLO-pose → activity classification
 
 ## TODO (deferred)
 
-- `gpu-service/Dockerfile` and `client-agent/Dockerfile` are not yet created — both directories are empty placeholders. When implementing them, base GPU image on `nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04` and use `uv sync --extra gpu` (NOT bare `uv sync`) so the lightweight default doesn't accidentally ship without the GPU runtime.
+- `gpu-service/Dockerfile` and `client-agent/Dockerfile` are not yet created — both directories are empty placeholders. When implementing them, base GPU image on `nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04` and use `uv sync --extra gpu` (NOT bare `uv sync`) so the lightweight default doesn't accidentally ship without the GPU runtime. The Python package already lives at `gpu-service/gpu_service/` so the Dockerfile can simply `COPY gpu-service/gpu_service /app/gpu_service` + `COPY pipeline /app/pipeline`.
+- **Upload retry (issue #5 follow-up)**: `gpu_service.r2_client.R2Client.upload_report` and `download_chunks` are currently single-shot. SPEC §8.2 calls for "retry 3× with exponential backoff, then fail". Worker correctly translates any failure into `status: failed`, but a flaky network will cause unnecessary job failures. Add retry decorator (e.g. `botocore.config.Config(retries={"max_attempts": 4, "mode": "adaptive"})` or a small custom backoff) before the first production deploy.
 
 ## Architecture
 

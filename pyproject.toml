@@ -8,6 +8,10 @@ dependencies = [
     "pillow>=10.0",
     "opencv-python-headless>=4.8",
     "jinja2>=3.1",
+    # R2 / S3 client used by gpu-service worker (issue #5) and the future
+    # client-agent uploader (Phase 5). Pure Python, ~10MB — does not break
+    # the lightweight default install (issue #9).
+    "boto3>=1.34",
 ]
 
 # ONNX Runtime is opt-in to keep `uv sync` lightweight (~50MB instead of ~1.5GB).
@@ -50,7 +54,14 @@ extend-exclude = [".venv"]
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
-testpaths = ["pipeline", "tests"]
+# `gpu-service/` is the future docker build context (issue #5 / Phase 4) — the
+# Python package lives inside it as `gpu-service/gpu_service/` so a future
+# Dockerfile can `COPY gpu-service/gpu_service /app/gpu_service` without
+# pulling unrelated repo files. We add it to pythonpath so pytest can import
+# `gpu_service.worker` from the underscore-named package even though the
+# parent dir uses a hyphen (which Python imports cannot).
+testpaths = ["pipeline", "tests", "gpu-service"]
+pythonpath = [".", "gpu-service"]
 python_files = ["*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
