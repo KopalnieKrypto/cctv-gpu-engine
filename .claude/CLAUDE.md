@@ -8,6 +8,7 @@ Batch surveillance video analysis: MP4 → YOLO-pose → activity classification
 - Model: `models/yolo11n-pose.onnx` (download via `setup-models.sh`)
 - Sync deps (dev/macOS): `make sync-dev` (CPU stub onnxruntime, ~50MB)
 - Sync deps (Linux+GPU): `make sync-gpu` (onnxruntime-gpu + cublas, ~1.5GB)
+- Install pre-commit hook (one-time, after sync): `uv run pre-commit install` (ruff format + lint on every commit)
 - Run unit tests: `make test`
 - Run end-to-end GPU smoke test: `make test-gpu`
 - GPU service: `docker compose up` (polls R2 for pending jobs)
