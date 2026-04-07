@@ -1,0 +1,33 @@
+name: Tests
+
+# Lightweight pytest run on every PR + push to main. Uses the cpu-stub extra
+# (introduced in #9) so the install pulls ~50MB of wheels instead of the
+# ~1.5GB GPU stack — keeps CI under a minute and lets us iterate fast.
+#
+# Real CUDA inference is still verified manually on cctv-vps via `make test-gpu`.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8
+        with:
+          enable-cache: true
+
+      - name: Install Python 3.12
+        run: uv python install 3.12
+
+      - name: Install dependencies (CPU stub)
+        run: make sync-dev
+
+      - name: Run tests
+        run: make test
