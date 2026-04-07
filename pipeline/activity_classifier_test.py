@@ -6,8 +6,6 @@ tree (sitting / standing / walking / running / fallback).
 
 from __future__ import annotations
 
-import pytest
-
 from pipeline.activity_classifier import classify_activity
 from pipeline.postprocessing import Detection, Keypoint
 
