@@ -17,6 +17,8 @@ Batch surveillance video analysis: MP4 → YOLO-pose → activity classification
 ## Remote infrastructure
 
 - **VPS with NVIDIA GPU**: reachable via `ssh cctv-vps`. Use this for any test that requires real CUDA/onnxruntime-gpu (the `make sync-gpu`, `make test-gpu`, container builds, R2 worker tests). Local macOS dev box only runs CPU-stub unit tests.
+- **Project path on VPS**: `/home/mvp/cctv-gpu-engine` — git clone of this repo, tracking `origin/main`.
+- **VPS test loop**: the VPS clone is updated only via `git pull`, never rsync/scp. So before running anything on the VPS that depends on local edits: commit + `git push` from local first, then `ssh cctv-vps 'cd /home/mvp/cctv-gpu-engine && git pull'`, then run the test (e.g. `make test-gpu`). Skipping the push/pull means the VPS still runs the previous version.
 
 ## TODO (deferred)
 
