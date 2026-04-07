@@ -1,8 +1,11 @@
 name: Tests
 
-# Lightweight pytest run on every PR + push to main. Uses the cpu-stub extra
-# (introduced in #9) so the install pulls ~50MB of wheels instead of the
+# Lightweight pytest + ruff run on every PR + push to main. Uses the cpu-stub
+# extra (introduced in #9) so the install pulls ~50MB of wheels instead of the
 # ~1.5GB GPU stack — keeps CI under a minute and lets us iterate fast.
+#
+# `pytest` and `ruff` run as parallel jobs so a lint failure doesn't hide a
+# test failure (and vice versa).
 #
 # Real CUDA inference is still verified manually on cctv-vps via `make test-gpu`.
 
@@ -31,3 +34,25 @@ jobs:
 
       - name: Run tests
         run: make test
+
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.0.0
+        with:
+          enable-cache: true
+
+      - name: Install Python 3.12
+        run: uv python install 3.12
+
+      - name: Install dependencies (CPU stub)
+        run: make sync-dev
+
+      - name: ruff check
+        run: uv run ruff check pipeline/
+
+      - name: ruff format --check
+        run: uv run ruff format --check pipeline/

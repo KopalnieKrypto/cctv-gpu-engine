@@ -1,5 +1,8 @@
 # CCTV GPU Engine
 
+[![Tests](https://github.com/KopalnieKrypto/cctv-gpu-engine/actions/workflows/tests.yml/badge.svg)](https://github.com/KopalnieKrypto/cctv-gpu-engine/actions/workflows/tests.yml)
+[![Build Docker images](https://github.com/KopalnieKrypto/cctv-gpu-engine/actions/workflows/docker.yml/badge.svg)](https://github.com/KopalnieKrypto/cctv-gpu-engine/actions/workflows/docker.yml)
+
 Batch surveillance video analysis powered by idle GPU infrastructure. Upload MP4 footage, get a standalone HTML activity report — no manual review needed.
 
 **What it does:** Detects people in surveillance footage using YOLO-pose, classifies their activity (sitting, standing, walking, running), and generates a self-contained HTML report with charts, timeline, and annotated keyframes.
