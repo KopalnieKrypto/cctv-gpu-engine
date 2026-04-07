@@ -50,6 +50,8 @@ client-agent (Flask :8080) → R2 bucket (surveillance-data) → gpu-service (Do
 ## Must follow
 
 - Python + onnxruntime-gpu for all inference. No Node.js, no CPU fallback
+- `ort.preload_dlls(cuda=True, cudnn=True)` must be called before `InferenceSession()` — onnxruntime-gpu wheel has no RPATH to site-packages/nvidia/. See `pipeline/pose_detector.py`.
+- `nvidia-cublas-cu12` must be a direct dep — `onnxruntime-gpu[cuda,cudnn]` extras don't pull it but `libcublasLt.so.12` is required at runtime.
 - Docker base: `nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04` (not python:slim)
 - Frame extraction: ffmpeg 1 fps, frame-by-frame processing, never full video in RAM
 - YOLO-pose output `[1,56,N]` transposed: rows 0-3 bbox, row 4 conf, rows 5-55 keypoints (17×3)
@@ -64,6 +66,7 @@ client-agent (Flask :8080) → R2 bucket (surveillance-data) → gpu-service (Do
 ## Don't
 
 - Don't add CPU inference fallback — breaks 1:1 processing guarantee
+- Don't trust `ort.get_available_providers()` alone — also check `session.get_providers()` after init to catch silent CPU fallback (microsoft/onnxruntime#25145).
 - Don't use `python:slim` Docker images for GPU workloads
 - Don't add per-person tracking (ByteTrack/DeepSORT) — deferred
 - Don't add RTSP live monitoring — batch only
