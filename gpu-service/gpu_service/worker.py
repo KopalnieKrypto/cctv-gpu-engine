@@ -193,9 +193,63 @@ def worker_loop(
             return
 
 
-# NOTE: a `python -m gpu_service.worker` CLI entry point (env-var driven,
-# wired to gpu_service.r2_client.R2Client + a real pipeline closure) is
-# intentionally not added here. It belongs to Phase 4 (Dockerfile) along
-# with a small `pipeline.analyze.run_full_video_to_html(chunks, progress)`
-# library function — neither of those has tests yet and would be untested
-# code in this slice. See CLAUDE.md "TODO (deferred)" for the follow-up.
+_REQUIRED_ENV = ("R2_ENDPOINT", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY")
+
+
+def main(argv: list[str] | None = None) -> int:
+    """``python -m gpu_service.worker`` entry point — env-var driven daemon.
+
+    Reads R2 + worker config from the environment (SPEC §10.1), constructs a
+    real :class:`R2Client` and a pipeline closure that defers to
+    :func:`pipeline.analyze.run_full_video_to_html` (lazy-imported so unit
+    tests don't pull onnxruntime), then hands off to :func:`worker_loop`.
+
+    Returns ``0`` on clean exit, ``2`` if any required env var is missing.
+    """
+    import os
+    import sys
+
+    from gpu_service.r2_client import R2Client
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+
+    missing = [name for name in _REQUIRED_ENV if not os.environ.get(name)]
+    if missing:
+        print(
+            f"error: missing required environment variable(s): {', '.join(missing)}",
+            file=sys.stderr,
+        )
+        return 2
+
+    bucket = os.environ.get("R2_BUCKET", "surveillance-data")
+    worker_id = os.environ.get("WORKER_ID", "gpu-worker-1")
+    workdir = Path(os.environ.get("WORKDIR", "/tmp/cctv-jobs"))
+    poll_interval_s = float(os.environ.get("POLL_INTERVAL_S", "10"))
+
+    client = R2Client(
+        endpoint=os.environ["R2_ENDPOINT"],
+        access_key=os.environ["R2_ACCESS_KEY_ID"],
+        secret_key=os.environ["R2_SECRET_ACCESS_KEY"],
+        bucket=bucket,
+    )
+
+    def pipeline(chunks: list[Path], progress: ProgressCallback) -> bytes:
+        # Lazy import: keeps the unit-test path free of onnxruntime / GPU deps.
+        from pipeline.analyze import run_full_video_to_html
+
+        return run_full_video_to_html(chunks, progress=progress)
+
+    workdir.mkdir(parents=True, exist_ok=True)
+    logger.info("starting worker_loop worker_id=%s bucket=%s", worker_id, bucket)
+    worker_loop(
+        client=client,
+        worker_id=worker_id,
+        pipeline=pipeline,
+        workdir=workdir,
+        poll_interval_s=poll_interval_s,
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from pipeline.aggregator import Aggregator
@@ -31,6 +32,41 @@ from pipeline.report_renderer import render_report
 from pipeline.video_frames import iter_frames
 
 DEFAULT_FPS = 1
+
+
+def run_full_video_to_html(
+    chunks: list[Path],
+    progress: Callable[[int], None] | None = None,
+    model_path: str = "models/yolo11n-pose.onnx",
+    fps: int = DEFAULT_FPS,
+) -> bytes:
+    """Run YOLO-pose pipeline across one or more MP4 chunks.
+
+    Returns the standalone HTML report as bytes (no disk write). Multiple
+    chunks are processed sequentially through a shared :class:`Aggregator`,
+    with timestamps offset so each chunk continues from where the previous
+    left off (so ``video_duration_s`` reflects the full concatenated video).
+
+    ``progress`` — if given, called at end-of-chunk boundaries with an int
+    percentage 0-100. The pipeline ``RuntimeError`` (e.g. CUDA missing) is
+    *not* caught here; callers (CLI, gpu-service worker) decide how to react.
+    """
+    detector = load_pose_model(model_path)
+    aggregator = Aggregator(fps=fps)
+    time_offset = 0.0
+    step = 1.0 / fps
+    for chunk_index, chunk in enumerate(chunks):
+        last_ts = time_offset
+        for timestamp_s, frame in iter_frames(str(chunk), fps=fps):
+            shifted = timestamp_s + time_offset
+            detections = detector.detect(frame)
+            aggregator.add_frame(timestamp_s=shifted, frame=frame, detections=detections)
+            last_ts = shifted
+        time_offset = last_ts + step
+        if progress is not None:
+            progress(int((chunk_index + 1) / len(chunks) * 100))
+    report_data = aggregator.build_report_data()
+    return render_report(report_data).encode("utf-8")
 
 
 def _detection_to_dict(det: Detection) -> dict:
@@ -97,25 +133,19 @@ def _run_single_frame(args: argparse.Namespace) -> int:
 
 def _run_full_video(args: argparse.Namespace) -> int:
     try:
-        detector = load_pose_model(args.model)
-        aggregator = Aggregator(fps=args.fps)
-        for timestamp_s, frame in iter_frames(args.video, fps=args.fps):
-            detections = detector.detect(frame)
-            aggregator.add_frame(timestamp_s=timestamp_s, frame=frame, detections=detections)
-        report_data = aggregator.build_report_data()
-        html = render_report(report_data)
+        html = run_full_video_to_html(
+            chunks=[Path(args.video)],
+            model_path=args.model,
+            fps=args.fps,
+        )
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(html, encoding="utf-8")
-    print(
-        f"wrote report to {out_path} "
-        f"({report_data.total_frames} frames, {len(report_data.keyframes)} keyframes)",
-        file=sys.stderr,
-    )
+    out_path.write_bytes(html)
+    print(f"wrote report to {out_path}", file=sys.stderr)
     return 0
 
 

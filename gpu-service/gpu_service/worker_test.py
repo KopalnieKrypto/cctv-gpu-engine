@@ -407,3 +407,94 @@ def test_worker_loop_processes_pending_then_sleeps(tmp_path: Path) -> None:
     assert r2.get_status("job-1")["status"] == "completed"
     assert r2.get_status("job-2")["status"] == "completed"
     assert sleep_calls == [7.5]
+
+
+class TestMainCli:
+    """``python -m gpu_service.worker`` entry point.
+
+    Mocks live at the boundaries we control: ``R2Client`` (boto3) and
+    ``worker_loop`` itself. The pipeline closure passed to ``worker_loop``
+    is exercised lightly — we just verify it's callable with the expected
+    shape so the Dockerfile can rely on it.
+    """
+
+    def _full_env(self) -> dict[str, str]:
+        return {
+            "R2_ENDPOINT": "https://example.r2.cloudflarestorage.com",
+            "R2_ACCESS_KEY_ID": "AKIA-fake",
+            "R2_SECRET_ACCESS_KEY": "secret-fake",
+            "R2_BUCKET": "test-bucket",
+            "WORKER_ID": "test-worker",
+            "WORKDIR": "/tmp/test-jobs",
+            "POLL_INTERVAL_S": "3",
+        }
+
+    def test_main_constructs_r2_client_and_starts_worker_loop(self, mocker, monkeypatch):
+        from gpu_service.worker import main
+
+        for k in (
+            "R2_ENDPOINT",
+            "R2_ACCESS_KEY_ID",
+            "R2_SECRET_ACCESS_KEY",
+            "R2_BUCKET",
+            "WORKER_ID",
+            "WORKDIR",
+            "POLL_INTERVAL_S",
+        ):
+            monkeypatch.delenv(k, raising=False)
+        for k, v in self._full_env().items():
+            monkeypatch.setenv(k, v)
+
+        fake_r2_instance = mocker.MagicMock(name="R2Client-instance")
+        r2_ctor = mocker.patch(
+            "gpu_service.r2_client.R2Client",
+            return_value=fake_r2_instance,
+        )
+        loop_mock = mocker.patch("gpu_service.worker.worker_loop")
+
+        exit_code = main([])
+
+        assert exit_code == 0
+        r2_ctor.assert_called_once_with(
+            endpoint="https://example.r2.cloudflarestorage.com",
+            access_key="AKIA-fake",
+            secret_key="secret-fake",
+            bucket="test-bucket",
+        )
+        loop_mock.assert_called_once()
+        kwargs = loop_mock.call_args.kwargs
+        assert kwargs["client"] is fake_r2_instance
+        assert kwargs["worker_id"] == "test-worker"
+        assert kwargs["workdir"] == Path("/tmp/test-jobs")
+        assert kwargs["poll_interval_s"] == 3.0
+        assert callable(kwargs["pipeline"])
+
+    def test_main_fails_fast_when_required_env_var_missing(self, mocker, monkeypatch, capsys):
+        from gpu_service.worker import main
+
+        env = self._full_env()
+        del env["R2_ACCESS_KEY_ID"]
+        for k in (
+            "R2_ENDPOINT",
+            "R2_ACCESS_KEY_ID",
+            "R2_SECRET_ACCESS_KEY",
+            "R2_BUCKET",
+            "WORKER_ID",
+            "WORKDIR",
+            "POLL_INTERVAL_S",
+        ):
+            monkeypatch.delenv(k, raising=False)
+        for k, v in env.items():
+            monkeypatch.setenv(k, v)
+
+        loop_mock = mocker.patch("gpu_service.worker.worker_loop")
+        r2_ctor = mocker.patch("gpu_service.r2_client.R2Client")
+
+        exit_code = main([])
+
+        assert exit_code != 0
+        err = capsys.readouterr().err
+        assert "R2_ACCESS_KEY_ID" in err
+        # Fail-fast: never reached the loop or constructed a client
+        loop_mock.assert_not_called()
+        r2_ctor.assert_not_called()
