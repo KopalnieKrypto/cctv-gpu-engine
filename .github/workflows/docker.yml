@@ -27,7 +27,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check Dockerfile exists
+        id: check
+        run: |
+          if [ -f gpu-service/Dockerfile ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::gpu-service/Dockerfile does not exist yet (deferred per CLAUDE.md TODO) — skipping build"
+          fi
+
       - uses: docker/login-action@v3
+        if: steps.check.outputs.exists == 'true'
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -35,6 +46,7 @@ jobs:
 
       - uses: docker/metadata-action@v5
         id: meta
+        if: steps.check.outputs.exists == 'true'
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/gpu-service
           tags: |
@@ -42,6 +54,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
 
       - uses: docker/build-push-action@v6
+        if: steps.check.outputs.exists == 'true'
         with:
           context: .
           file: gpu-service/Dockerfile
@@ -57,7 +70,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check Dockerfile exists
+        id: check
+        run: |
+          if [ -f client-agent/Dockerfile ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::client-agent/Dockerfile does not exist yet (deferred per CLAUDE.md TODO) — skipping build"
+          fi
+
       - uses: docker/login-action@v3
+        if: steps.check.outputs.exists == 'true'
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -65,6 +89,7 @@ jobs:
 
       - uses: docker/metadata-action@v5
         id: meta
+        if: steps.check.outputs.exists == 'true'
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/client-agent
           tags: |
@@ -72,6 +97,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
 
       - uses: docker/build-push-action@v6
+        if: steps.check.outputs.exists == 'true'
         with:
           context: .
           file: client-agent/Dockerfile
