@@ -187,15 +187,53 @@ Z testow autoresearch (17.03.2026):
 | Aspekt | RTX 5070 | Czy problem? |
 |--------|----------|-------------|
 | YOLO-pose VRAM | ~2-4 GB / 12 GB | **NIE** — duzo zapasu |
-| ONNX Runtime CUDA EP | Wymaga weryfikacji na sm_120 | **MOZE BYC** — fallback CPU EP |
+| ONNX Runtime CUDA EP | **POTWIERDZONE dziala** na sm_120 (2026-04-07) | **NIE** |
 | FA3 | Nie dotyczy (YOLO uzywa ONNX, nie PyTorch attention) | **NIE** |
-| Inference speed 1080p @ 1fps | ~1 frame/s szacunkowo | **OK** — 1:1 ratio akceptowalny |
+| Inference speed 720p @ 1fps | **~70 ms/frame** zmierzone (yolo11n-pose) | **OK** — szybciej niz target 100 ms |
 | RAM (8GB) | ffmpeg + YOLO frame-by-frame | **OK** — nie ladujemy calego wideo |
 | Docker compatibility | Docker 27.5.1 wymagany | **ZNANE** — provisioning skrypt to ogarnia |
 
-### Jedyne ryzyko: ONNX Runtime na Blackwell
+### POTWIERDZONE: ONNX Runtime CUDA EP dziala na Blackwell sm_120
 
-ONNX Runtime z CUDA Execution Provider moze miec problemy na sm_120 (Blackwell), analogicznie do FA3. Trzeba zweryfikowac na serwerze testowym jako pierwszy krok. Fallback: CPU Execution Provider (~10x wolniejszy).
+**Zweryfikowane na mvp-serwer (2x RTX 5070), 2026-04-07:**
+
+| Komponent | Wersja | Status |
+|-----------|--------|--------|
+| onnxruntime-gpu | 1.24.4 | dziala |
+| nvidia-cudnn-cu12 | 9.20.0.48 | wymagane (cuDNN 9.x) |
+| nvidia-cublas-cu12 | 12.9.2.10 | **wymagane manualnie** — patrz nizej |
+| nvidia-cuda-runtime-cu12 | 12.9.79 | OK |
+| nvidia-cuda-nvrtc-cu12 | 12.9.86 | OK |
+| nvidia-cufft-cu12 | 11.4.1.4 | OK |
+| nvidia-curand-cu12 | 10.3.10.19 | OK |
+| Model | yolo11n-pose.onnx (1, 56, 8400) | input [1,3,640,640] |
+
+**Pomiary** (yolo11n-pose, 720p, batch=1):
+- Pierwsza klatka (warm-up): ~960 ms
+- Klatki ustalone: **~70 ms/frame** (target z SPEC.md byl 100 ms — mamy 30% zapasu)
+- Aktywny EP: `['CUDAExecutionProvider', 'CPUExecutionProvider']` (memcpy/shape ops automatycznie na CPU dla optymalizacji, to NIE jest fallback)
+
+### Dwa pulapki przy onnxruntime-gpu na uv-managed venv
+
+Wykryte i naprawione w `pipeline/pose_detector.py` (verified 2026-04-07):
+
+1. **Brakujacy `nvidia-cublas-cu12`** — extras `onnxruntime-gpu[cuda,cudnn]` pobieraja
+   nvrtc, runtime, cufft, curand, cudnn, ale **NIE cublas**. Bez tego onnxruntime
+   nie zaladuje `libcublasLt.so.12` i **silently** fallbackuje na CPU. Trzeba dodac
+   `nvidia-cublas-cu12` jako jawna linuxowa zaleznosc w `pyproject.toml`.
+
+2. **Brak RPATH do site-packages/nvidia/** — wheel `onnxruntime-gpu` nie ma w binarce
+   `$ORIGIN/../nvidia/.../lib` na RPATH, wiec nie znajduje libow nawet jak sa zainstalowane.
+   Trzeba wywolac `ort.preload_dlls(cuda=True, cudnn=True)` PRZED `InferenceSession()`.
+   API dostepne od onnxruntime 1.21.
+
+Bez obu tych poprawek zachowanie jest **silent CPU fallback** (microsoft/onnxruntime#25145):
+`get_available_providers()` lista CUDA, ale `session.get_providers()` zwraca tylko CPU.
+`pipeline.pose_detector.load_pose_model` jawnie rzuca `RuntimeError` w takim przypadku
+zamiast pozwalac na ~10x wolniejszy run.
+
+**Zrodlo:** smoke test `pipeline.analyze` na `/home/mvp/video-test/sample_video.mp4`,
+commit `a731678`.
 
 ---
 
@@ -208,5 +246,5 @@ ONNX Runtime z CUDA Execution Provider moze miec problemy na sm_120 (Blackwell),
 | SDPA + GQA bug | Wymaga manual repeat_interleave | **Niski** | Jednorazowy fix w kodzie |
 | Docker 29 inkompatybilny | Wymaga downgrade do Docker 27 | **Niski** | Skrypt provisioningu, jednorazowy |
 | 8GB RAM serwera | Ciasno z wieloma kontenerami AI | **Sredni** | Upgrade RAM post-MVP, frame-by-frame processing |
-| ONNX Runtime na sm_120 | Niewiadomo, wymaga testu | **Nieznany** | CPU EP fallback, albo TensorRT |
+| ONNX Runtime na sm_120 | **DZIALA** (zweryfikowane 2026-04-07, ORT 1.24.4) | **Brak** | wymaga `nvidia-cublas-cu12` + `ort.preload_dlls()` (patrz § 8) |
 | Throughput training | Mniejsze modele niz RTX 4090 | **Sredni** | Dluzsza nauka, mniejsze modele, tensor parallelism |
