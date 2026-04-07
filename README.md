@@ -59,6 +59,8 @@ make sync-dev
 make sync-gpu
 ```
 
+Install the ruff pre-commit hook once after sync: `uv run pre-commit install`.
+
 Then run unit tests or the GPU smoke test:
 
 ```bash
