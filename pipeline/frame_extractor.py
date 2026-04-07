@@ -31,12 +31,18 @@ def extract_frame_at(video_path: Path | str, timestamp_s: float) -> np.ndarray:
     cmd = [
         "ffmpeg",
         "-hide_banner",
-        "-loglevel", "error",
-        "-ss", str(timestamp_s),    # fast seek BEFORE -i
-        "-i", str(video_path),
-        "-frames:v", "1",
-        "-f", "image2pipe",
-        "-vcodec", "png",
+        "-loglevel",
+        "error",
+        "-ss",
+        str(timestamp_s),  # fast seek BEFORE -i
+        "-i",
+        str(video_path),
+        "-frames:v",
+        "1",
+        "-f",
+        "image2pipe",
+        "-vcodec",
+        "png",
         "-",
     ]
 

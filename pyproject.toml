@@ -33,7 +33,20 @@ cpu-stub = [
 dev = [
     "pytest>=8.0",
     "pytest-mock>=3.12",
+    "ruff>=0.6",
+    "pre-commit>=3.7",
 ]
+
+[tool.ruff]
+line-length = 100
+# Project supports Python 3.11+ (see `requires-python`); using py311 prevents
+# `UP` rules from suggesting rewrites that only work on 3.12+. Issue #10
+# proposed py312 — corrected here to match the actual minimum.
+target-version = "py311"
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["pipeline", "tests"]

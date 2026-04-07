@@ -7,7 +7,6 @@ ffmpeg binary or video file. A real-ffmpeg integration test lives under the
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
 

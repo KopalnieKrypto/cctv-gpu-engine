@@ -6,8 +6,6 @@ tree (sitting / standing / walking / running / fallback).
 
 from __future__ import annotations
 
-import pytest
-
 from pipeline.activity_classifier import classify_activity
 from pipeline.postprocessing import Detection, Keypoint
 
@@ -60,8 +58,8 @@ class TestClassifyActivity:
             bbox=(100, 100, 200, 300),
             shoulders=((130, 150), (170, 150)),
             hips=((130, 270), (170, 270)),
-            knees=((150, 240), (180, 240)),    # forward & slightly up
-            ankles=((150, 280), (180, 280)),   # below knees, same x → bent
+            knees=((150, 240), (180, 240)),  # forward & slightly up
+            ankles=((150, 280), (180, 280)),  # below knees, same x → bent
         )
 
         assert classify_activity(person) == "sitting"

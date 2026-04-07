@@ -1,0 +1,12 @@
+# Run with: uv run pre-commit run --all-files
+# Install once with: uv run pre-commit install
+#
+# The ruff version here should track `ruff>=0.6` in pyproject.toml's
+# [dependency-groups].dev — bump both together.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
