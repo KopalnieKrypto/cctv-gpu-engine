@@ -17,6 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 MAKEFILE = REPO_ROOT / "Makefile"
 CLIENT_AGENT_DOCKERFILE = REPO_ROOT / "client-agent" / "Dockerfile"
+TESTS_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "tests.yml"
 
 
 def _load_pyproject() -> dict:
@@ -282,4 +283,88 @@ class TestClientAgentDockerfile:
         assert "client_agent.agent" in joined, (
             f"client-agent ENTRYPOINT must launch the real `client_agent.agent` "
             f"module (Flask UI on :8080, issue #7), got: {entrypoint_lines}"
+        )
+
+
+class TestRuffJobScope:
+    """Issue #15: the CI ruff job must lint the same Python source tree that
+    the local pre-commit hook covers, otherwise a contributor who bypasses
+    the hook (or doesn't have it installed) can land brokenness in
+    ``gpu-service/`` / ``client-agent/`` / ``tests/`` / ``test/`` and CI
+    won't catch it. Pre-commit runs unrestricted on every tracked file;
+    the CI job historically only checked ``pipeline/``.
+
+    These assertions parse ``.github/workflows/tests.yml`` textually rather
+    than pulling in PyYAML — the workflow file is small, the assertions
+    only care about the ``run:`` lines that invoke ruff, and the meta-test
+    suite is otherwise dependency-free.
+    """
+
+    # Every directory that contains first-party Python the pre-commit hook
+    # would lint. Keep in sync with the project layout — if a new top-level
+    # Python package lands, add it here AND to tests.yml.
+    EXPECTED_SCOPE = {
+        "pipeline/",
+        "tests/",
+        "test/",
+        "gpu-service/",
+        "client-agent/",
+    }
+
+    @staticmethod
+    def _ruff_invocations() -> list[str]:
+        """Return the full command strings of every `uv run ruff ...` step
+        in the workflow. Order preserved so callers can distinguish the
+        ``ruff check`` step from the ``ruff format --check`` step."""
+        text = TESTS_WORKFLOW.read_text()
+        cmds: list[str] = []
+        for line in text.splitlines():
+            stripped = line.strip()
+            # Step recipes look like:  `run: uv run ruff check pipeline/`
+            if stripped.startswith("run:") and "uv run ruff" in stripped:
+                cmds.append(stripped[len("run:") :].strip())
+        return cmds
+
+    def test_workflow_file_exists(self):
+        assert TESTS_WORKFLOW.exists(), (
+            f"GitHub Actions workflow missing at {TESTS_WORKFLOW}. "
+            f"Issue #15 requires a `ruff` job in this file."
+        )
+
+    def test_ruff_check_step_covers_full_python_scope(self):
+        cmds = self._ruff_invocations()
+        check_cmds = [c for c in cmds if "ruff check" in c and "format" not in c]
+        assert check_cmds, (
+            "tests.yml has no `uv run ruff check` step — issue #15 requires "
+            "the CI ruff job to run lint."
+        )
+        # If multiple `ruff check` steps exist (e.g. one per dir), the union
+        # of their args must cover the full scope.
+        covered = " ".join(check_cmds)
+        missing = sorted(d for d in self.EXPECTED_SCOPE if d not in covered)
+        assert not missing, (
+            f"`uv run ruff check` in tests.yml does not cover all first-party "
+            f"Python directories. Missing: {missing}. Pre-commit lints these "
+            f"locally; CI must too (issue #15). Got command(s): {check_cmds}"
+        )
+
+    def test_ruff_format_check_step_covers_full_python_scope(self):
+        cmds = self._ruff_invocations()
+        format_cmds = [c for c in cmds if "ruff format" in c]
+        assert format_cmds, (
+            "tests.yml has no `uv run ruff format --check` step — issue #15 "
+            "requires the CI ruff job to enforce formatting."
+        )
+        for cmd in format_cmds:
+            assert "--check" in cmd, (
+                f"ruff format step must use --check (read-only) in CI, "
+                f"never rewrite files on the runner. Got: {cmd!r}"
+            )
+        covered = " ".join(format_cmds)
+        missing = sorted(d for d in self.EXPECTED_SCOPE if d not in covered)
+        assert not missing, (
+            f"`uv run ruff format --check` in tests.yml does not cover all "
+            f"first-party Python directories. Missing: {missing}. Pre-commit "
+            f"formats these locally; CI must verify (issue #15). Got "
+            f"command(s): {format_cmds}"
         )
