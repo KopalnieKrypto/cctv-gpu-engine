@@ -43,7 +43,8 @@ RUN uv sync --frozen --extra gpu --no-dev \
 # Keeping both is the canonical-ish layering per CLAUDE.md issue #12 gotcha,
 # but we can safely drop the apt copy since the wheels are authoritative.
 # nvidia-cublas-cu12 (mandatory direct dep) is unaffected.
-RUN apt-get update \
+RUN apt-mark unhold libcudnn9-cuda-12 \
+    && apt-get update \
     && apt-get purge -y libcudnn9-cuda-12 \
     && apt-get autoremove -y --purge \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
