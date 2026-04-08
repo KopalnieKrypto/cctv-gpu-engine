@@ -22,7 +22,7 @@ Batch surveillance video analysis: MP4 → YOLO-pose → activity classification
 - **VPS uv path**: `uv` is at `~/.local/bin/uv` on `cctv-vps` and **not** on the default ssh `PATH`. Prefix any non-interactive command that calls `make test` / `uv run` with `export PATH=$HOME/.local/bin:$PATH &&` or it will fail with `make: uv: No such file or directory`.
 - **VPS docker socket**: rootless docker on `cctv-vps` is broken (the user systemd unit fails on start); the system-wide dockerd at `/var/run/docker.sock` is what works, and user `mvp` is in the `docker` group. Every non-interactive `docker`/`docker compose` call must `export DOCKER_HOST=unix:///var/run/docker.sock` first or it errors with `Cannot connect to the Docker daemon at unix:///run/user/1000/docker.sock`.
 - **VPS env files**: two separate env files live at the repo root — `.env.gpu` (real R2 credentials, used by `docker-compose.yml`) and `.env.client` (historically placeholder-only, used by `docker-compose.client.yml`). Both stacks share the same R2 bucket so the easy fix when bringing up client-agent is to merge `R2_*` keys from `.env.gpu` into `.env.client`. Long-term: consolidate into one file.
-- **Local RTSP fake for testing #8 flows**: spin up `bluenviron/mediamtx` on the compose network as an RTSP server, then push a sample MP4 with `ffmpeg -re -stream_loop -1 -i sample.mp4 -c copy -f rtsp -rtsp_transport tcp rtsp://mediamtx:8554/stream`. The recorder reaches it as `rtsp://mediamtx:8554/stream` from inside `cctv-client-agent`. HTTP `POST /start` only accepts `duration_h ∈ {1,2,4,8}`, so for short smoke tests bypass the route and call `Recorder.start(url=..., duration_s=30)` directly via `docker exec cctv-client-agent python -c "..."`.
+- **Local RTSP fake for testing recorder flows**: spin up `bluenviron/mediamtx` on the compose network as an RTSP server, then push a sample MP4 with `ffmpeg -re -stream_loop -1 -i sample.mp4 -c copy -f rtsp -rtsp_transport tcp rtsp://mediamtx:8554/stream`. The recorder reaches it as `rtsp://mediamtx:8554/stream` from inside `cctv-client-agent`. HTTP `POST /start` only accepts `duration_h ∈ {1,2,4,8}`, so for short smoke tests bypass the route and call `Recorder.start(url=..., duration_s=30)` directly via `docker exec cctv-client-agent python -c "..."`.
 
 ## TODO (deferred)
 
@@ -109,6 +109,7 @@ client-agent (Flask :8080) → R2 bucket (surveillance-data) → gpu-service (Do
 │   └── client_agent/          # web.py (Flask), recorder.py (ffmpeg+R2), agent.py (entrypoint) (+tests)
 ├── tests/                     # Repo-level meta tests (build_config_test.py)
 ├── test/                      # Legacy single-frame validation scripts (pre-#4)
+├── docs/                      # Operator setup guides (SETUP_GPU.md, SETUP_CLIENT.md)
 ├── setup-models.sh            # curl + sha256 verify yolo11n-pose.onnx from GH release
 ├── models/                    # yolo11n-pose.onnx (gitignored, fetched by setup-models.sh)
 └── test-data/                 # sample MP4s (gitignored)

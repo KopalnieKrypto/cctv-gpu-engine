@@ -41,6 +41,8 @@ Two Docker images connected by an R2 bucket — no database, no direct communica
 
 You're running the worker that does the actual YOLO-pose inference. Pull jobs from R2, process them, push reports back.
 
+> **Looking for the full step-by-step?** See **[docs/SETUP_GPU.md](docs/SETUP_GPU.md)** — exhaustive setup guide with hardware/software requirements, R2 bucket creation, smoke tests, and a troubleshooting matrix. The section below is the speed-run version for operators who already know the stack.
+
 **Host requirements (one-time):**
 
 - Linux (Ubuntu 22.04+ recommended), x86_64
@@ -97,16 +99,14 @@ The dashboard on `:5000` shows every job that's ever been processed (job id, sta
 
 You're running the box that records video from your IP cameras and ships it to R2 for processing. No GPU needed — this image is pure CPU.
 
+> **Looking for the full step-by-step?** See **[docs/SETUP_CLIENT.md](docs/SETUP_CLIENT.md)** — exhaustive setup guide with hardware/software requirements, vendor-specific RTSP URL patterns, smoke tests, and a troubleshooting matrix. The section below is the speed-run version for operators who already know the stack.
+
 **Host requirements (one-time):**
 
 - Any Linux box (or Windows/macOS with Docker Desktop) reachable from your camera network
 - Docker 24.0+ with the `compose` plugin
-- ~1 GB free disk for the image + recording workdir
+- ~5 GB free disk for the image + recording workdir (more if you record long sessions on high-bitrate cameras)
 - Network access to your RTSP cameras AND outbound HTTPS to `r2.cloudflarestorage.com`
-
-**Current state — placeholder!**
-
-> ⚠️ As of this image's first GHCR release, the client-agent ships a **placeholder ENTRYPOINT** that just logs a banner and blocks until SIGTERM. The Flask UI on `:8080`, ffmpeg RTSP recording, and R2 upload are landing in issues #7 and #8 — they will reuse this same image without bumping the layer cache. So setting it up now is fine; it'll just sit idle until the next image release.
 
 **Run it:**
 
@@ -130,10 +130,10 @@ docker compose -f docker-compose.client.yml up -d
 
 ```bash
 docker compose -f docker-compose.client.yml ps      # cctv-client-agent should be "Up"
-docker compose -f docker-compose.client.yml logs    # should show the placeholder banner today
+docker compose -f docker-compose.client.yml logs    # Flask boot logs
 ```
 
-Once #7 / #8 land, opening `http://localhost:8080` in your browser will give you the Flask UI for triggering recordings and watching upload progress.
+Open `http://localhost:8080` in your browser for the Flask UI: MP4 upload form, RTSP recorder controls (test connection / start / stop, durations 1/2/4/8 h), and the job list with status badges that auto-refreshes every 10 s. Reports open inline once the GPU side marks the job as `done`.
 
 ---
 
@@ -259,7 +259,7 @@ VRAM usage: ~600MB. Works on RTX 5070 and RTX 4090.
 │   ├── analyze.py         # CLI entry point
 │   ├── pose_detector.py   # YOLO-pose ONNX inference
 │   ├── activity_classifier.py
-│   └── report_generator.py
+│   └── report_renderer.py
 ├── gpu-service/           # R2 polling worker + investor dashboard
 ├── client-agent/          # Flask UI + ffmpeg recorder + R2 uploader
 ├── setup-models.sh        # curl + sha256-verify yolo11n-pose.onnx (GH release pin)
@@ -271,6 +271,8 @@ VRAM usage: ~600MB. Works on RTX 5070 and RTX 4090.
 
 ## Documentation
 
+- [docs/SETUP_GPU.md](docs/SETUP_GPU.md) — Step-by-step setup guide for the GPU host operator (hardware, driver, container toolkit, R2, smoke tests, troubleshooting)
+- [docs/SETUP_CLIENT.md](docs/SETUP_CLIENT.md) — Step-by-step setup guide for the on-premise operator (Docker host, RTSP camera URL patterns, recording flow, troubleshooting)
 - [SPEC.md](SPEC.md) — Full technical specification
 - [DECISION_LOG.md](DECISION_LOG.md) — Design decisions and rationale
 - [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) — 4-phase roadmap
