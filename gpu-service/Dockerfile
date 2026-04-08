@@ -34,7 +34,19 @@ WORKDIR /app
 # the lightweight default skips onnxruntime-gpu and the worker silently
 # falls back to CPU at import time (CLAUDE.md TODO).
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --extra gpu --no-dev
+RUN uv sync --frozen --extra gpu --no-dev \
+    && uv cache clean
+
+# Deduplicate cuDNN: the apt-shipped libcudnn9 (~870MB) is unused at runtime
+# because onnxruntime-gpu's `ort.preload_dlls(cuda=True, cudnn=True)` loads
+# from `site-packages/nvidia/` (the pythonwheels via `nvidia-cudnn-cu12`).
+# Keeping both is the canonical-ish layering per CLAUDE.md issue #12 gotcha,
+# but we can safely drop the apt copy since the wheels are authoritative.
+# nvidia-cublas-cu12 (mandatory direct dep) is unaffected.
+RUN apt-get update \
+    && apt-get purge -y libcudnn9-cuda-12 \
+    && apt-get autoremove -y --purge \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
 # Application code. The package is hyphen-named on disk but Python imports it
 # as `gpu_service` — the `gpu-service/gpu_service/` layout makes that work
