@@ -90,6 +90,48 @@ def test_list_pending_job_ids_filters_status_json_with_status_pending() -> None:
     )
 
 
+def test_list_all_job_statuses_returns_every_status_json_regardless_of_status() -> None:
+    """Dashboard needs the full job history (issue #6), not just `pending`.
+
+    Same paginator walk as ``list_pending_job_ids`` but no status filter —
+    every status.json under ``surveillance-jobs/`` is returned as a
+    ``(job_id, status_dict)`` tuple. Unparseable / missing status.json keys
+    are skipped (the dashboard will simply not display them).
+    """
+    s3 = MagicMock()
+    s3.get_paginator.return_value.paginate.return_value = [
+        {
+            "Contents": [
+                {"Key": "surveillance-jobs/job-a/status.json"},
+                {"Key": "surveillance-jobs/job-a/input/chunk_001.mp4"},
+                {"Key": "surveillance-jobs/job-b/status.json"},
+                {"Key": "surveillance-jobs/job-c/status.json"},
+            ]
+        }
+    ]
+
+    statuses = {
+        "surveillance-jobs/job-a/status.json": {"status": "pending", "job_id": "job-a"},
+        "surveillance-jobs/job-b/status.json": {"status": "completed", "job_id": "job-b"},
+        "surveillance-jobs/job-c/status.json": {"status": "failed", "job_id": "job-c"},
+    }
+
+    def get_object(Bucket: str, Key: str) -> dict:
+        body = json.dumps(statuses[Key]).encode()
+        return {"Body": MagicMock(read=MagicMock(return_value=body))}
+
+    s3.get_object.side_effect = get_object
+
+    client = _make_client(s3)
+    result = client.list_all_job_statuses()
+
+    assert sorted(result) == [
+        ("job-a", {"status": "pending", "job_id": "job-a"}),
+        ("job-b", {"status": "completed", "job_id": "job-b"}),
+        ("job-c", {"status": "failed", "job_id": "job-c"}),
+    ]
+
+
 def test_get_status_returns_decoded_json_or_none_when_missing() -> None:
     """get_status round-trips JSON; missing key (NoSuchKey) returns None."""
     s3 = MagicMock()

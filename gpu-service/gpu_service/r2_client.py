@@ -97,6 +97,31 @@ class R2Client:
                     pending.append(parts[1])
         return pending
 
+    def list_all_job_statuses(self) -> list[tuple[str, dict[str, Any]]]:
+        """Return ``(job_id, status_dict)`` for every status.json in the bucket.
+
+        Used by the dashboard (issue #6) which needs the full job history,
+        not just `pending` jobs. Same paginator walk as
+        :meth:`list_pending_job_ids` but without the status filter — keys
+        whose status.json is missing or unparseable are silently skipped so
+        a single corrupt entry never blanks out the dashboard.
+        """
+        paginator = self._s3.get_paginator("list_objects_v2")
+        pages = paginator.paginate(Bucket=self._bucket, Prefix=f"{JOBS_PREFIX}/")
+        out: list[tuple[str, dict[str, Any]]] = []
+        for page in pages:
+            for obj in page.get("Contents", []) or []:
+                key = obj["Key"]
+                if not key.endswith("/status.json"):
+                    continue
+                status = self._read_status_key(key)
+                if status is None:
+                    continue
+                parts = key.split("/")
+                if len(parts) >= 3:
+                    out.append((parts[1], status))
+        return out
+
     def get_status(self, job_id: str) -> dict[str, Any] | None:
         return self._read_status_key(self._status_key(job_id))
 

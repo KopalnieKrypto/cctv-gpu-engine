@@ -240,6 +240,24 @@ def main(argv: list[str] | None = None) -> int:
         return run_full_video_to_html(chunks, progress=progress)
 
     workdir.mkdir(parents=True, exist_ok=True)
+
+    # Investor dashboard (issue #6) — runs in a daemon thread alongside the
+    # worker loop in the same process. Daemon=True so a worker_loop crash
+    # exits the container instead of leaving the dashboard hanging.
+    import threading
+
+    from gpu_service.dashboard import serve as serve_dashboard
+
+    dashboard_port = int(os.environ.get("DASHBOARD_PORT", "5000"))
+    dashboard_thread = threading.Thread(
+        target=serve_dashboard,
+        kwargs={"client": client, "port": dashboard_port},
+        name="dashboard",
+        daemon=True,
+    )
+    dashboard_thread.start()
+    logger.info("dashboard listening on :%d/dashboard", dashboard_port)
+
     logger.info("starting worker_loop worker_id=%s bucket=%s", worker_id, bucket)
     worker_loop(
         client=client,

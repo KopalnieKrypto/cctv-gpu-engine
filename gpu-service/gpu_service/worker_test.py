@@ -451,6 +451,9 @@ class TestMainCli:
             return_value=fake_r2_instance,
         )
         loop_mock = mocker.patch("gpu_service.worker.worker_loop")
+        # Issue #6: dashboard runs in a daemon thread alongside the worker.
+        # Stub it so the test doesn't try to bind a real socket.
+        mocker.patch("gpu_service.dashboard.serve")
 
         exit_code = main([])
 

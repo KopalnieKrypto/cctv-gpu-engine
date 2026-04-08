@@ -1,0 +1,36 @@
+# gpu-service: R2 polling worker + investor dashboard (issue #6).
+#
+# Run on a host with NVIDIA Container Toolkit installed:
+#   docker compose up -d
+#
+# The worker reads R2 credentials from .env.gpu (copy .env.gpu.example).
+# The dashboard is exposed on host port 5000.
+services:
+  gpu-service:
+    image: ghcr.io/kopalniekrypto/cctv-gpu-engine-gpu-service:latest
+    build:
+      context: .
+      dockerfile: gpu-service/Dockerfile
+    container_name: cctv-gpu-service
+    restart: unless-stopped
+    env_file:
+      - .env.gpu
+    ports:
+      - "5000:5000"
+    volumes:
+      # YOLOv11n-pose ONNX model — mounted, not baked into the image,
+      # to keep the image under the 5GB acceptance criterion.
+      - ./models:/app/models:ro
+      # Workdir for downloaded chunks. Bind-mounting to a host path makes
+      # `docker compose down` survive in-flight job state inspection.
+      - cctv-workdir:/tmp/cctv-jobs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  cctv-workdir:
