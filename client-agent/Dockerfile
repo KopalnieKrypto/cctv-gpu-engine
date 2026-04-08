@@ -8,6 +8,12 @@
 # without bumping the layer cache (source files are the LAST COPY).
 FROM python:3.12-slim
 
+# OCI source label — links the GHCR package to the repo so collaborators
+# inherit access from repo permissions and the package page renders the
+# README. Without this label, GHCR shows the package as orphaned and
+# visibility / access must be managed per-package.
+LABEL org.opencontainers.image.source="https://github.com/KopalnieKrypto/cctv-gpu-engine"
+
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
