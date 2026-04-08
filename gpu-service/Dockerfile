@@ -67,7 +67,9 @@ EXPOSE 5000
 
 # Healthcheck: dashboard responds on /dashboard. If the worker crashes the
 # daemon thread dies with it, so a 200 here = both processes alive.
+# Port is read from $DASHBOARD_PORT (defaults to 5000) so a second worker
+# instance launched with `-e DASHBOARD_PORT=5001` is healthchecked correctly.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:5000/dashboard >/dev/null || exit 1
+    CMD curl -fsS "http://127.0.0.1:${DASHBOARD_PORT:-5000}/dashboard" >/dev/null || exit 1
 
 ENTRYPOINT ["python", "-m", "gpu_service.worker"]
