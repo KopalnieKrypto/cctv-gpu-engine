@@ -7,7 +7,7 @@
 # The dashboard is exposed on host port 5000.
 services:
   gpu-service:
-    image: ghcr.io/kopalniekrypto/cctv-gpu-engine-gpu-service:latest
+    image: ghcr.io/kopalniekrypto/cctv-gpu-engine/gpu-service:latest
     build:
       context: .
       dockerfile: gpu-service/Dockerfile
