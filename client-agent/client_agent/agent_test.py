@@ -52,8 +52,15 @@ def test_main_constructs_r2_client_from_env_and_runs_flask_on_8080(
     assert kwargs["secret_key"] == "SK-test"
     assert kwargs["bucket"] == "surveillance-data"
 
-    # Flask app built with the constructed R2 client.
-    create_app.assert_called_once_with(fake_client)
+    # Flask app built with the constructed R2 client and a recorder
+    # wired up — the recorder identity isn't asserted here (that's the
+    # recorder unit tests' job); we just pin that *some* recorder is
+    # passed so a regression that drops it can't slip past CI.
+    create_app.assert_called_once()
+    args, kwargs = create_app.call_args
+    assert args == (fake_client,)
+    assert "recorder" in kwargs
+    assert kwargs["recorder"] is not None
 
     # And served on the port the Dockerfile / docker-compose.client.yml expose.
     fake_app.run.assert_called_once()

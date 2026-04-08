@@ -1,4 +1,4 @@
-"""Container entrypoint for the client-agent (issue #7).
+"""Container entrypoint for the client-agent (issues #7, #8).
 
 Reads R2 credentials from the env, constructs an :class:`R2Client`, builds
 the Flask web UI via :func:`client_agent.web.create_app`, and serves it on
@@ -11,6 +11,8 @@ Env vars (SPEC §10.1):
 * ``R2_ACCESS_KEY_ID``     — scoped R2 API token
 * ``R2_SECRET_ACCESS_KEY`` — paired secret
 * ``R2_BUCKET``            — defaults to ``surveillance-data`` (CLAUDE.md rule)
+* ``RECORDINGS_DIR``       — host dir for in-flight recordings (defaults to
+  ``$TMPDIR/cctv-recordings``); the docker-compose volume mount lands here.
 
 The previous placeholder body (``signal.pause()`` until SIGTERM, issue #16)
 is gone now that real Flask UI lives in :mod:`client_agent.web`. PID-1
@@ -22,9 +24,13 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
+import tempfile
+from pathlib import Path
 
 from gpu_service.r2_client import R2Client
 
+from client_agent.recorder import BackgroundRecorder, Recorder
 from client_agent.web import create_app
 
 logger = logging.getLogger(__name__)
@@ -50,9 +56,32 @@ def main() -> None:
         secret_key=secret_key,
         bucket=bucket,
     )
-    app = create_app(client)
 
-    logger.info("client-agent web UI starting on http://0.0.0.0:8080 (bucket=%s)", bucket)
+    # Build the production recorder (#8). Each recording lands in its
+    # own subdir under ``recordings_root`` so the cleanup step in
+    # Recorder.start can shutil.rmtree it without touching siblings.
+    # The synchronous Recorder is wrapped by BackgroundRecorder so the
+    # Flask request handler returns immediately while ffmpeg runs for
+    # hours.
+    recordings_root = (
+        Path(os.environ.get("RECORDINGS_DIR", tempfile.gettempdir())) / "cctv-recordings"
+    )
+    recordings_root.mkdir(parents=True, exist_ok=True)
+
+    sync_recorder = Recorder(
+        uploader=client,
+        runner=subprocess.run,
+        output_dir_factory=lambda job_id: str(recordings_root / job_id),
+    )
+    recorder = BackgroundRecorder(sync_recorder)
+
+    app = create_app(client, recorder=recorder)
+
+    logger.info(
+        "client-agent web UI starting on http://0.0.0.0:8080 (bucket=%s, recordings=%s)",
+        bucket,
+        recordings_root,
+    )
     app.run(host="0.0.0.0", port=8080)
 
 

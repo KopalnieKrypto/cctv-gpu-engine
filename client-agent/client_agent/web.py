@@ -25,7 +25,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
-from flask import Flask, redirect, request, url_for
+from flask import Flask, jsonify, redirect, request, url_for
 
 
 class ClientR2Like(Protocol):
@@ -104,33 +104,86 @@ _UPLOAD_FORM_HTML = """<!doctype html>
 <title>cctv client-agent — upload</title>
 <style>
  body { font: 14px system-ui, sans-serif; margin: 2rem; max-width: 40rem; }
- form { display: flex; flex-direction: column; gap: 1rem; }
+ form { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 2rem; }
  button { padding: .6rem 1rem; font-size: 1rem; }
+ fieldset { border: 1px solid #ccc; padding: 1rem; }
+ legend { font-weight: 600; }
+ .recording { background: #fff5d6; padding: .5rem 1rem; border-left: 3px solid #d49a00; }
 </style>
 </head>
 <body>
-<h1>Upload surveillance MP4</h1>
+<h1>cctv client-agent</h1>
+{% if recording_state in ('recording', 'uploading') %}
+<p class="recording">recording in progress (state: {{ recording_state }})</p>
+{% endif %}
+
+<fieldset>
+<legend>Upload surveillance MP4</legend>
 <form action="/upload" method="post" enctype="multipart/form-data">
   <input type="file" name="mp4" accept="video/mp4" required>
   <button type="submit">Upload &amp; queue for analysis</button>
 </form>
+</fieldset>
+
+<fieldset>
+<legend>Record from RTSP camera</legend>
+<form action="/test-connection" method="post">
+  <label>RTSP URL
+    <input type="text" name="rtsp_url" placeholder="rtsp://host/stream" required>
+  </label>
+  <button type="submit">Test connection</button>
+</form>
+<form action="/start" method="post">
+  <label>RTSP URL
+    <input type="text" name="rtsp_url" placeholder="rtsp://host/stream" required>
+  </label>
+  <label>Duration
+    <select name="duration_h" required>
+      <option value="1">1 hour</option>
+      <option value="2">2 hours</option>
+      <option value="4">4 hours</option>
+      <option value="8">8 hours</option>
+    </select>
+  </label>
+  <button type="submit">Start recording</button>
+</form>
+<form action="/stop" method="post">
+  <button type="submit">Stop current recording</button>
+</form>
+</fieldset>
+
 <p><a href="/jobs">View job list →</a></p>
 </body>
 </html>
 """
 
 
-def create_app(client: ClientR2Like, *, job_id_factory=_default_job_id) -> Flask:
+def create_app(
+    client: ClientR2Like,
+    *,
+    job_id_factory=_default_job_id,
+    recorder=None,
+) -> Flask:
     """Build a Flask app bound to the given R2 client and job_id factory.
 
     The factory is injectable so tests can pin job_ids; production wires the
-    default UUID4-based generator.
+    default UUID4-based generator. The optional ``recorder`` is a
+    :class:`client_agent.recorder.Recorder`-shaped object — duck-typed via
+    ``start``/``stop``/``status``/``probe`` so the tests can pass a fake.
+    Passing ``None`` disables the RTSP routes; production wires the real
+    Recorder in ``agent.py``.
     """
     app = Flask(__name__)
 
     @app.get("/")
     def upload_form() -> tuple[str, int, dict[str, str]]:
-        return _UPLOAD_FORM_HTML, 200, {"Content-Type": "text/html; charset=utf-8"}
+        from jinja2 import Environment, select_autoescape
+
+        recording_state = recorder.status().state if recorder is not None else "idle"
+        env = Environment(autoescape=select_autoescape(["html", "xml"]))
+        template = env.from_string(_UPLOAD_FORM_HTML)
+        html = template.render(recording_state=recording_state)
+        return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
     @app.post("/upload")
     def upload():
@@ -173,6 +226,60 @@ def create_app(client: ClientR2Like, *, job_id_factory=_default_job_id) -> Flask
         except Exception as exc:  # noqa: BLE001 — see comment above
             return (f"upload to R2 failed: {exc}", 500)
         return redirect(url_for("jobs"))
+
+    _ALLOWED_DURATIONS_H = {1, 2, 4, 8}
+
+    @app.post("/start")
+    def start_recording():
+        if recorder is None:
+            return ("recorder not configured", 404)
+        rtsp_url = (request.form.get("rtsp_url") or "").strip()
+        duration_raw = (request.form.get("duration_h") or "").strip()
+        if not rtsp_url:
+            return ("missing rtsp_url", 400)
+        try:
+            duration_h = int(duration_raw)
+        except ValueError:
+            return (f"invalid duration_h: {duration_raw!r}", 400)
+        if duration_h not in _ALLOWED_DURATIONS_H:
+            return (
+                f"duration_h must be one of {sorted(_ALLOWED_DURATIONS_H)}",
+                400,
+            )
+        # Production wires a Recorder whose .start() spawns a thread —
+        # the route stays synchronous and returns immediately. Tests use
+        # a synchronous fake; both paths converge here.
+        try:
+            from client_agent.recorder import RecorderBusy
+        except ImportError:  # pragma: no cover — recorder module always present
+            RecorderBusy = RuntimeError  # type: ignore[assignment, misc]
+        try:
+            recorder.start(url=rtsp_url, duration_s=duration_h * 3600)
+        except RecorderBusy as exc:
+            return (f"recorder busy: {exc}", 409)
+        return redirect(url_for("jobs"))
+
+    @app.post("/stop")
+    def stop_recording():
+        if recorder is None:
+            return ("recorder not configured", 404)
+        recorder.stop()
+        return ("stopped", 200)
+
+    @app.post("/test-connection")
+    def test_connection():
+        # No recorder wired (e.g. tests of the upload-only surface) → 404
+        # so the operator gets a clear "not configured" rather than a
+        # silent ok=false.
+        if recorder is None:
+            return ("recorder not configured", 404)
+        rtsp_url = (request.form.get("rtsp_url") or "").strip()
+        if not rtsp_url:
+            return jsonify({"ok": False, "message": "missing rtsp_url"}), 400
+        # 10s probe — long enough for a TCP handshake + a few packets,
+        # short enough that the operator won't think the UI hung.
+        result = recorder.probe(rtsp_url, timeout=10)
+        return jsonify({"ok": result.ok, "message": result.message})
 
     @app.get("/jobs")
     def jobs() -> tuple[str, int, dict[str, str]]:

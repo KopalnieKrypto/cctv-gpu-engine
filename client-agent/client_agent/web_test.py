@@ -464,3 +464,197 @@ def test_two_uploads_create_distinct_job_ids() -> None:
     # And both made it into status.json so the worker will see both.
     statuses = {jid for jid, _ in fake.list_all_job_statuses()}
     assert statuses == set(job_ids)
+
+
+# ===== RTSP recording surface (issue #8) =====
+
+
+class FakeRecorder:
+    """In-memory stand-in for :class:`client_agent.recorder.Recorder`.
+
+    Captures every ``start``/``stop`` call so the route tests can assert
+    on the exact arguments. ``status_state`` lets a test put the fake
+    "in flight" before the request to exercise the busy-rejection path,
+    and ``probe_result`` controls /test-connection's outcome.
+    """
+
+    def __init__(
+        self,
+        *,
+        status_state: str = "idle",
+        probe_ok: bool = True,
+        probe_message: str = "",
+    ) -> None:
+        from client_agent.recorder import RecorderStatus
+
+        self._snapshot = RecorderStatus(state=status_state)
+        self.probe_ok = probe_ok
+        self.probe_message = probe_message
+        self.starts: list[dict[str, Any]] = []
+        self.stops: int = 0
+        self.probes: list[str] = []
+
+    def start(self, *, url: str, duration_s: int) -> str:
+        from client_agent.recorder import RecorderBusy
+
+        if self._snapshot.state in ("recording", "uploading"):
+            raise RecorderBusy("busy")
+        self.starts.append({"url": url, "duration_s": duration_s})
+        return "job-rec-fake"
+
+    def stop(self) -> None:
+        self.stops += 1
+
+    def status(self):
+        return self._snapshot
+
+    def probe(self, url: str, *, timeout: float):
+        from client_agent.recorder import ProbeResult
+
+        self.probes.append(url)
+        return ProbeResult(ok=self.probe_ok, message=self.probe_message)
+
+
+def _make_app_with_recorder(
+    fake: FakeR2 | None = None,
+    recorder: FakeRecorder | None = None,
+):
+    """Same as ``_make_app`` but also wires a fake recorder."""
+    fake = fake or FakeR2()
+    recorder = recorder or FakeRecorder()
+    app = create_app(fake, job_id_factory=lambda: "job-test123", recorder=recorder)
+    app.config["TESTING"] = True
+    return app, fake, recorder
+
+
+# ----- 14. GET / shows RTSP recording form alongside the upload form -----
+
+
+def test_get_root_includes_rtsp_recording_form() -> None:
+    """The same landing page must offer both flows: MP4 upload (already
+    tested) *and* RTSP recording. The recording form needs an URL field,
+    a duration selector with the four MVP options (1/2/4/8h), and a
+    submit that posts to /start. We assert on substrings so future
+    template tweaks don't break this test."""
+    app, _, _ = _make_app_with_recorder()
+    body = app.test_client().get("/").get_data(as_text=True)
+
+    # MP4 upload form still present.
+    assert 'name="mp4"' in body
+    # RTSP form additions:
+    assert 'action="/start"' in body
+    assert 'name="rtsp_url"' in body
+    assert 'name="duration_h"' in body
+    for hours in ("1", "2", "4", "8"):
+        assert f'value="{hours}"' in body
+
+
+# ----- 15. POST /test-connection — happy path returns ok=true -----
+
+
+def test_post_test_connection_returns_ok_true_when_probe_succeeds() -> None:
+    """`POST /test-connection` is a no-side-effects probe — the operator
+    presses "test" before committing to a recording, expects a synchronous
+    yes/no within the ffmpeg timeout. We return JSON so the form can be
+    upgraded with JS later without changing the contract."""
+    fake_recorder = FakeRecorder(probe_ok=True)
+    app, _, _ = _make_app_with_recorder(recorder=fake_recorder)
+
+    resp = app.test_client().post(
+        "/test-connection", data={"rtsp_url": "rtsp://camera.local/stream"}
+    )
+
+    assert resp.status_code == 200
+    assert resp.is_json
+    body = resp.get_json()
+    assert body["ok"] is True
+    assert fake_recorder.probes == ["rtsp://camera.local/stream"]
+
+
+def test_post_test_connection_returns_failure_with_message() -> None:
+    """A failed probe still returns 200 (the request itself succeeded —
+    it's the *probe* that failed) so the form's JS can read the JSON
+    body without treating it as an HTTP error. The message must surface
+    in the body so the operator can tell *why* the connection failed."""
+    fake_recorder = FakeRecorder(probe_ok=False, probe_message="Connection refused")
+    app, _, _ = _make_app_with_recorder(recorder=fake_recorder)
+
+    resp = app.test_client().post("/test-connection", data={"rtsp_url": "rtsp://nope.local/stream"})
+
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["ok"] is False
+    assert "Connection refused" in body["message"]
+
+
+# ----- 16. POST /start — happy path triggers recorder and redirects to /jobs -----
+
+
+def test_post_start_invokes_recorder_and_redirects_to_jobs() -> None:
+    """Acceptance criterion (#8): "Recording: ffmpeg stream copy from
+    RTSP URL for selected duration". The route's job is to translate the
+    form fields into a recorder.start call and follow the same
+    POST/redirect/GET pattern the upload form uses, so a refresh doesn't
+    re-launch the recording."""
+    fake_recorder = FakeRecorder()
+    app, _, _ = _make_app_with_recorder(recorder=fake_recorder)
+
+    resp = app.test_client().post(
+        "/start",
+        data={"rtsp_url": "rtsp://camera.local/stream", "duration_h": "4"},
+    )
+
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/jobs")
+    assert fake_recorder.starts == [{"url": "rtsp://camera.local/stream", "duration_s": 4 * 3600}]
+
+
+def test_post_start_returns_409_when_recorder_busy() -> None:
+    """Acceptance criterion (#8): "second recording while one active →
+    rejected". 409 Conflict is the right HTTP shape for "the resource is
+    in a state that prevents this operation". The body must be readable
+    so the operator sees what's wrong without opening devtools."""
+    fake_recorder = FakeRecorder(status_state="recording")
+    app, _, _ = _make_app_with_recorder(recorder=fake_recorder)
+
+    resp = app.test_client().post(
+        "/start",
+        data={"rtsp_url": "rtsp://camera.local/stream", "duration_h": "1"},
+    )
+
+    assert resp.status_code == 409
+    assert b"busy" in resp.data.lower()
+    assert fake_recorder.starts == []
+
+
+def test_post_start_rejects_unsupported_duration() -> None:
+    """SPEC §7.3 + #8: only 1/2/4/8h are supported by the MVP. Anything
+    else is a misconfigured client (or a curl probe) and must be refused
+    *before* spawning ffmpeg — otherwise an honest typo could pin the
+    recorder for an unintended duration."""
+    fake_recorder = FakeRecorder()
+    app, _, _ = _make_app_with_recorder(recorder=fake_recorder)
+    test_client = app.test_client()
+
+    for bad in ("3", "0", "99", "abc"):
+        resp = test_client.post(
+            "/start",
+            data={"rtsp_url": "rtsp://camera.local/stream", "duration_h": bad},
+        )
+        assert resp.status_code == 400, f"duration_h={bad!r} should be rejected"
+
+    assert fake_recorder.starts == []
+
+
+def test_post_stop_invokes_recorder_stop() -> None:
+    """`POST /stop` is the operator's escape hatch — wired to whatever
+    cancellation primitive the production Recorder has. The route just
+    delegates and returns 200 so the form's submit button works without
+    JavaScript."""
+    fake_recorder = FakeRecorder()
+    app, _, _ = _make_app_with_recorder(recorder=fake_recorder)
+
+    resp = app.test_client().post("/stop")
+
+    assert resp.status_code == 200
+    assert fake_recorder.stops == 1
