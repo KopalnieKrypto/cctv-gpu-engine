@@ -13,6 +13,7 @@ FROM python:3.12-slim
 # README. Without this label, GHCR shows the package as orphaned and
 # visibility / access must be managed per-package.
 LABEL org.opencontainers.image.source="https://github.com/KopalnieKrypto/cctv-gpu-engine"
+LABEL org.opencontainers.image.description="On-premise client agent — Flask UI + ffmpeg RTSP recorder + Cloudflare R2 uploader on :8080. CPU-only, runs on any Docker host (no NVIDIA GPU required)."
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \

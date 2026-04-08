@@ -9,6 +9,7 @@ FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04
 # README. Without this label, GHCR shows the package as orphaned and
 # visibility / access must be managed per-package.
 LABEL org.opencontainers.image.source="https://github.com/KopalnieKrypto/cctv-gpu-engine"
+LABEL org.opencontainers.image.description="GPU service worker — runs YOLO-pose inference on Cloudflare R2 jobs and serves an investor dashboard on :5000. Requires NVIDIA driver >=560 + nvidia-container-toolkit on the host."
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
