@@ -5,7 +5,7 @@ Batch surveillance video analysis: MP4 → YOLO-pose → activity classification
 ## Quick reference
 
 - CLI: `uv run python -m pipeline.analyze input.mp4 --output report.html`
-- Model: `models/yolo11n-pose.onnx` — **NOTE: `setup-models.sh` is referenced across docs but does not exist in repo.** Until it's restored/written, fetch the ONNX manually (export from ultralytics: `yolo export model=yolo11n-pose.pt format=onnx imgsz=640`).
+- Model: `./setup-models.sh` (curls pinned `yolo11n-pose.onnx` from GitHub release `yolo11n-pose-v1.0`, sha256-verified, idempotent). For non-nano sizes (s/m/l/x) see README "Using a different model size".
 - Sync deps (dev/macOS): `make sync-dev` (CPU stub onnxruntime, ~50MB)
 - Sync deps (Linux+GPU): `make sync-gpu` (onnxruntime-gpu + cublas, ~1.5GB)
 - Install pre-commit hook (one-time, after sync): `uv run pre-commit install` (ruff format + lint on every commit)
@@ -106,7 +106,8 @@ client-agent (Flask :8080) → R2 bucket (surveillance-data) → gpu-service (Do
 │   └── client_agent/          # web.py (Flask), agent.py (entrypoint) (+tests)
 ├── tests/                     # Repo-level meta tests (build_config_test.py)
 ├── test/                      # Legacy single-frame validation scripts (pre-#4)
-├── models/                    # yolo11n-pose.onnx (gitignored — TODO: setup script missing)
+├── setup-models.sh            # curl + sha256 verify yolo11n-pose.onnx from GH release
+├── models/                    # yolo11n-pose.onnx (gitignored, fetched by setup-models.sh)
 └── test-data/                 # sample MP4s (gitignored)
 ```
 

@@ -70,7 +70,7 @@ infra/surveillance-prototype/
 **Goal:** `python analyze.py sample.mp4 --output report.html`
 
 ### 1.1 Model setup
-- `setup-models.sh`: export `yolo11n-pose.pt` → ONNX via ultralytics CLI
+- `setup-models.sh`: curl pinned `yolo11n-pose.onnx` from GitHub release `yolo11n-pose-v1.0` (sha256-verified, idempotent). Non-nano variants are export-it-yourself via `uvx --from ultralytics yolo export ...` — see README "Using a different model size".
 - Output shape: `[1, 56, num_boxes]` — 4 bbox + 1 conf + 51 keypoints (17×3: x,y,vis)
 
 ### 1.2 Frame extraction (`frame_extractor.py`)

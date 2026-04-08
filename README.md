@@ -64,7 +64,7 @@ git clone https://github.com/KopalnieKrypto/cctv-gpu-engine.git
 cd cctv-gpu-engine
 
 # 2. Download the YOLO-pose model (NOT baked into the image to keep size down)
-./setup-models.sh   # produces models/yolo11n-pose.onnx (~12 MB)
+./setup-models.sh   # curls models/yolo11n-pose.onnx (~12 MB) from GitHub release, sha256-verified
 
 # 3. Configure R2 credentials
 cp .env.gpu.example .env.gpu
@@ -167,6 +167,56 @@ uv run python -m pipeline.analyze input.mp4 --timestamp 12.5 --model models/yolo
 > A bare `uv sync` (no `--extra`) installs only numpy/pillow/opencv — handy for
 > reading the code or running lint without pulling the ONNX runtime.
 
+### Using a different model size
+
+`./setup-models.sh` ships the **nano** variant (`yolo11n-pose.onnx`, 12 MB) — the
+fastest YOLO11 pose model, fine for prototyping and most CCTV use cases. If you
+need higher accuracy (small/distant subjects, harder camera angles, etc.) you
+can swap in any larger size: **s / m / l / x**.
+
+The pipeline only assumes the standard YOLO11*-pose ONNX shape
+(input `[1,3,640,640]`, output `[1,56,N]` — 4 bbox + 1 conf + 17×3 keypoints),
+so any `yolo11{n,s,m,l,x}-pose` exported at imgsz=640 is a drop-in.
+
+**1. Export the variant** (one-off, requires `ultralytics` — install in a
+throwaway venv so it doesn't pollute the project):
+
+```bash
+# Pick one: yolo11s-pose, yolo11m-pose, yolo11l-pose, yolo11x-pose
+uvx --from ultralytics yolo export model=yolo11m-pose.pt format=onnx imgsz=640
+mv yolo11m-pose.onnx models/
+```
+
+**2. Point the pipeline at it** — every entry point takes `--model`:
+
+```bash
+# Direct CLI
+uv run python -m pipeline.analyze input.mp4 --model models/yolo11m-pose.onnx
+
+# make targets — override MODEL on the command line
+make test-gpu MODEL=models/yolo11m-pose.onnx TEST_VIDEO=test-data/your.mp4
+```
+
+**3. (Optional) make it the default for `gpu-service` / `client-agent`** by
+either renaming your file to `yolo11n-pose.onnx` (the hard-coded path
+`models/yolo11n-pose.onnx` is the worker default) or by passing
+`--model` through the worker entry point.
+
+**Trade-offs to expect:**
+
+| Variant | Size  | Speed (RTX 5070, ~ms/frame) | Accuracy |
+|---------|-------|------------------------------|----------|
+| nano    | 12 MB | ~100 ms                      | baseline |
+| small   | 36 MB | ~150 ms                      | +        |
+| medium  | 76 MB | ~250 ms                      | ++       |
+| large   | 96 MB | ~350 ms                      | +++      |
+| xlarge  | 222 MB| ~500 ms                      | ++++     |
+
+Numbers are rough — measure on your hardware. The activity classifier and NMS
+thresholds (0.25 conf, 0.45 IoU) are size-independent so you don't need to retune.
+`setup-models.sh` is **only** for the canonical nano release; non-nano variants
+are export-it-yourself by design (we don't want to host every size on GH releases).
+
 ## Report Output
 
 Each report is a standalone HTML file (zero external dependencies) containing:
@@ -212,7 +262,8 @@ VRAM usage: ~600MB. Works on RTX 5070 and RTX 4090.
 │   └── report_generator.py
 ├── gpu-service/           # R2 polling worker + investor dashboard
 ├── client-agent/          # Flask UI + ffmpeg recorder + R2 uploader
-├── models/                # yolo11n-pose.onnx (gitignored)
+├── setup-models.sh        # curl + sha256-verify yolo11n-pose.onnx (GH release pin)
+├── models/                # yolo11n-pose.onnx (gitignored, fetched by setup-models.sh)
 ├── test/                  # Validation scripts
 ├── plans/                 # Implementation plan
 └── SPEC.md                # Full technical specification
