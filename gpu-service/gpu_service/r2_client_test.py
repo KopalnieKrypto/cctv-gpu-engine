@@ -199,6 +199,64 @@ def test_download_chunks_writes_input_files_to_dest_and_returns_paths(
     )
 
 
+def test_upload_input_chunk_streams_fileobj_via_upload_fileobj() -> None:
+    """``upload_input_chunk`` is the client-agent's write path (issue #7).
+
+    It MUST go through boto3's ``upload_fileobj`` (multipart-aware) — not
+    ``put_object`` — so that 2 GB+ MP4s never get materialised in memory.
+    The returned key follows the SPEC §6.2 convention
+    ``surveillance-jobs/{job_id}/input/chunk_001.mp4``.
+    """
+    from io import BytesIO
+
+    s3 = MagicMock()
+    client = _make_client(s3)
+
+    fileobj = BytesIO(b"fake mp4 bytes")
+    key = client.upload_input_chunk("j1", fileobj)
+
+    assert key == "surveillance-jobs/j1/input/chunk_001.mp4"
+    # The crucial assertion: upload_fileobj (streaming/multipart), not
+    # put_object (whole-buffer). put_object would force a 2 GB upload into
+    # the agent process's RAM and trip the container OOM-killer.
+    s3.upload_fileobj.assert_called_once()
+    args, kwargs = s3.upload_fileobj.call_args
+    # Accept both positional and keyword forms — boto3 docs use both styles.
+    if args:
+        passed_fileobj, passed_bucket, passed_key = args[0], args[1], args[2]
+    else:
+        passed_fileobj = kwargs["Fileobj"]
+        passed_bucket = kwargs["Bucket"]
+        passed_key = kwargs["Key"]
+    assert passed_fileobj is fileobj
+    assert passed_bucket == "surveillance-data"
+    assert passed_key == "surveillance-jobs/j1/input/chunk_001.mp4"
+    # And put_object was NOT used as a shortcut.
+    s3.put_object.assert_not_called()
+
+
+def test_get_report_returns_html_bytes_from_output_report_html_key() -> None:
+    """``get_report`` reads the report HTML the worker wrote to R2 and
+    returns its raw bytes — used by the client-agent's report viewer.
+
+    Hits the SPEC §6.2 key ``surveillance-jobs/{job_id}/output/report.html``.
+    Reports are small enough (vendored Chart.js + base64 frames, a few MB)
+    that an in-memory read is fine — no streaming required here.
+    """
+    s3 = MagicMock()
+    s3.get_object.return_value = {
+        "Body": MagicMock(read=MagicMock(return_value=b"<html>report</html>"))
+    }
+    client = _make_client(s3)
+
+    body = client.get_report("j1")
+
+    assert body == b"<html>report</html>"
+    s3.get_object.assert_called_once_with(
+        Bucket="surveillance-data", Key="surveillance-jobs/j1/output/report.html"
+    )
+
+
 def test_upload_report_uses_output_report_html_key_and_returns_it() -> None:
     s3 = MagicMock()
     client = _make_client(s3)

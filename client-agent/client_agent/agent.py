@@ -1,46 +1,33 @@
-"""Placeholder entrypoint for the client-agent container (issue #16).
+"""Container entrypoint for the client-agent (issue #7).
 
-Real behaviour (Flask UI on :8080, ffmpeg RTSP capture, boto3 upload to R2)
-lands in issues #7 and #8. Until then this module just logs a banner and
-blocks forever so:
+Reads R2 credentials from the env, constructs an :class:`R2Client`, builds
+the Flask web UI via :func:`client_agent.web.create_app`, and serves it on
+``0.0.0.0:8080`` — the port both the Dockerfile and
+``docker-compose.client.yml`` expose.
 
-* `docker compose -f docker-compose.client.yml up` shows a healthy
-  long-running process instead of a crash-loop, and
-* a CI image build (the issue #16 acceptance criterion) has something
-  legitimate to ENTRYPOINT into.
+Env vars (SPEC §10.1):
 
-Block strategy: ``signal.pause()`` on POSIX (zero CPU). We MUST install
-explicit SIGTERM/SIGINT handlers because this process runs as PID 1
-inside the container and the Linux kernel drops default signal handlers
-for PID 1 — without an explicit handler, ``docker stop`` would time out
-and escalate to SIGKILL (exit 137). Falls back to
-``threading.Event().wait()`` on platforms without ``signal.pause``
-(Windows dev boxes).
+* ``R2_ENDPOINT``          — e.g. ``https://<acct>.r2.cloudflarestorage.com``
+* ``R2_ACCESS_KEY_ID``     — scoped R2 API token
+* ``R2_SECRET_ACCESS_KEY`` — paired secret
+* ``R2_BUCKET``            — defaults to ``surveillance-data`` (CLAUDE.md rule)
+
+The previous placeholder body (``signal.pause()`` until SIGTERM, issue #16)
+is gone now that real Flask UI lives in :mod:`client_agent.web`. PID-1
+signal handling is no longer our concern: Werkzeug's dev server installs
+its own SIGTERM/SIGINT handlers and exits cleanly on ``docker stop``.
 """
 
 from __future__ import annotations
 
 import logging
-import signal
-import sys
-from types import FrameType
+import os
+
+from gpu_service.r2_client import R2Client
+
+from client_agent.web import create_app
 
 logger = logging.getLogger(__name__)
-
-
-def _handle_termination(signum: int, _frame: FrameType | None) -> None:
-    logger.info("received signal %d, shutting down", signum)
-    sys.exit(0)
-
-
-def _block_forever() -> None:
-    """Sleep until the process receives a termination signal."""
-    if hasattr(signal, "pause"):
-        signal.pause()
-        return
-    import threading
-
-    threading.Event().wait()
 
 
 def main() -> None:
@@ -48,15 +35,25 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
-    # Explicit handlers are mandatory because PID 1 in a container does not
-    # inherit kernel-default signal dispositions — see module docstring.
-    signal.signal(signal.SIGTERM, _handle_termination)
-    signal.signal(signal.SIGINT, _handle_termination)
-    logger.info(
-        "client-agent placeholder running — real Flask UI + RTSP + R2 upload "
-        "will land in issues #7 and #8. Container will block until SIGTERM."
+
+    # Required env vars — fail loud at startup so a misconfigured deploy
+    # surfaces in `docker logs` immediately instead of as a 500 on first
+    # upload. Bucket has a default because CLAUDE.md pins it project-wide.
+    endpoint = os.environ["R2_ENDPOINT"]
+    access_key = os.environ["R2_ACCESS_KEY_ID"]
+    secret_key = os.environ["R2_SECRET_ACCESS_KEY"]
+    bucket = os.environ.get("R2_BUCKET", "surveillance-data")
+
+    client = R2Client(
+        endpoint=endpoint,
+        access_key=access_key,
+        secret_key=secret_key,
+        bucket=bucket,
     )
-    _block_forever()
+    app = create_app(client)
+
+    logger.info("client-agent web UI starting on http://0.0.0.0:8080 (bucket=%s)", bucket)
+    app.run(host="0.0.0.0", port=8080)
 
 
 if __name__ == "__main__":

@@ -152,6 +152,35 @@ class R2Client:
                 downloaded.append(local)
         return sorted(downloaded)
 
+    def upload_input_chunk(self, job_id: str, fileobj: Any) -> str:
+        """Stream an input MP4 chunk to R2 via boto3 multipart upload.
+
+        Used by the client-agent web UI (issue #7). MUST go through
+        ``upload_fileobj`` (not ``put_object``) so the request body is
+        drained chunk-by-chunk — a 2 GB MP4 would otherwise be loaded into
+        the agent process's RAM and OOM the container.
+
+        SPEC §6.2 key convention:
+        ``surveillance-jobs/{job_id}/input/chunk_001.mp4``. Single-chunk for
+        now; multi-chunk recordings (issue #8 / RTSP segmented capture) can
+        pass a different chunk name later.
+        """
+        key = f"{self._input_prefix(job_id)}chunk_001.mp4"
+        self._s3.upload_fileobj(fileobj, self._bucket, key)
+        return key
+
+    def get_report(self, job_id: str) -> bytes:
+        """Read the report.html the worker wrote for ``job_id`` from R2.
+
+        Returns the raw bytes for the client-agent to proxy back to the
+        operator's browser. Reports are small (a few MB — vendored Chart.js
+        + base64 frames) so the whole-buffer read is fine; multipart
+        streaming is reserved for the *upload* path where files are 100x
+        larger. Errors propagate so the caller (web UI) can translate to 404.
+        """
+        obj = self._s3.get_object(Bucket=self._bucket, Key=self._report_key(job_id))
+        return obj["Body"].read()
+
     def upload_report(self, job_id: str, html: bytes) -> str:
         key = self._report_key(job_id)
         self._s3.put_object(
