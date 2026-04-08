@@ -42,7 +42,13 @@ COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-dev \
     && uv cache clean
 
-# Source last so a code change only invalidates the final layer.
+# Source last so a code change only invalidates the final layer. The
+# client-agent imports ``gpu_service.r2_client.R2Client`` (single boto3
+# wrapper shared with the worker — see CLAUDE.md "R2 client" rule), so
+# we ship that module too. WORKDIR /app + ``python -m client_agent.agent``
+# puts /app on sys.path, making both packages importable without a real
+# install step.
+COPY gpu-service/gpu_service /app/gpu_service
 COPY client-agent/client_agent /app/client_agent
 
 ENV PATH="/app/.venv/bin:${PATH}"
