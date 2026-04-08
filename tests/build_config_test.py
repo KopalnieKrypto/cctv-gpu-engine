@@ -16,6 +16,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 MAKEFILE = REPO_ROOT / "Makefile"
+CLIENT_AGENT_DOCKERFILE = REPO_ROOT / "client-agent" / "Dockerfile"
 
 
 def _load_pyproject() -> dict:
@@ -215,4 +216,70 @@ class TestMakefileTargets:
         assert "pipeline.analyze" in recipe, (
             f"test-gpu recipe must run `pipeline.analyze` to actually exercise "
             f"the GPU code path, got:\n{recipe}"
+        )
+
+
+class TestClientAgentDockerfile:
+    """Static smoke test for the client-agent container image (issue #7).
+
+    Asserts the Dockerfile still:
+
+    * exists at the expected path,
+    * declares ``EXPOSE 8080`` so ``docker compose -f docker-compose.client.yml
+      up`` actually publishes the Flask UI port,
+    * launches the real entrypoint module (``client_agent.agent``) — the
+      module that wires R2 creds → :class:`R2Client` → Flask ``app.run``.
+
+    A real "does it boot" check would need a docker daemon, which CI on the
+    macOS box doesn't have. These static assertions are the next best thing:
+    they fail fast in unit tests if anyone (a) drops the EXPOSE directive,
+    (b) reverts the entrypoint to the old SIGTERM-blocking placeholder, or
+    (c) renames the Python module without updating the image config.
+    """
+
+    def test_client_agent_dockerfile_exists(self):
+        assert CLIENT_AGENT_DOCKERFILE.exists(), (
+            f"client-agent Dockerfile is missing at {CLIENT_AGENT_DOCKERFILE}. "
+            f"Issue #16 requires this file; issue #7 depends on it shipping the Flask UI."
+        )
+
+    def test_client_agent_dockerfile_exposes_port_8080(self):
+        """Acceptance criterion (#7): UI reachable on :8080. Without an
+        ``EXPOSE 8080`` directive the docker-compose port mapping has no
+        target to bind to and the container appears 'healthy' but unreachable."""
+        text = CLIENT_AGENT_DOCKERFILE.read_text()
+        # Match `EXPOSE 8080` on its own line, tolerating extra ports listed
+        # alongside it (e.g. `EXPOSE 8080 9090`) and trailing whitespace.
+        directives = [
+            line.strip() for line in text.splitlines() if line.strip().upper().startswith("EXPOSE")
+        ]
+        assert directives, (
+            "client-agent Dockerfile has no EXPOSE directive — port 8080 "
+            "(Flask UI from issue #7) must be published."
+        )
+        ports: set[str] = set()
+        for d in directives:
+            ports.update(d.split()[1:])
+        assert "8080" in ports, (
+            f"client-agent Dockerfile must EXPOSE 8080 (Flask UI port from "
+            f"issue #7), got EXPOSE directives: {directives}"
+        )
+
+    def test_client_agent_dockerfile_entrypoint_runs_real_module(self):
+        """The ENTRYPOINT must invoke ``client_agent.agent`` — not a shell
+        sleep, not a SIGTERM blocker. If anyone reverts to a placeholder,
+        the GHCR image would build cleanly but never serve Flask, and that
+        regression should fail this unit test in CI rather than only being
+        caught by a human pulling the image and running it."""
+        text = CLIENT_AGENT_DOCKERFILE.read_text()
+        entrypoint_lines = [
+            line.strip()
+            for line in text.splitlines()
+            if line.strip().upper().startswith("ENTRYPOINT")
+        ]
+        assert entrypoint_lines, "client-agent Dockerfile has no ENTRYPOINT"
+        joined = " ".join(entrypoint_lines)
+        assert "client_agent.agent" in joined, (
+            f"client-agent ENTRYPOINT must launch the real `client_agent.agent` "
+            f"module (Flask UI on :8080, issue #7), got: {entrypoint_lines}"
         )

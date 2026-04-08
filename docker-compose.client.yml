@@ -1,11 +1,11 @@
-# client-agent: Flask UI + ffmpeg RTSP recorder + R2 uploader (issue #16).
+# client-agent: Flask UI + R2 uploader (issue #7), RTSP recorder follows in #8.
 #
 # Run on the customer's premises (CPU-only host, no GPU required):
 #   docker compose -f docker-compose.client.yml up -d
 #
 # The agent reads R2 credentials from .env.client (copy .env.client.example).
-# The Flask UI is exposed on host port 8080 once #7 lands; today the
-# container runs a placeholder that blocks on SIGTERM.
+# The Flask UI listens on host port 8080: MP4 upload form, job list with
+# status badges (auto-refresh 10s), and report viewer.
 services:
   client-agent:
     image: ghcr.io/kopalniekrypto/cctv-gpu-engine/client-agent:latest

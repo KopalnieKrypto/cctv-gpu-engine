@@ -4,8 +4,8 @@ Batch surveillance video analysis: MP4 → YOLO-pose → activity classification
 
 ## Quick reference
 
-- CLI: `python pipeline/analyze.py input.mp4 --output report.html`
-- Model: `models/yolo11n-pose.onnx` (download via `setup-models.sh`)
+- CLI: `uv run python -m pipeline.analyze input.mp4 --output report.html`
+- Model: `models/yolo11n-pose.onnx` — **NOTE: `setup-models.sh` is referenced across docs but does not exist in repo.** Until it's restored/written, fetch the ONNX manually (export from ultralytics: `yolo export model=yolo11n-pose.pt format=onnx imgsz=640`).
 - Sync deps (dev/macOS): `make sync-dev` (CPU stub onnxruntime, ~50MB)
 - Sync deps (Linux+GPU): `make sync-gpu` (onnxruntime-gpu + cublas, ~1.5GB)
 - Install pre-commit hook (one-time, after sync): `uv run pre-commit install` (ruff format + lint on every commit)
@@ -22,8 +22,8 @@ Batch surveillance video analysis: MP4 → YOLO-pose → activity classification
 
 ## TODO (deferred)
 
-- `gpu-service/Dockerfile` and `client-agent/Dockerfile` are not yet created — both directories are empty placeholders. When implementing them, base GPU image on `nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04` and use `uv sync --extra gpu` (NOT bare `uv sync`) so the lightweight default doesn't accidentally ship without the GPU runtime. The Python package already lives at `gpu-service/gpu_service/` so the Dockerfile can simply `COPY gpu-service/gpu_service /app/gpu_service` + `COPY pipeline /app/pipeline`.
-- **Upload retry (issue #5 follow-up)**: `gpu_service.r2_client.R2Client.upload_report` and `download_chunks` are currently single-shot. SPEC §8.2 calls for "retry 3× with exponential backoff, then fail". Worker correctly translates any failure into `status: failed`, but a flaky network will cause unnecessary job failures. Add retry decorator (e.g. `botocore.config.Config(retries={"max_attempts": 4, "mode": "adaptive"})` or a small custom backoff) before the first production deploy.
+- **Upload retry (issue #5 follow-up)**: every `gpu_service.r2_client.R2Client` network method (`upload_report`, `download_chunks`, `upload_input_chunk`, `get_report`) is currently single-shot. SPEC §8.2 calls for "retry 3× with exponential backoff, then fail". The worker translates any failure into `status: failed` and the client-agent surfaces R2 errors as a 500, but a flaky network will cause unnecessary job/upload failures. Add a retry decorator (e.g. `botocore.config.Config(retries={"max_attempts": 4, "mode": "adaptive"})` or a small custom backoff) before the first production deploy.
+- **RTSP recorder (issue #8)**: `client-agent/` ships only the Flask upload UI today. Routes `/test-connection`, `/start`, `/stop`, the ffmpeg subprocess wrapper, and the segmented-recording chunk uploader still need to land. The ffmpeg binary is already in the client-agent Docker image (see `client-agent/Dockerfile`) so #8 is a code-only change.
 
 ## Architecture
 
@@ -32,8 +32,8 @@ client-agent (Flask :8080) → R2 bucket (surveillance-data) → gpu-service (Do
 ```
 
 - **Pipeline** (`pipeline/`): frame extraction → YOLO-pose → activity heuristics → HTML report
-- **Client Agent** (`client-agent/`): Flask UI, ffmpeg RTSP recording, boto3 upload to R2
-- **GPU Service** (`gpu-service/`): R2 polling worker, downloads video, runs pipeline, uploads report
+- **Client Agent** (`client-agent/`): Flask UI on :8080 for MP4 upload + job status (#7 ✅). RTSP recorder pending (#8).
+- **GPU Service** (`gpu-service/`): R2 polling worker + investor dashboard, downloads video, runs pipeline, uploads report
 
 ## Stack
 
@@ -84,15 +84,29 @@ client-agent (Flask :8080) → R2 bucket (surveillance-data) → gpu-service (Do
 ├── DECISION_LOG.md            # Design decisions + rationale
 ├── IMPLEMENTATION_PLAN.md     # 4-phase roadmap
 ├── RTX5070_CONSTRAINTS.md     # Hardware compatibility
-├── pipeline/                  # Core AI pipeline
-│   ├── analyze.py             # CLI entry point
-│   ├── pose_detector.py
-│   ├── activity_classifier.py
-│   └── report_generator.py
-├── gpu-service/               # R2 polling worker
-├── client-agent/              # Flask UI + ffmpeg recorder
-├── test/                      # Validation scripts
-├── models/                    # yolo11n-pose.onnx (gitignored)
+├── Makefile                   # sync-dev / sync-gpu / test / test-gpu shortcuts
+├── pyproject.toml             # uv-managed deps; cpu-stub & gpu extras (issue #9)
+├── docker-compose.yml         # gpu-service stack (R2 worker + dashboard)
+├── docker-compose.client.yml  # client-agent stack (Flask UI :8080)
+├── pipeline/                  # Core AI pipeline (CLI: python -m pipeline.analyze)
+│   ├── analyze.py             # full-video CLI entry point
+│   ├── pose_detector.py       # ONNX session + CUDAExecutionProvider guard
+│   ├── activity_classifier.py # COCO-keypoint heuristics → sit/stand/walk/run
+│   ├── report_renderer.py     # Jinja2 → standalone HTML (vendored Chart.js)
+│   ├── report_template.html
+│   ├── frame_extractor.py / video_frames.py        # ffmpeg @ 1 fps streaming
+│   ├── preprocessing.py / postprocessing.py        # PIL→CHW; transpose+NMS
+│   ├── annotator.py / aggregator.py                # boxes+keypoints; person-minutes
+│   └── vendor/                # vendored Chart.js for offline reports
+├── gpu-service/               # R2 polling worker (#5) + investor dashboard (#6)
+│   ├── Dockerfile             # nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04
+│   └── gpu_service/           # worker.py, dashboard.py, r2_client.py (+tests)
+├── client-agent/              # Flask UI :8080 (#7); RTSP recorder pending (#8)
+│   ├── Dockerfile             # python:3.12-slim + ffmpeg, ENTRYPOINT client_agent.agent
+│   └── client_agent/          # web.py (Flask), agent.py (entrypoint) (+tests)
+├── tests/                     # Repo-level meta tests (build_config_test.py)
+├── test/                      # Legacy single-frame validation scripts (pre-#4)
+├── models/                    # yolo11n-pose.onnx (gitignored — TODO: setup script missing)
 └── test-data/                 # sample MP4s (gitignored)
 ```
 

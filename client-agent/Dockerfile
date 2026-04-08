@@ -1,11 +1,12 @@
-# Client agent: Flask UI + ffmpeg RTSP recorder + R2 uploader (issue #16).
+# Client agent: Flask UI + R2 uploader (issue #7), ffmpeg RTSP recorder (#8).
 #
 # CPU-only — no CUDA. CLAUDE.md "Don't" forbids python:slim ONLY for GPU
 # workloads, so slim is the right base here (smallest possible image).
 #
-# Today this image ships a placeholder ENTRYPOINT that blocks on SIGTERM.
-# Real Flask app + RTSP + upload land in #7 / #8 and will reuse this image
-# without bumping the layer cache (source files are the LAST COPY).
+# As of issue #7 the ENTRYPOINT runs the real Flask app on :8080 (MP4 upload
+# form, job list with status badges, report viewer). The ffmpeg binary in
+# the apt layer below is staged for #8 (RTSP capture); it's harmless until
+# the recorder routes land.
 FROM python:3.12-slim
 
 # OCI source label — links the GHCR package to the repo so collaborators
@@ -13,7 +14,7 @@ FROM python:3.12-slim
 # README. Without this label, GHCR shows the package as orphaned and
 # visibility / access must be managed per-package.
 LABEL org.opencontainers.image.source="https://github.com/KopalnieKrypto/cctv-gpu-engine"
-LABEL org.opencontainers.image.description="On-premise client agent — Flask UI + ffmpeg RTSP recorder + Cloudflare R2 uploader on :8080. CPU-only, runs on any Docker host (no NVIDIA GPU required)."
+LABEL org.opencontainers.image.description="On-premise client agent — Flask UI on :8080 for MP4 upload + job status (issue #7) and Cloudflare R2 multipart uploader. ffmpeg bundled for the RTSP recorder landing in issue #8. CPU-only, runs on any Docker host (no NVIDIA GPU required)."
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
@@ -46,8 +47,7 @@ COPY client-agent/client_agent /app/client_agent
 
 ENV PATH="/app/.venv/bin:${PATH}"
 
-# Flask UI will listen here when #7 lands. Exposing now so docker-compose can
-# already wire the port mapping.
+# Flask UI listens here — wired to docker-compose.client.yml port mapping.
 EXPOSE 8080
 
 ENTRYPOINT ["python", "-m", "client_agent.agent"]
