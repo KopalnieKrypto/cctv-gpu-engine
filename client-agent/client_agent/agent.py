@@ -9,18 +9,28 @@ blocks forever so:
 * a CI image build (the issue #16 acceptance criterion) has something
   legitimate to ENTRYPOINT into.
 
-Block strategy: ``signal.pause()`` on POSIX (zero CPU, wakes on SIGTERM so
-``docker stop`` exits cleanly). Falls back to ``threading.Event().wait()``
-on platforms without ``signal.pause`` (Windows dev boxes), which is also
-SIGTERM-friendly via the default handler.
+Block strategy: ``signal.pause()`` on POSIX (zero CPU). We MUST install
+explicit SIGTERM/SIGINT handlers because this process runs as PID 1
+inside the container and the Linux kernel drops default signal handlers
+for PID 1 — without an explicit handler, ``docker stop`` would time out
+and escalate to SIGKILL (exit 137). Falls back to
+``threading.Event().wait()`` on platforms without ``signal.pause``
+(Windows dev boxes).
 """
 
 from __future__ import annotations
 
 import logging
 import signal
+import sys
+from types import FrameType
 
 logger = logging.getLogger(__name__)
+
+
+def _handle_termination(signum: int, _frame: FrameType | None) -> None:
+    logger.info("received signal %d, shutting down", signum)
+    sys.exit(0)
 
 
 def _block_forever() -> None:
@@ -38,6 +48,10 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+    # Explicit handlers are mandatory because PID 1 in a container does not
+    # inherit kernel-default signal dispositions — see module docstring.
+    signal.signal(signal.SIGTERM, _handle_termination)
+    signal.signal(signal.SIGINT, _handle_termination)
     logger.info(
         "client-agent placeholder running — real Flask UI + RTSP + R2 upload "
         "will land in issues #7 and #8. Container will block until SIGTERM."
