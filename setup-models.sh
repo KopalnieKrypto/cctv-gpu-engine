@@ -27,6 +27,25 @@ DEST="${DEST_DIR}/${MODEL_FILE}"
 
 mkdir -p "${DEST_DIR}"
 
+# Symlinks bite us inside containers: a host symlink like
+#   models/yolo11n-pose.onnx → /home/foo/video-test/yolo11n-pose.onnx
+# resolves on the host (where `-f` returns true) but the symlink target
+# doesn't exist inside the gpu-service container, so onnxruntime fails
+# with NO_SUCHFILE at session init. Replace any symlink with a real
+# copy of its target so the bind-mounted ./models/ stays self-contained.
+# Discovered during issue #8 e2e validation on cctv-vps.
+if [[ -L "${DEST}" ]]; then
+    target="$(readlink -f "${DEST}" || true)"
+    if [[ -n "${target}" && -f "${target}" ]]; then
+        echo "→ ${DEST} is a symlink → ${target}; replacing with a real copy"
+        rm "${DEST}"
+        cp "${target}" "${DEST}"
+    else
+        echo "→ ${DEST} is a dangling symlink; removing so curl can re-fetch"
+        rm "${DEST}"
+    fi
+fi
+
 if [[ -f "${DEST}" ]]; then
     echo "→ ${DEST} already present, verifying sha256…"
 else
