@@ -244,7 +244,9 @@ class Recorder:
         shutil.rmtree(out_dir, ignore_errors=True)
 
         with self._lock:
-            self._status = RecorderStatus(state="idle", job_id=job_id)
+            # Preserve chunks_uploaded across the idle transition so the
+            # UI can show "last recording: N chunks" without re-walking R2.
+            self._status = RecorderStatus(state="idle", job_id=job_id, chunks_uploaded=len(chunks))
         return job_id
 
     def probe(self, url: str, *, timeout: float = 10.0) -> ProbeResult:

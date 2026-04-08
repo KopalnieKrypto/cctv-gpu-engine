@@ -394,3 +394,33 @@ def test_recorder_cleans_up_temp_dir_after_upload(tmp_path) -> None:  # noqa: AN
     rec.start(url="rtsp://camera.local/stream", duration_s=3600)
 
     assert not Path(out_dir).exists(), "recorder must remove the temp dir after upload"
+
+
+# ----- 12. chunks_uploaded survives the idle transition -----
+
+
+def test_recorder_status_preserves_chunks_uploaded_after_idle(tmp_path) -> None:  # noqa: ANN001
+    """The final state-flip back to ``idle`` must preserve
+    ``chunks_uploaded`` so the UI can render "last recording: N chunks"
+    without re-listing R2. Discovered during e2e validation on cctv-vps:
+    a successful recording reported ``chunks_uploaded=0`` because the
+    idle reset clobbered the counter."""
+    fake_r2 = FakeR2ForRecorder()
+
+    def _runner(cmd, **kwargs):  # noqa: ANN001
+        return _make_runner_that_writes_chunks(
+            {"chunk_000.mp4": b"a", "chunk_001.mp4": b"b", "chunk_002.mp4": b"c"}
+        )(cmd, **kwargs)
+
+    rec = Recorder(
+        uploader=fake_r2,
+        runner=_runner,
+        output_dir_factory=lambda jid: str(tmp_path / jid),
+        job_id_factory=lambda: "job-count",
+    )
+
+    rec.start(url="rtsp://camera.local/stream", duration_s=4 * 3600)
+
+    snapshot = rec.status()
+    assert snapshot.state == "idle"
+    assert snapshot.chunks_uploaded == 3

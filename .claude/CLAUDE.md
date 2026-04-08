@@ -23,7 +23,6 @@ Batch surveillance video analysis: MP4 → YOLO-pose → activity classification
 ## TODO (deferred)
 
 - **Upload retry (issue #5 follow-up)**: every `gpu_service.r2_client.R2Client` network method (`upload_report`, `download_chunks`, `upload_input_chunk`, `get_report`) is currently single-shot. SPEC §8.2 calls for "retry 3× with exponential backoff, then fail". The worker translates any failure into `status: failed` and the client-agent surfaces R2 errors as a 500, but a flaky network will cause unnecessary job/upload failures. Add a retry decorator (e.g. `botocore.config.Config(retries={"max_attempts": 4, "mode": "adaptive"})` or a small custom backoff) before the first production deploy.
-- **RTSP recorder (issue #8)**: `client-agent/` ships only the Flask upload UI today. Routes `/test-connection`, `/start`, `/stop`, the ffmpeg subprocess wrapper, and the segmented-recording chunk uploader still need to land. The ffmpeg binary is already in the client-agent Docker image (see `client-agent/Dockerfile`) so #8 is a code-only change.
 
 ## Architecture
 
@@ -32,7 +31,7 @@ client-agent (Flask :8080) → R2 bucket (surveillance-data) → gpu-service (Do
 ```
 
 - **Pipeline** (`pipeline/`): frame extraction → YOLO-pose → activity heuristics → HTML report
-- **Client Agent** (`client-agent/`): Flask UI on :8080 for MP4 upload + job status (#7 ✅). RTSP recorder pending (#8).
+- **Client Agent** (`client-agent/`): Flask UI on :8080 for MP4 upload + job status (#7 ✅) and RTSP recorder with ffmpeg stream-copy + segmented chunks (#8 ✅, e2e-validated on cctv-vps).
 - **GPU Service** (`gpu-service/`): R2 polling worker + investor dashboard, downloads video, runs pipeline, uploads report
 
 ## Stack
@@ -101,9 +100,9 @@ client-agent (Flask :8080) → R2 bucket (surveillance-data) → gpu-service (Do
 ├── gpu-service/               # R2 polling worker (#5) + investor dashboard (#6)
 │   ├── Dockerfile             # nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04
 │   └── gpu_service/           # worker.py, dashboard.py, r2_client.py (+tests)
-├── client-agent/              # Flask UI :8080 (#7); RTSP recorder pending (#8)
+├── client-agent/              # Flask UI :8080 (#7) + RTSP recorder (#8)
 │   ├── Dockerfile             # python:3.12-slim + ffmpeg, ENTRYPOINT client_agent.agent
-│   └── client_agent/          # web.py (Flask), agent.py (entrypoint) (+tests)
+│   └── client_agent/          # web.py (Flask), recorder.py (ffmpeg+R2), agent.py (entrypoint) (+tests)
 ├── tests/                     # Repo-level meta tests (build_config_test.py)
 ├── test/                      # Legacy single-frame validation scripts (pre-#4)
 ├── setup-models.sh            # curl + sha256 verify yolo11n-pose.onnx from GH release
