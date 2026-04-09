@@ -533,9 +533,10 @@ def _make_app_with_recorder(
 def test_get_root_includes_rtsp_recording_form() -> None:
     """The same landing page must offer both flows: MP4 upload (already
     tested) *and* RTSP recording. The recording form needs an URL field,
-    a duration selector with the four MVP options (1/2/4/8h), and a
-    submit that posts to /start. We assert on substrings so future
-    template tweaks don't break this test."""
+    a unified ``duration_s`` selector covering both sub-hour smoke windows
+    (5/15/30/45m) and the original hourly slots (1/2/4/8h), and a submit
+    that posts to /start. We assert on substrings so future template
+    tweaks don't break this test."""
     app, _, _ = _make_app_with_recorder()
     body = app.test_client().get("/").get_data(as_text=True)
 
@@ -544,9 +545,9 @@ def test_get_root_includes_rtsp_recording_form() -> None:
     # RTSP form additions:
     assert 'action="/start"' in body
     assert 'name="rtsp_url"' in body
-    assert 'name="duration_h"' in body
-    for hours in ("1", "2", "4", "8"):
-        assert f'value="{hours}"' in body
+    assert 'name="duration_s"' in body
+    for seconds in ("300", "900", "1800", "2700", "3600", "7200", "14400", "28800"):
+        assert f'value="{seconds}"' in body
 
 
 # ----- 15. POST /test-connection — happy path returns ok=true -----
@@ -601,7 +602,7 @@ def test_post_start_invokes_recorder_and_redirects_to_jobs() -> None:
 
     resp = app.test_client().post(
         "/start",
-        data={"rtsp_url": "rtsp://camera.local/stream", "duration_h": "4"},
+        data={"rtsp_url": "rtsp://camera.local/stream", "duration_s": str(4 * 3600)},
     )
 
     assert resp.status_code == 302
@@ -619,7 +620,7 @@ def test_post_start_returns_409_when_recorder_busy() -> None:
 
     resp = app.test_client().post(
         "/start",
-        data={"rtsp_url": "rtsp://camera.local/stream", "duration_h": "1"},
+        data={"rtsp_url": "rtsp://camera.local/stream", "duration_s": "3600"},
     )
 
     assert resp.status_code == 409
@@ -628,22 +629,59 @@ def test_post_start_returns_409_when_recorder_busy() -> None:
 
 
 def test_post_start_rejects_unsupported_duration() -> None:
-    """SPEC §7.3 + #8: only 1/2/4/8h are supported by the MVP. Anything
-    else is a misconfigured client (or a curl probe) and must be refused
-    *before* spawning ffmpeg — otherwise an honest typo could pin the
-    recorder for an unintended duration."""
+    """#8 + sub-hour extension: supported durations are the presets
+    {5,15,30,45 min, 1,2,4,8 h} expressed in seconds. Anything else is a
+    misconfigured client (or a curl probe) and must be refused *before*
+    spawning ffmpeg — otherwise an honest typo could pin the recorder for
+    an unintended duration. We also guard against the pre-extension
+    ``duration_h`` field so a stale client fails loudly instead of
+    silently starting a 1-second recording."""
     fake_recorder = FakeRecorder()
     app, _, _ = _make_app_with_recorder(recorder=fake_recorder)
     test_client = app.test_client()
 
-    for bad in ("3", "0", "99", "abc"):
+    # Raw-value rejections: zero, negative, non-numeric, unsupported ints,
+    # and legacy hourly values that happen to also be invalid as seconds
+    # (e.g. "1" — the old duration_h=1, which would now mean "1 second").
+    for bad in ("0", "-1", "abc", "1", "4", "8", "600", "3601", "99999"):
         resp = test_client.post(
             "/start",
-            data={"rtsp_url": "rtsp://camera.local/stream", "duration_h": bad},
+            data={"rtsp_url": "rtsp://camera.local/stream", "duration_s": bad},
         )
-        assert resp.status_code == 400, f"duration_h={bad!r} should be rejected"
+        assert resp.status_code == 400, f"duration_s={bad!r} should be rejected"
+
+    # Legacy field name must not be honored — a stale client sending
+    # ``duration_h=1`` would otherwise be interpreted as "missing field".
+    resp = test_client.post(
+        "/start",
+        data={"rtsp_url": "rtsp://camera.local/stream", "duration_h": "1"},
+    )
+    assert resp.status_code == 400
 
     assert fake_recorder.starts == []
+
+
+def test_post_start_accepts_all_sub_hour_and_hourly_presets() -> None:
+    """Positive coverage for the extended preset list: every supported
+    value must reach the recorder with the exact ``duration_s`` the form
+    submitted, so the HTTP allowlist and the recorder's length-agnostic
+    core stay in lockstep. We reset the fake recorder's busy state
+    between calls by instantiating a fresh app per preset — cheap, and
+    it also proves the 409-busy branch isn't leaking between requests."""
+    presets = (300, 900, 1800, 2700, 3600, 7200, 14400, 28800)
+    for seconds in presets:
+        fake_recorder = FakeRecorder()
+        app, _, _ = _make_app_with_recorder(recorder=fake_recorder)
+
+        resp = app.test_client().post(
+            "/start",
+            data={"rtsp_url": "rtsp://camera.local/stream", "duration_s": str(seconds)},
+        )
+
+        assert resp.status_code == 302, f"preset {seconds}s should be accepted"
+        assert fake_recorder.starts == [
+            {"url": "rtsp://camera.local/stream", "duration_s": seconds}
+        ]
 
 
 def test_post_stop_invokes_recorder_stop() -> None:

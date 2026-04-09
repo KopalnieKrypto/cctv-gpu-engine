@@ -138,11 +138,15 @@ _UPLOAD_FORM_HTML = """<!doctype html>
     <input type="text" name="rtsp_url" placeholder="rtsp://host/stream" required>
   </label>
   <label>Duration
-    <select name="duration_h" required>
-      <option value="1">1 hour</option>
-      <option value="2">2 hours</option>
-      <option value="4">4 hours</option>
-      <option value="8">8 hours</option>
+    <select name="duration_s" required>
+      <option value="300">5 minutes</option>
+      <option value="900">15 minutes</option>
+      <option value="1800">30 minutes</option>
+      <option value="2700">45 minutes</option>
+      <option value="3600">1 hour</option>
+      <option value="7200">2 hours</option>
+      <option value="14400">4 hours</option>
+      <option value="28800">8 hours</option>
     </select>
   </label>
   <button type="submit">Start recording</button>
@@ -227,23 +231,27 @@ def create_app(
             return (f"upload to R2 failed: {exc}", 500)
         return redirect(url_for("jobs"))
 
-    _ALLOWED_DURATIONS_H = {1, 2, 4, 8}
+    # Presets cover sub-hour smoke/test windows (5/15/30/45m) and the
+    # original MVP hourly slots (1/2/4/8h). The allowlist lives here — not
+    # in the recorder — because the recorder core is length-agnostic and
+    # we only want to gate user-supplied values at the HTTP boundary.
+    _ALLOWED_DURATIONS_S = {300, 900, 1800, 2700, 3600, 7200, 14400, 28800}
 
     @app.post("/start")
     def start_recording():
         if recorder is None:
             return ("recorder not configured", 404)
         rtsp_url = (request.form.get("rtsp_url") or "").strip()
-        duration_raw = (request.form.get("duration_h") or "").strip()
+        duration_raw = (request.form.get("duration_s") or "").strip()
         if not rtsp_url:
             return ("missing rtsp_url", 400)
         try:
-            duration_h = int(duration_raw)
+            duration_s = int(duration_raw)
         except ValueError:
-            return (f"invalid duration_h: {duration_raw!r}", 400)
-        if duration_h not in _ALLOWED_DURATIONS_H:
+            return (f"invalid duration_s: {duration_raw!r}", 400)
+        if duration_s not in _ALLOWED_DURATIONS_S:
             return (
-                f"duration_h must be one of {sorted(_ALLOWED_DURATIONS_H)}",
+                f"duration_s must be one of {sorted(_ALLOWED_DURATIONS_S)}",
                 400,
             )
         # Production wires a Recorder whose .start() spawns a thread —
@@ -254,7 +262,7 @@ def create_app(
         except ImportError:  # pragma: no cover — recorder module always present
             RecorderBusy = RuntimeError  # type: ignore[assignment, misc]
         try:
-            recorder.start(url=rtsp_url, duration_s=duration_h * 3600)
+            recorder.start(url=rtsp_url, duration_s=duration_s)
         except RecorderBusy as exc:
             return (f"recorder busy: {exc}", 409)
         return redirect(url_for("jobs"))
