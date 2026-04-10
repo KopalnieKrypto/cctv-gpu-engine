@@ -329,6 +329,43 @@ def test_recorder_marks_failed_when_ffmpeg_produces_no_chunks(tmp_path) -> None:
     assert "Connection refused" in snapshot.message
 
 
+# ----- 9b. Recorder.start: 0-byte chunk → treated as failure, no R2 upload -----
+
+
+def test_recorder_rejects_zero_byte_chunks(tmp_path) -> None:  # noqa: ANN001
+    """ffmpeg can create the output file before trying to mux — a codec
+    mismatch (e.g. pcm_mulaw in MP4) causes it to exit immediately,
+    leaving a 0-byte file on disk. The recorder must NOT upload empty
+    files: doing so creates a phantom job in R2 that the GPU worker
+    downloads, feeds to ffprobe, and fails loudly on "moov atom not found".
+    Instead, treat 0-byte chunks the same as "no chunks" → state=failed,
+    no R2 writes."""
+    fake_r2 = FakeR2ForRecorder()
+
+    def _runner(cmd, **kwargs):  # noqa: ANN001
+        # Simulate ffmpeg creating an empty file and failing.
+        return _make_runner_that_writes_chunks(
+            {"recording.mp4": b""},
+            returncode=1,
+            stderr="Could not find tag for codec pcm_mulaw in stream #1",
+        )(cmd, **kwargs)
+
+    rec = Recorder(
+        uploader=fake_r2,
+        runner=_runner,
+        output_dir_factory=lambda job_id: str(tmp_path / job_id),
+        job_id_factory=lambda: "job-zerobyte",
+    )
+
+    rec.start(url="rtsp://camera.local/stream", duration_s=300)
+
+    assert fake_r2.uploaded == [], "0-byte chunks must not be uploaded"
+    assert fake_r2.statuses == {}, "no status.json should leak for a 0-byte recording"
+    snapshot = rec.status()
+    assert snapshot.state == "failed"
+    assert "pcm_mulaw" in snapshot.message
+
+
 # ----- 10. Partial recording (camera offline mid-recording) is still uploaded -----
 
 

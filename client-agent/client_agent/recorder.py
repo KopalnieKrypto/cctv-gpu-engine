@@ -214,9 +214,12 @@ class Recorder:
         result = self.runner(cmd, capture_output=True, text=True)
 
         chunks = sorted(out_dir.glob("*.mp4"))
+        # Filter out 0-byte files — ffmpeg creates the output file before
+        # opening the input, so a mux failure (e.g. pcm_mulaw codec
+        # unsupported by MP4) leaves an empty file on disk. Uploading it
+        # would create a phantom job in R2 that the GPU worker has to fail.
+        chunks = [c for c in chunks if c.stat().st_size > 0]
         if not chunks:
-            # Hard failure — invalid URL, immediate connection refused.
-            # Don't write status.json: the worker would pick up an empty job.
             with self._lock:
                 self._status = RecorderStatus(
                     state="failed",
