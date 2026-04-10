@@ -88,6 +88,11 @@ def build_ffmpeg_cmd(*, url: str, duration_s: int, output_dir: str) -> list[str]
     caps at one hour and is independently uploadable. ``-t`` still bounds
     the total duration in both branches — without it a stuck camera would
     record forever.
+
+    ``-an`` drops the audio track: the pipeline only analyses video
+    (YOLO-pose), and many IP cameras (Hikvision in particular) emit
+    ``pcm_mulaw`` audio which is not muxable into MP4, causing ffmpeg to
+    fail with "Could not find tag for codec pcm_mulaw in stream #1".
     """
     base = [
         "ffmpeg",
@@ -97,6 +102,7 @@ def build_ffmpeg_cmd(*, url: str, duration_s: int, output_dir: str) -> list[str]
         url,
         "-c",
         "copy",
+        "-an",
         "-t",
         str(duration_s),
     ]
