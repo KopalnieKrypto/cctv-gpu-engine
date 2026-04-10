@@ -546,6 +546,8 @@ def test_get_root_includes_rtsp_recording_form() -> None:
     assert 'action="/start"' in body
     assert 'name="rtsp_url"' in body
     assert 'name="duration_s"' in body
+    # Test-connection button triggers JS fetch, not a separate form.
+    assert "testConnection()" in body
     for seconds in ("300", "900", "1800", "2700", "3600", "7200", "14400", "28800"):
         assert f'value="{seconds}"' in body
 

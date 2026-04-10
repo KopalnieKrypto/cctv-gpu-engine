@@ -127,16 +127,11 @@ _UPLOAD_FORM_HTML = """<!doctype html>
 
 <fieldset>
 <legend>Record from RTSP camera</legend>
-<form action="/test-connection" method="post">
-  <label>RTSP URL
-    <input type="text" name="rtsp_url" placeholder="rtsp://host/stream" required>
-  </label>
-  <button type="submit">Test connection</button>
-</form>
 <form action="/start" method="post">
   <label>RTSP URL
-    <input type="text" name="rtsp_url" placeholder="rtsp://host/stream" required>
+    <input type="text" id="rtsp_url" name="rtsp_url" placeholder="rtsp://host/stream" required>
   </label>
+  <button type="button" onclick="testConnection()">Test connection</button>
   <label>Duration
     <select name="duration_s" required>
       <option value="300">5 minutes</option>
@@ -157,6 +152,26 @@ _UPLOAD_FORM_HTML = """<!doctype html>
 </fieldset>
 
 <p><a href="/jobs">View job list →</a></p>
+<script>
+function testConnection() {
+  var url = document.getElementById('rtsp_url').value.trim();
+  if (!url) { alert('Enter an RTSP URL first.'); return; }
+  var btn = event.target;
+  btn.disabled = true; btn.textContent = 'Testing...';
+  fetch('/test-connection', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'rtsp_url=' + encodeURIComponent(url)
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.ok) { alert('Connection OK'); }
+    else { alert('Connection failed:\\n' + (data.message || 'unknown error')); }
+  })
+  .catch(function(e) { alert('Request error: ' + e); })
+  .finally(function() { btn.disabled = false; btn.textContent = 'Test connection'; });
+}
+</script>
 </body>
 </html>
 """
