@@ -138,3 +138,127 @@ class TestClassifyActivityFallback:
         person = _person(bbox=(100, 100, 100, 100))
 
         assert classify_activity(person) == "unknown"
+
+
+class TestSittingImproved:
+    def test_sitting_with_moderate_hip_height_ratio(self):
+        # Hip_height_ratio ~0.50 (above old 0.40 threshold, below new 0.55).
+        # Bent knees (~128°) → knee_angle < 130 (+1), hip_height < 0.55 (+1) → score 2.
+        # This scenario was misclassified as "standing" with the old AND logic.
+        person = _person(
+            bbox=(100, 0, 300, 500),
+            shoulders=((180, 80), (220, 80)),
+            hips=((180, 250), (220, 250)),
+            knees=((250, 300), (280, 300)),
+            ankles=((240, 450), (270, 450)),
+        )
+
+        assert classify_activity(person) == "sitting"
+
+    def test_sitting_decided_by_torso_leg_ratio(self):
+        # hip_height_ratio ~0.56 (> 0.55, no point), but knee_angle < 130 (+1)
+        # and torso_leg_ratio > 1.1 (+1) → score 2 → sitting.
+        person = _person(
+            bbox=(100, 0, 300, 550),
+            shoulders=((180, 50), (220, 50)),
+            hips=((180, 240), (220, 240)),
+            knees=((250, 300), (280, 300)),
+            ankles=((240, 380), (270, 380)),
+        )
+
+        assert classify_activity(person) == "sitting"
+
+    def test_standing_not_misclassified_with_borderline_hip_ratio(self):
+        # Straight legs (~180°), hip_height_ratio ~0.49 (< 0.55 → +1 point).
+        # But knee_angle >> 130 (0) and torso_leg_ratio ~0.74 (0) → score 1 → standing.
+        person = _person(
+            bbox=(100, 0, 300, 550),
+            shoulders=((180, 80), (220, 80)),
+            hips=((180, 280), (220, 280)),
+            knees=((180, 420), (220, 420)),
+            ankles=((180, 550), (220, 550)),
+        )
+
+        assert classify_activity(person) == "standing"
+
+
+class TestSittingFallbackImproved:
+    def test_sitting_fallback_with_visible_upper_body(self):
+        # Lower body not visible (no knees/ankles), but shoulders + hips visible.
+        # Hips at y=300, bbox top at y=0 → hip_bbox_ratio = 300/400 = 0.75 > 0.65.
+        # New fallback detects sitting when hips are near bbox bottom.
+        person = _person(
+            bbox=(100, 0, 300, 400),
+            shoulders=((180, 100), (220, 100)),
+            hips=((180, 300), (220, 300)),
+        )
+
+        assert classify_activity(person) == "sitting"
+
+    def test_standing_fallback_with_visible_upper_body(self):
+        # Shoulders + hips visible, hips at midpoint of bbox.
+        # hip_bbox_ratio = 300/600 = 0.50 < 0.65 → standing.
+        person = _person(
+            bbox=(100, 0, 300, 600),
+            shoulders=((180, 100), (220, 100)),
+            hips=((180, 300), (220, 300)),
+        )
+
+        assert classify_activity(person) == "standing"
+
+
+class TestActivitySmoother:
+    def test_smoother_stabilizes_flickering(self):
+        from pipeline.activity_classifier import ActivitySmoother
+
+        smoother = ActivitySmoother(window=5)
+        # Simulate 5 frames of a single person with flickering labels.
+        activities = ["walking", "standing", "walking", "walking", "standing"]
+        for act in activities:
+            det = _person(
+                bbox=(100, 0, 300, 600),
+                shoulders=((180, 100), (220, 100)),
+                hips=((180, 300), (220, 300)),
+                knees=((180, 450), (220, 450)),
+                ankles=((180, 600), (220, 600)),
+            )
+            det.activity = act
+            result = smoother.smooth([det])
+
+        # After 5 frames (3 walking, 2 standing), majority = walking.
+        assert result[0].activity == "walking"
+
+    def test_smoother_passes_through_with_single_frame(self):
+        from pipeline.activity_classifier import ActivitySmoother
+
+        smoother = ActivitySmoother(window=5)
+        det = _person(
+            bbox=(100, 0, 300, 600),
+            shoulders=((180, 100), (220, 100)),
+            hips=((180, 300), (220, 300)),
+            knees=((180, 450), (220, 450)),
+            ankles=((180, 600), (220, 600)),
+        )
+        det.activity = "sitting"
+        result = smoother.smooth([det])
+
+        assert result[0].activity == "sitting"
+
+    def test_smoother_adapts_to_real_transition(self):
+        from pipeline.activity_classifier import ActivitySmoother
+
+        smoother = ActivitySmoother(window=3)
+        # Person transitions from standing to sitting — 2 standing then 3 sitting.
+        for act in ["standing", "standing", "sitting", "sitting", "sitting"]:
+            det = _person(
+                bbox=(100, 0, 300, 600),
+                shoulders=((180, 100), (220, 100)),
+                hips=((180, 300), (220, 300)),
+                knees=((180, 450), (220, 450)),
+                ankles=((180, 600), (220, 600)),
+            )
+            det.activity = act
+            result = smoother.smooth([det])
+
+        # After 3 sitting frames with window=3, majority should be sitting.
+        assert result[0].activity == "sitting"

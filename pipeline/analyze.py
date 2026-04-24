@@ -51,7 +51,10 @@ def run_full_video_to_html(
     percentage 0-100. The pipeline ``RuntimeError`` (e.g. CUDA missing) is
     *not* caught here; callers (CLI, gpu-service worker) decide how to react.
     """
+    from pipeline.activity_classifier import ActivitySmoother
+
     detector = load_pose_model(model_path)
+    smoother = ActivitySmoother()
     aggregator = Aggregator(fps=fps)
     time_offset = 0.0
     step = 1.0 / fps
@@ -60,6 +63,7 @@ def run_full_video_to_html(
         for timestamp_s, frame in iter_frames(str(chunk), fps=fps):
             shifted = timestamp_s + time_offset
             detections = detector.detect(frame)
+            detections = smoother.smooth(detections)
             aggregator.add_frame(timestamp_s=shifted, frame=frame, detections=detections)
             last_ts = shifted
         time_offset = last_ts + step
