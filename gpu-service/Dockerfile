@@ -1,8 +1,9 @@
 # GPU service worker + investor dashboard (issue #6).
 #
-# Base: nvidia/cuda runtime + cudnn — required by onnxruntime-gpu's
-# CUDAExecutionProvider. python:slim is NOT acceptable per CLAUDE.md.
-FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04
+# Base: nvidia/cuda 12.8 runtime — required by onnxruntime-gpu's
+# CUDAExecutionProvider AND PyTorch cu128 for Blackwell (sm_120) GPUs.
+# python:slim is NOT acceptable per CLAUDE.md.
+FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04
 
 # OCI source label — links the GHCR package to the repo so collaborators
 # inherit access from repo permissions and the package page renders the
@@ -56,6 +57,14 @@ RUN apt-mark unhold libcudnn9-cuda-12 \
     && apt-get autoremove -y --purge \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
+# VLM classifier deps (Qwen2.5-VL-3B). PyTorch cu128 required for Blackwell
+# sm_120 support. Installed via pip into the uv-managed venv — uv handles
+# onnxruntime + core deps, pip adds the VLM layer on top.
+RUN .venv/bin/pip install --no-cache-dir \
+        torch torchvision --index-url https://download.pytorch.org/whl/cu128 \
+    && .venv/bin/pip install --no-cache-dir \
+        transformers accelerate qwen-vl-utils
+
 # Application code. The package is hyphen-named on disk but Python imports it
 # as `gpu_service` — the `gpu-service/gpu_service/` layout makes that work
 # without a setup.py. We also need pipeline/ for the lazy import inside
@@ -66,6 +75,7 @@ COPY pipeline /app/pipeline
 # Models are NOT baked into the image (would push it over 5GB). Mount the
 # host's models/ dir at runtime via docker compose.
 ENV MODEL_PATH=/app/models/yolo11n-pose.onnx \
+    CLASSIFIER=vlm \
     DASHBOARD_PORT=5000 \
     WORKDIR=/tmp/cctv-jobs \
     PATH="/app/.venv/bin:${PATH}"

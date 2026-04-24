@@ -233,11 +233,13 @@ def main(argv: list[str] | None = None) -> int:
         bucket=bucket,
     )
 
+    classifier = os.environ.get("CLASSIFIER", "heuristic")
+
     def pipeline(chunks: list[Path], progress: ProgressCallback) -> bytes:
         # Lazy import: keeps the unit-test path free of onnxruntime / GPU deps.
         from pipeline.analyze import run_full_video_to_html
 
-        return run_full_video_to_html(chunks, progress=progress)
+        return run_full_video_to_html(chunks, progress=progress, classifier=classifier)
 
     workdir.mkdir(parents=True, exist_ok=True)
 

@@ -39,6 +39,7 @@ def run_full_video_to_html(
     progress: Callable[[int], None] | None = None,
     model_path: str = "models/yolo11n-pose.onnx",
     fps: int = DEFAULT_FPS,
+    classifier: str = "heuristic",
 ) -> bytes:
     """Run YOLO-pose pipeline across one or more MP4 chunks.
 
@@ -47,28 +48,87 @@ def run_full_video_to_html(
     with timestamps offset so each chunk continues from where the previous
     left off (so ``video_duration_s`` reflects the full concatenated video).
 
+    ``classifier`` — ``"heuristic"`` uses geometric rules + displacement
+    smoother (fast, camera-angle dependent).  ``"vlm"`` uses Qwen2.5-VL-3B
+    for sitting/standing classification + YOLO displacement for walking
+    (slower, camera-angle independent, much better accuracy).
+
     ``progress`` — if given, called at end-of-chunk boundaries with an int
     percentage 0-100. The pipeline ``RuntimeError`` (e.g. CUDA missing) is
     *not* caught here; callers (CLI, gpu-service worker) decide how to react.
     """
-    from pipeline.activity_classifier import ActivitySmoother
+    import math
+
+    from pipeline.activity_classifier import (
+        DISPLACEMENT_WALK_THRESHOLD,
+        ActivitySmoother,
+        bbox_center,
+    )
 
     detector = load_pose_model(model_path)
-    smoother = ActivitySmoother()
     aggregator = Aggregator(fps=fps)
-    time_offset = 0.0
-    step = 1.0 / fps
-    for chunk_index, chunk in enumerate(chunks):
-        last_ts = time_offset
-        for timestamp_s, frame in iter_frames(str(chunk), fps=fps):
-            shifted = timestamp_s + time_offset
-            detections = detector.detect(frame)
-            detections = smoother.smooth(detections)
-            aggregator.add_frame(timestamp_s=shifted, frame=frame, detections=detections)
-            last_ts = shifted
-        time_offset = last_ts + step
-        if progress is not None:
-            progress(int((chunk_index + 1) / len(chunks) * 100))
+
+    # --- VLM hybrid path ---------------------------------------------------
+    if classifier == "vlm":
+        from pipeline.vlm_classifier import VLMClassifier
+
+        vlm = VLMClassifier()
+        prev_centers: list[tuple[float, float]] = []
+
+        time_offset = 0.0
+        step = 1.0 / fps
+        for chunk_index, chunk in enumerate(chunks):
+            last_ts = time_offset
+            for timestamp_s, frame in iter_frames(str(chunk), fps=fps):
+                shifted = timestamp_s + time_offset
+                detections = detector.detect(frame)
+
+                if detections:
+                    # Displacement check: is the person moving?
+                    det = detections[0]
+                    cx, cy = bbox_center(det)
+                    bbox_h = det.bbox[3] - det.bbox[1]
+                    is_moving = False
+                    if prev_centers and bbox_h > 1e-6:
+                        px, py = prev_centers[0]
+                        norm_disp = math.hypot(cx - px, cy - py) / bbox_h
+                        is_moving = norm_disp > DISPLACEMENT_WALK_THRESHOLD
+
+                    if is_moving:
+                        for d in detections:
+                            d.activity = "walking"
+                    else:
+                        activity = vlm.classify_frame(frame)
+                        for d in detections:
+                            d.activity = activity
+
+                    prev_centers = [bbox_center(d) for d in detections]
+                else:
+                    prev_centers = []
+
+                aggregator.add_frame(timestamp_s=shifted, frame=frame, detections=detections)
+                last_ts = shifted
+            time_offset = last_ts + step
+            if progress is not None:
+                progress(int((chunk_index + 1) / len(chunks) * 100))
+
+    # --- Heuristic path (original) -----------------------------------------
+    else:
+        smoother = ActivitySmoother()
+        time_offset = 0.0
+        step = 1.0 / fps
+        for chunk_index, chunk in enumerate(chunks):
+            last_ts = time_offset
+            for timestamp_s, frame in iter_frames(str(chunk), fps=fps):
+                shifted = timestamp_s + time_offset
+                detections = detector.detect(frame)
+                detections = smoother.smooth(detections)
+                aggregator.add_frame(timestamp_s=shifted, frame=frame, detections=detections)
+                last_ts = shifted
+            time_offset = last_ts + step
+            if progress is not None:
+                progress(int((chunk_index + 1) / len(chunks) * 100))
+
     report_data = aggregator.build_report_data()
     return render_report(report_data).encode("utf-8")
 
@@ -112,6 +172,13 @@ def _build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_FPS,
         help="Sampling frame rate for full-video mode (default: 1)",
     )
+    parser.add_argument(
+        "--classifier",
+        choices=["heuristic", "vlm"],
+        default="heuristic",
+        help="Activity classifier: heuristic (fast, geometric rules) "
+        "or vlm (Qwen2.5-VL, higher accuracy, default: heuristic)",
+    )
     return parser
 
 
@@ -141,6 +208,7 @@ def _run_full_video(args: argparse.Namespace) -> int:
             chunks=[Path(args.video)],
             model_path=args.model,
             fps=args.fps,
+            classifier=args.classifier,
         )
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)

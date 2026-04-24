@@ -158,7 +158,7 @@ SMOOTHING_WINDOW = 5
 DISPLACEMENT_WALK_THRESHOLD = 0.05
 
 
-def _bbox_center(det: Detection) -> tuple[float, float]:
+def bbox_center(det: Detection) -> tuple[float, float]:
     x1, y1, x2, y2 = det.bbox
     return ((x1 + x2) / 2, (y1 + y2) / 2)
 
@@ -186,7 +186,7 @@ class ActivitySmoother:
         prev_frame = self._history[-1] if self._history else []
         current: list[tuple[float, float, str]] = []
         for det in detections:
-            cx, cy = _bbox_center(det)
+            cx, cy = bbox_center(det)
             bbox_h = det.bbox[3] - det.bbox[1]
             raw_activity = det.activity
 
