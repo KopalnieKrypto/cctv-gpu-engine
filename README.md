@@ -5,7 +5,7 @@
 
 Batch surveillance video analysis powered by idle GPU infrastructure. Upload MP4 footage, get a standalone HTML activity report — no manual review needed.
 
-**What it does:** Detects people in surveillance footage using YOLO-pose, classifies their activity (sitting, standing, walking, running), and generates a self-contained HTML report with charts, timeline, and annotated keyframes.
+**What it does:** Detects people in surveillance footage using YOLO-pose, classifies their activity (sitting, standing, walking, running) with a hybrid VLM + displacement pipeline, and generates a self-contained HTML report with charts, timeline, and annotated keyframes.
 
 ---
 
@@ -28,8 +28,8 @@ The two images talk to each other **only** through a shared Cloudflare R2 bucket
 ┌─ Client LAN ──────────┐       ┌─ Cloudflare R2 ──────┐       ┌─ GPU Server ───────────┐
 │                        │       │ surveillance-jobs/    │       │                        │
 │  client-agent          │──────>│   {job_id}/           │<──────│  gpu-service            │
-│  Flask UI :8080        │upload │     status.json       │ poll  │  YOLO-pose inference   │
-│  ffmpeg RTSP → MP4     │       │     input/*.mp4       │       │  activity heuristics   │
+│  Flask UI :8080        │upload │     status.json       │ poll  │  YOLO-pose + VLM       │
+│  ffmpeg RTSP → MP4     │       │     input/*.mp4       │       │  activity classif.     │
 │  boto3 → R2            │<──────│     output/report.html│──────>│  HTML report gen       │
 │                        │ poll  │                       │upload │                        │
 └────────────────────────┘       └───────────────────────┘       └────────────────────────┘
@@ -56,7 +56,7 @@ You're running the worker that does the actual YOLO-pose inference. Pull jobs fr
   sudo systemctl restart docker
   ```
 - Docker 24.0+ with the `compose` plugin
-- ~10 GB free disk for the image + workdir
+- ~25 GB free disk for the image (~16 GB) + VLM model cache (~6 GB) + workdir
 
 **Run it:**
 
@@ -230,42 +230,42 @@ Each report is a standalone HTML file (zero external dependencies) containing:
 
 | Component | Technology |
 |-----------|-----------|
-| Pose detection | YOLOv11n-pose (ONNX) |
-| Inference | onnxruntime-gpu, CUDAExecutionProvider |
+| Pose detection | YOLOv11n-pose (ONNX) via onnxruntime-gpu |
+| Activity classification | Hybrid: Qwen2.5-VL-3B (sitting/standing) + bbox displacement (walking) |
 | Frame extraction | ffmpeg at 1 fps |
-| Activity classification | Geometric heuristics on COCO 17 keypoints |
 | Report | Jinja2 + vendored Chart.js |
 | Client UI | Flask |
 | Job coordination | Cloudflare R2 (S3-compat), no database |
-| GPU Docker base | nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04 |
+| GPU Docker base | nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 |
 
 ## Performance
 
-On RTX 5070, processing a 1-hour video:
+On RTX 5070, processing a 1-hour video at 1 fps (3600 frames):
 
-| Stage | Time |
-|-------|------|
-| Frame extraction | ~36s |
-| YOLO-pose inference | ~6 min |
-| Classification + report | ~9s |
-| **Total** | **~7 min** (~8:1 ratio) |
+| Mode | Total time | Ratio | VRAM |
+|------|-----------|-------|------|
+| **VLM hybrid** (default) | ~20 min | 3:1 | ~6 GB |
+| Heuristic only | ~7 min | 8:1 | ~600 MB |
 
-VRAM usage: ~600MB. Works on RTX 5070 and RTX 4090.
+VLM hybrid: YOLO ~100ms + Qwen2.5-VL ~270ms per frame. First frame includes ~40s model load (cached for subsequent jobs). Accuracy: ~85% on ground-truth test (sitting 89%, walking 96%).
+
+Works on RTX 5070 and RTX 4090.
 
 ## Project Structure
 
 ```
 ├── pipeline/              # Core AI pipeline
-│   ├── analyze.py         # CLI entry point
+│   ├── analyze.py         # CLI entry point (--classifier vlm|heuristic)
 │   ├── pose_detector.py   # YOLO-pose ONNX inference
-│   ├── activity_classifier.py
+│   ├── vlm_classifier.py  # Qwen2.5-VL-3B activity classifier
+│   ├── activity_classifier.py  # Heuristic fallback + displacement smoother
 │   └── report_renderer.py
 ├── gpu-service/           # R2 polling worker + investor dashboard
 ├── client-agent/          # Flask UI + ffmpeg recorder + R2 uploader
+├── scripts/               # Standalone test/benchmark scripts
 ├── setup-models.sh        # curl + sha256-verify yolo11n-pose.onnx (GH release pin)
 ├── models/                # yolo11n-pose.onnx (gitignored, fetched by setup-models.sh)
 ├── test/                  # Validation scripts
-├── plans/                 # Implementation plan
 └── SPEC.md                # Full technical specification
 ```
 
