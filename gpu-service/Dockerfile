@@ -60,9 +60,9 @@ RUN apt-mark unhold libcudnn9-cuda-12 \
 # VLM classifier deps (Qwen2.5-VL-3B). PyTorch cu128 required for Blackwell
 # sm_120 support. Installed via uv pip into the managed venv — uv handles
 # onnxruntime + core deps, then adds the VLM layer on top.
-RUN VIRTUAL_ENV=/app/.venv uv pip install --no-cache \
+RUN uv pip install --python /app/.venv/bin/python --no-cache \
         torch torchvision --index-url https://download.pytorch.org/whl/cu128 \
-    && VIRTUAL_ENV=/app/.venv uv pip install --no-cache \
+    && uv pip install --python /app/.venv/bin/python --no-cache \
         transformers accelerate qwen-vl-utils
 
 # Application code. The package is hyphen-named on disk but Python imports it
