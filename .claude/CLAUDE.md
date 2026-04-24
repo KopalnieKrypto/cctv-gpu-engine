@@ -1,10 +1,11 @@
 # CCTV GPU Engine
 
-Batch surveillance video analysis: MP4 → YOLO-pose → activity classification → standalone HTML report. Full spec: `SPEC.md`.
+Batch surveillance video analysis: MP4 → YOLO-pose + VLM → activity classification → standalone HTML report. Full spec: `SPEC.md`.
 
 ## Quick reference
 
-- CLI: `uv run python -m pipeline.analyze input.mp4 --output report.html`
+- CLI: `uv run python -m pipeline.analyze input.mp4 --output report.html --classifier vlm`
+- Classifier modes: `--classifier heuristic` (fast, geometric rules) or `--classifier vlm` (Qwen2.5-VL-3B hybrid, higher accuracy, default in Docker)
 - Model: `./setup-models.sh` (curls pinned `yolo11n-pose.onnx` from GitHub release `yolo11n-pose-v1.0`, sha256-verified, idempotent). For non-nano sizes (s/m/l/x) see README "Using a different model size".
 - Sync deps (dev/macOS): `make sync-dev` (CPU stub onnxruntime, ~50MB)
 - Sync deps (Linux+GPU): `make sync-gpu` (onnxruntime-gpu + cublas, ~1.5GB)
@@ -34,7 +35,7 @@ Batch surveillance video analysis: MP4 → YOLO-pose → activity classification
 client-agent (Flask :8080) → R2 bucket (surveillance-data) → gpu-service (Docker+NVIDIA)
 ```
 
-- **Pipeline** (`pipeline/`): frame extraction → YOLO-pose → activity heuristics → HTML report
+- **Pipeline** (`pipeline/`): frame extraction → YOLO-pose (person detection + displacement) → VLM or heuristic activity classification → HTML report
 - **Client Agent** (`client-agent/`): Flask UI on :8080 for MP4 upload + job status (#7 ✅) and RTSP recorder with ffmpeg stream-copy + segmented chunks (#8 ✅, e2e-validated on cctv-vps).
 - **GPU Service** (`gpu-service/`): R2 polling worker + investor dashboard, downloads video, runs pipeline, uploads report
 
@@ -43,22 +44,25 @@ client-agent (Flask :8080) → R2 bucket (surveillance-data) → gpu-service (Do
 | Component | Technology |
 |-----------|-----------|
 | Pose model | YOLOv11n-pose ONNX, input `[1,3,640,640]`, output `[1,56,N]` |
-| Inference | onnxruntime-gpu, CUDAExecutionProvider only |
+| Pose inference | onnxruntime-gpu, CUDAExecutionProvider only |
+| Activity classifier (VLM) | Qwen2.5-VL-3B-Instruct via transformers + PyTorch cu128 |
+| Activity classifier (heuristic) | Geometric heuristics on COCO keypoints (legacy fallback) |
+| Walking detection | Bbox displacement between frames (norm > 0.05 = walking) |
 | Frame extraction | ffmpeg at 1 fps |
 | Image processing | OpenCV + Pillow |
-| Classification | Geometric heuristics on COCO keypoints |
 | Report | Jinja2 + vendored Chart.js (standalone HTML) |
 | Client UI | Flask |
 | R2 client | boto3 (S3-compat) |
-| Docker base | nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04 |
+| Docker base | nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 |
 | Python deps | uv preferred, pip fallback |
 
 ## Must follow
 
-- Python + onnxruntime-gpu for all inference. No Node.js, no CPU fallback
+- Python + onnxruntime-gpu for pose inference, PyTorch + transformers for VLM. No Node.js, no CPU fallback
 - `ort.preload_dlls(cuda=True, cudnn=True)` must be called before `InferenceSession()` — onnxruntime-gpu wheel has no RPATH to site-packages/nvidia/. See `pipeline/pose_detector.py`.
 - `nvidia-cublas-cu12` must be a direct dep — `onnxruntime-gpu[cuda,cudnn]` extras don't pull it but `libcublasLt.so.12` is required at runtime.
-- Docker base: `nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04` (not python:slim)
+- Docker base: `nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04` — CUDA 12.8 required for Blackwell (sm_120) PyTorch support
+- VLM classifier: `CLASSIFIER=vlm` env var or `--classifier vlm` CLI flag. Model loaded lazily on first frame with a person.
 - Frame extraction: ffmpeg 1 fps, frame-by-frame processing, never full video in RAM
 - YOLO-pose output `[1,56,N]` transposed: rows 0-3 bbox, row 4 conf, rows 5-55 keypoints (17×3)
 - Preprocessing: PIL RGB → resize 640×640 → float32 /255 → CHW → batch dim
@@ -94,7 +98,8 @@ client-agent (Flask :8080) → R2 bucket (surveillance-data) → gpu-service (Do
 ├── pipeline/                  # Core AI pipeline (CLI: python -m pipeline.analyze)
 │   ├── analyze.py             # full-video CLI entry point
 │   ├── pose_detector.py       # ONNX session + CUDAExecutionProvider guard
-│   ├── activity_classifier.py # COCO-keypoint heuristics → sit/stand/walk/run
+│   ├── activity_classifier.py # heuristic classifier + ActivitySmoother (displacement)
+│   ├── vlm_classifier.py      # Qwen2.5-VL-3B wrapper for VLM classification
 │   ├── report_renderer.py     # Jinja2 → standalone HTML (vendored Chart.js)
 │   ├── report_template.html
 │   ├── frame_extractor.py / video_frames.py        # ffmpeg @ 1 fps streaming
@@ -102,7 +107,7 @@ client-agent (Flask :8080) → R2 bucket (surveillance-data) → gpu-service (Do
 │   ├── annotator.py / aggregator.py                # boxes+keypoints; person-minutes
 │   └── vendor/                # vendored Chart.js for offline reports
 ├── gpu-service/               # R2 polling worker (#5) + investor dashboard (#6)
-│   ├── Dockerfile             # nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04
+│   ├── Dockerfile             # nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 + PyTorch cu128
 │   └── gpu_service/           # worker.py, dashboard.py, r2_client.py (+tests)
 ├── client-agent/              # Flask UI :8080 (#7) + RTSP recorder (#8)
 │   ├── Dockerfile             # python:3.12-slim + ffmpeg, ENTRYPOINT client_agent.agent
@@ -112,13 +117,16 @@ client-agent (Flask :8080) → R2 bucket (surveillance-data) → gpu-service (Do
 ├── docs/                      # Operator setup guides (SETUP_GPU.md, SETUP_CLIENT.md)
 ├── setup-models.sh            # curl + sha256 verify yolo11n-pose.onnx from GH release
 ├── models/                    # yolo11n-pose.onnx (gitignored, fetched by setup-models.sh)
+├── scripts/                   # standalone test/benchmark scripts (test_vlm_classifier.py)
 └── test-data/                 # sample MP4s (gitignored)
 ```
 
 ## Performance (RTX 5070, 1h video)
 
-- ~7 min total (8:1 ratio), ~600MB VRAM
-- YOLO: ~100ms/frame, 3600 frames/hour at 1fps
+- **VLM hybrid** (recommended): ~20 min total (3:1 ratio), ~6GB VRAM. YOLO ~100ms + VLM ~270ms per frame.
+- **Heuristic only**: ~7 min total (8:1 ratio), ~600MB VRAM. YOLO ~100ms/frame.
+- VLM model (Qwen2.5-VL-3B) loaded lazily — first frame ~40s, subsequent ~0.27s/frame.
+- Accuracy: VLM hybrid ~85% vs heuristic ~45% on ground truth test (sitting 89%, walking 96%).
 
 ## Platform integration (future, not now)
 
