@@ -262,3 +262,80 @@ class TestActivitySmoother:
 
         # After 3 sitting frames with window=3, majority should be sitting.
         assert result[0].activity == "sitting"
+
+    def test_displacement_overrides_standing_to_walking(self):
+        from pipeline.activity_classifier import ActivitySmoother
+
+        smoother = ActivitySmoother(window=3)
+        # Two frames: person moves significantly (norm_disp ~0.17 > 0.05).
+        # Geometric classifier says "standing" (frontal walk, low stride_ratio),
+        # but displacement should override to "walking".
+        bbox_h = 600
+        det1 = _person(
+            bbox=(100, 0, 300, bbox_h),
+            shoulders=((180, 100), (220, 100)),
+            hips=((180, 300), (220, 300)),
+            knees=((180, 450), (220, 450)),
+            ankles=((180, 600), (220, 600)),
+        )
+        det1.activity = "standing"
+        smoother.smooth([det1])
+
+        # Frame 2: person moved 100px in x (norm = 100/600 ≈ 0.167).
+        det2 = _person(
+            bbox=(200, 0, 400, bbox_h),
+            shoulders=((280, 100), (320, 100)),
+            hips=((280, 300), (320, 300)),
+            knees=((280, 450), (320, 450)),
+            ankles=((280, 600), (320, 600)),
+        )
+        det2.activity = "standing"
+        result = smoother.smooth([det2])
+
+        assert result[0].activity == "walking"
+
+    def test_displacement_does_not_override_sitting(self):
+        from pipeline.activity_classifier import ActivitySmoother
+
+        smoother = ActivitySmoother(window=3)
+        det1 = _person(
+            bbox=(100, 0, 300, 600),
+            shoulders=((180, 100), (220, 100)),
+            hips=((180, 300), (220, 300)),
+            knees=((180, 450), (220, 450)),
+            ankles=((180, 600), (220, 600)),
+        )
+        det1.activity = "sitting"
+        smoother.smooth([det1])
+
+        # Person classified as sitting, even though bbox moved.
+        det2 = _person(
+            bbox=(200, 0, 400, 600),
+            shoulders=((280, 100), (320, 100)),
+            hips=((280, 300), (320, 300)),
+            knees=((280, 450), (320, 450)),
+            ankles=((280, 600), (320, 600)),
+        )
+        det2.activity = "sitting"
+        result = smoother.smooth([det2])
+
+        # Displacement override only applies to "standing", not "sitting".
+        assert result[0].activity == "sitting"
+
+    def test_no_displacement_keeps_standing(self):
+        from pipeline.activity_classifier import ActivitySmoother
+
+        smoother = ActivitySmoother(window=3)
+        # Two frames, person barely moves (norm_disp ≈ 0.008 < 0.05).
+        for _ in range(2):
+            det = _person(
+                bbox=(100, 0, 300, 600),
+                shoulders=((180, 100), (220, 100)),
+                hips=((180, 300), (220, 300)),
+                knees=((180, 450), (220, 450)),
+                ankles=((180, 600), (220, 600)),
+            )
+            det.activity = "standing"
+            result = smoother.smooth([det])
+
+        assert result[0].activity == "standing"

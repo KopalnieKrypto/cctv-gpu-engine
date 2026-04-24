@@ -155,6 +155,7 @@ def classify_activity(det: Detection) -> Activity:
 
 
 SMOOTHING_WINDOW = 5
+DISPLACEMENT_WALK_THRESHOLD = 0.05
 
 
 def _bbox_center(det: Detection) -> tuple[float, float]:
@@ -163,11 +164,17 @@ def _bbox_center(det: Detection) -> tuple[float, float]:
 
 
 class ActivitySmoother:
-    """Sliding-window majority vote over recent frames.
+    """Sliding-window majority vote + displacement-based walking override.
 
     Matches detections across frames by nearest bbox center (no tracking ID
-    needed) and replaces each detection's activity with the majority vote
-    over the last ``window`` frames.
+    needed).  Two corrections are applied before the majority vote:
+
+    1. **Displacement walking** — if the bbox center moved more than
+       ``DISPLACEMENT_WALK_THRESHOLD`` (normalised by bbox height) since the
+       previous frame, a ``standing`` classification is upgraded to
+       ``walking``.  This catches frontal walking that stride-ratio misses.
+    2. **Majority vote** — the (possibly corrected) raw label is voted
+       against the last ``window`` frames to smooth flickering.
     """
 
     def __init__(self, window: int = SMOOTHING_WINDOW) -> None:
@@ -176,10 +183,23 @@ class ActivitySmoother:
         self._history: list[list[tuple[float, float, str]]] = []
 
     def smooth(self, detections: list[Detection]) -> list[Detection]:
+        prev_frame = self._history[-1] if self._history else []
         current: list[tuple[float, float, str]] = []
         for det in detections:
             cx, cy = _bbox_center(det)
+            bbox_h = det.bbox[3] - det.bbox[1]
             raw_activity = det.activity
+
+            # Displacement override: standing → walking when person is moving.
+            if prev_frame and raw_activity == "standing" and bbox_h > 1e-6:
+                best_dist = float("inf")
+                for px, py, _pact in prev_frame:
+                    d = math.hypot(cx - px, cy - py)
+                    if d < best_dist:
+                        best_dist = d
+                if best_dist / bbox_h > DISPLACEMENT_WALK_THRESHOLD:
+                    raw_activity = "walking"
+
             votes: list[str] = [raw_activity]
             for past_frame in self._history:
                 best_dist = float("inf")
