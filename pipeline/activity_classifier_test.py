@@ -208,24 +208,26 @@ class TestSittingFallbackImproved:
 
 
 class TestActivitySmoother:
-    def test_smoother_stabilizes_flickering(self):
+    def test_smoother_stabilizes_flickering_while_walking(self):
         from pipeline.activity_classifier import ActivitySmoother
 
         smoother = ActivitySmoother(window=5)
-        # Simulate 5 frames of a single person with flickering labels.
+        # Simulate 5 frames of a walking person with flickering raw labels.
+        # Person moves ~100px/frame (norm_disp ≈ 0.17 > 0.05), so
+        # "standing" frames get displacement-corrected to "walking".
         activities = ["walking", "standing", "walking", "walking", "standing"]
-        for act in activities:
+        for i, act in enumerate(activities):
+            x_offset = i * 100
             det = _person(
-                bbox=(100, 0, 300, 600),
-                shoulders=((180, 100), (220, 100)),
-                hips=((180, 300), (220, 300)),
-                knees=((180, 450), (220, 450)),
-                ankles=((180, 600), (220, 600)),
+                bbox=(100 + x_offset, 0, 300 + x_offset, 600),
+                shoulders=((180 + x_offset, 100), (220 + x_offset, 100)),
+                hips=((180 + x_offset, 300), (220 + x_offset, 300)),
+                knees=((180 + x_offset, 450), (220 + x_offset, 450)),
+                ankles=((180 + x_offset, 600), (220 + x_offset, 600)),
             )
             det.activity = act
             result = smoother.smooth([det])
 
-        # After 5 frames (3 walking, 2 standing), majority = walking.
         assert result[0].activity == "walking"
 
     def test_smoother_passes_through_with_single_frame(self):
@@ -321,6 +323,26 @@ class TestActivitySmoother:
 
         # Displacement override only applies to "standing", not "sitting".
         assert result[0].activity == "sitting"
+
+    def test_displacement_corrects_walking_to_standing_when_stationary(self):
+        from pipeline.activity_classifier import ActivitySmoother
+
+        smoother = ActivitySmoother(window=3)
+        # Two frames at same position. Raw says "walking" (stride_ratio
+        # triggered) but person is not moving → corrected to "standing".
+        for _ in range(3):
+            det = _person(
+                bbox=(100, 0, 300, 600),
+                shoulders=((180, 100), (220, 100)),
+                hips=((180, 300), (220, 300)),
+                knees=((180, 450), (220, 450)),
+                ankles=((180, 600), (220, 600)),
+            )
+            det.activity = "walking"
+            result = smoother.smooth([det])
+
+        # After initial frame, "walking" should be corrected to "standing".
+        assert result[0].activity == "standing"
 
     def test_no_displacement_keeps_standing(self):
         from pipeline.activity_classifier import ActivitySmoother

@@ -190,15 +190,20 @@ class ActivitySmoother:
             bbox_h = det.bbox[3] - det.bbox[1]
             raw_activity = det.activity
 
-            # Displacement override: standing → walking when person is moving.
-            if prev_frame and raw_activity == "standing" and bbox_h > 1e-6:
+            # Displacement corrections when we have a previous frame.
+            if prev_frame and bbox_h > 1e-6:
                 best_dist = float("inf")
                 for px, py, _pact in prev_frame:
                     d = math.hypot(cx - px, cy - py)
                     if d < best_dist:
                         best_dist = d
-                if best_dist / bbox_h > DISPLACEMENT_WALK_THRESHOLD:
+                norm_disp = best_dist / bbox_h
+                if raw_activity == "standing" and norm_disp > DISPLACEMENT_WALK_THRESHOLD:
+                    # Person is moving but stride_ratio missed it (frontal walk).
                     raw_activity = "walking"
+                elif raw_activity == "walking" and norm_disp <= DISPLACEMENT_WALK_THRESHOLD:
+                    # Stride_ratio triggered walking but person is stationary.
+                    raw_activity = "standing"
 
             votes: list[str] = [raw_activity]
             for past_frame in self._history:
