@@ -21,6 +21,9 @@ services:
       # YOLOv11n-pose ONNX model — mounted, not baked into the image,
       # to keep the image under the 5GB acceptance criterion.
       - ./models:/app/models:ro
+      # HuggingFace cache for VLM model (Qwen2.5-VL-3B). Persisted so the
+      # ~6GB model download survives container restarts.
+      - hf-cache:/root/.cache/huggingface
       # Workdir for downloaded chunks. Bind-mounting to a host path makes
       # `docker compose down` survive in-flight job state inspection.
       - cctv-workdir:/tmp/cctv-jobs
@@ -33,4 +36,5 @@ services:
               capabilities: [gpu]
 
 volumes:
+  hf-cache:
   cctv-workdir:
