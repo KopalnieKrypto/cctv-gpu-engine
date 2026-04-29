@@ -296,6 +296,47 @@ class TestRunFullVideoToHtml:
         assert all(0 <= p <= 100 for p in seen)
         assert seen[-1] == 100
 
+    def test_progress_callback_fires_intra_chunk_for_long_chunks(self, mocker):
+        """Long chunks fire ``progress`` every ``PROGRESS_FRAME_INTERVAL`` frames.
+
+        Without this, gpu_service.metrics.MetricsAggregator only samples at
+        chunk boundaries — for a single-chunk job that means *2 samples total*
+        and ``gpu_util_peak`` is sampled outside the hot path. Telemetry
+        cadence = progress cadence, so we assert the cadence here.
+        """
+        from pathlib import Path
+
+        from pipeline.analyze import PROGRESS_FRAME_INTERVAL, run_full_video_to_html
+
+        fake_frame = np.zeros((40, 60, 3), dtype=np.uint8)
+        # 30 frames in a single chunk → expect chunk-start ticks at frames
+        # 3, 6, 9, ... 30 (10 of them) plus the chunk-end tick at 100%.
+        chunk_frames = [(float(i), fake_frame) for i in range(30)]
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            side_effect=[iter(chunk_frames)],
+        )
+        fake_detector = MagicMock()
+        fake_detector.detect.return_value = []
+        mocker.patch(
+            "pipeline.analyze.load_pose_model",
+            return_value=fake_detector,
+        )
+
+        seen: list[int] = []
+        run_full_video_to_html(
+            [Path("only.mp4")],
+            progress=seen.append,
+        )
+
+        expected_intra = len(chunk_frames) // PROGRESS_FRAME_INTERVAL
+        # >= because chunk-end may coincide with an intra tick — be lenient
+        # on the exact count, strict on the cadence floor.
+        assert len(seen) >= expected_intra + 1
+        assert seen == sorted(seen)
+        assert all(0 <= p <= 100 for p in seen)
+        assert seen[-1] == 100
+
     def test_pipeline_runtime_error_propagates_uncaught(self, mocker):
         from pathlib import Path
 

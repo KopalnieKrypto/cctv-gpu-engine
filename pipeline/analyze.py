@@ -33,6 +33,13 @@ from pipeline.video_frames import iter_frames
 
 DEFAULT_FPS = 1
 
+# How often (in processed frames) to fire the progress callback during a chunk.
+# Each call doubles as a telemetry sampling tick for gpu_service.worker — too
+# rare and gpu_util_peak is noise (sampled outside the hot path); too frequent
+# and we burn R2 PUTs writing status.json. 3 frames at 1 fps → ~1 sample/3s,
+# ~100 samples on a 5-min job — the sweet spot user asked for.
+PROGRESS_FRAME_INTERVAL = 3
+
 
 def run_full_video_to_html(
     chunks: list[Path],
@@ -53,9 +60,14 @@ def run_full_video_to_html(
     for sitting/standing classification + YOLO displacement for walking
     (slower, camera-angle independent, much better accuracy).
 
-    ``progress`` — if given, called at end-of-chunk boundaries with an int
-    percentage 0-100. The pipeline ``RuntimeError`` (e.g. CUDA missing) is
-    *not* caught here; callers (CLI, gpu-service worker) decide how to react.
+    ``progress`` — if given, called every ``PROGRESS_FRAME_INTERVAL`` frames
+    *and* at every end-of-chunk boundary with an int percentage 0-100. The
+    intra-chunk calls report the chunk-start percentage (so the value stays
+    monotonically non-decreasing) but still tick the worker's telemetry
+    sampler — without them, gpu_service.metrics.MetricsAggregator only sees
+    chunk boundaries and ``gpu_util_peak`` is sampled outside the hot path.
+    The pipeline ``RuntimeError`` (e.g. CUDA missing) is *not* caught here;
+    callers (CLI, gpu-service worker) decide how to react.
     """
     import math
 
@@ -77,7 +89,9 @@ def run_full_video_to_html(
 
         time_offset = 0.0
         step = 1.0 / fps
+        frames_since_progress = 0
         for chunk_index, chunk in enumerate(chunks):
+            chunk_start_pct = int(chunk_index / len(chunks) * 100)
             last_ts = time_offset
             for timestamp_s, frame in iter_frames(str(chunk), fps=fps):
                 shifted = timestamp_s + time_offset
@@ -108,6 +122,10 @@ def run_full_video_to_html(
 
                 aggregator.add_frame(timestamp_s=shifted, frame=frame, detections=detections)
                 last_ts = shifted
+                frames_since_progress += 1
+                if progress is not None and frames_since_progress >= PROGRESS_FRAME_INTERVAL:
+                    frames_since_progress = 0
+                    progress(chunk_start_pct)
             time_offset = last_ts + step
             if progress is not None:
                 progress(int((chunk_index + 1) / len(chunks) * 100))
@@ -117,7 +135,9 @@ def run_full_video_to_html(
         smoother = ActivitySmoother()
         time_offset = 0.0
         step = 1.0 / fps
+        frames_since_progress = 0
         for chunk_index, chunk in enumerate(chunks):
+            chunk_start_pct = int(chunk_index / len(chunks) * 100)
             last_ts = time_offset
             for timestamp_s, frame in iter_frames(str(chunk), fps=fps):
                 shifted = timestamp_s + time_offset
@@ -125,6 +145,10 @@ def run_full_video_to_html(
                 detections = smoother.smooth(detections)
                 aggregator.add_frame(timestamp_s=shifted, frame=frame, detections=detections)
                 last_ts = shifted
+                frames_since_progress += 1
+                if progress is not None and frames_since_progress >= PROGRESS_FRAME_INTERVAL:
+                    frames_since_progress = 0
+                    progress(chunk_start_pct)
             time_offset = last_ts + step
             if progress is not None:
                 progress(int((chunk_index + 1) / len(chunks) * 100))
