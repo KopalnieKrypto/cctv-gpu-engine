@@ -185,6 +185,113 @@ def test_render_dashboard_html_has_meta_refresh_tag() -> None:
     assert 'http-equiv="refresh"' in html.lower()
 
 
+def test_list_jobs_extracts_metrics_summary() -> None:
+    """status['metrics'] (peak/avg dict from worker) lands on JobSummary fields.
+
+    Worker writes a ``metrics`` sub-dict via ``MetricsAggregator.summary``;
+    the dashboard surfaces five of those keys in the table next to each job.
+    """
+    fake = FakeR2(
+        [
+            (
+                "job-with-metrics",
+                {
+                    "status": "completed",
+                    "updated_at": "2026-04-29T07:00:00Z",
+                    "metrics": {
+                        "samples_count": 4,
+                        "gpu_util_peak_pct": 78,
+                        "gpu_temp_peak_c": 72,
+                        "cpu_util_peak_pct": 85,
+                        "ram_used_peak_pct": 42,
+                        "disk_used_pct": 31,
+                    },
+                },
+            ),
+        ]
+    )
+
+    [job] = list_jobs(fake)
+    assert job.gpu_util_peak_pct == 78
+    assert job.gpu_temp_peak_c == 72
+    assert job.cpu_util_peak_pct == 85
+    assert job.ram_used_peak_pct == 42
+    assert job.disk_used_pct == 31
+
+
+def test_list_jobs_metrics_missing_yields_none() -> None:
+    """status without ``metrics`` (legacy job, or finished pre-telemetry) →
+    every metric field is None and the template can render ``—``."""
+    fake = FakeR2(
+        [
+            (
+                "old-job",
+                {"status": "completed", "updated_at": "2026-04-08T10:00:00Z"},
+            ),
+        ]
+    )
+
+    [job] = list_jobs(fake)
+    assert job.gpu_util_peak_pct is None
+    assert job.gpu_temp_peak_c is None
+    assert job.cpu_util_peak_pct is None
+    assert job.ram_used_peak_pct is None
+    assert job.disk_used_pct is None
+
+
+def test_render_dashboard_html_shows_metrics_columns_and_values() -> None:
+    """The five telemetry columns appear in the header AND a job's values
+    are rendered in the row."""
+    jobs = [
+        JobSummary(
+            job_id="job-m",
+            status="completed",
+            updated_at="2026-04-29T07:00:00Z",
+            duration_s=120.0,
+            error=None,
+            gpu_util_peak_pct=78,
+            gpu_temp_peak_c=72,
+            cpu_util_peak_pct=85,
+            ram_used_peak_pct=42,
+            disk_used_pct=31,
+        ),
+    ]
+
+    html = render_dashboard_html(jobs)
+
+    # Headers (the user-facing column labels).
+    assert "GPU%" in html
+    assert "GPU °C" in html or "GPU \xb0C" in html
+    assert "CPU%" in html
+    assert "RAM%" in html
+    assert "Disk%" in html
+
+    # Values — formatted as integers per the template's "%.0f".
+    assert ">78<" in html  # gpu util peak
+    assert ">72<" in html  # gpu temp peak
+    assert ">85<" in html  # cpu peak
+    assert ">42<" in html  # ram peak
+    assert ">31<" in html  # disk used
+
+
+def test_render_dashboard_html_renders_em_dash_for_missing_metrics() -> None:
+    """Legacy job with no telemetry → the row shows ``—`` placeholders, not 0
+    or empty cells (so investors can tell 'no data' apart from 'idle')."""
+    jobs = [
+        JobSummary(
+            job_id="legacy",
+            status="completed",
+            updated_at="2026-04-08T10:00:00Z",
+            duration_s=None,
+            error=None,
+        ),
+    ]
+
+    html = render_dashboard_html(jobs)
+    # At least 6 dashes — one for duration plus one per metric column.
+    assert html.count("—") >= 6
+
+
 # ----- HTTP handler -----
 #
 # We exercise the BaseHTTPRequestHandler subclass without binding a real

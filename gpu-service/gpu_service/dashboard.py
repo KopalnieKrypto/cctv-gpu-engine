@@ -57,6 +57,12 @@ class JobSummary:
     Built from a raw R2 ``status.json`` payload by :func:`list_jobs`. Kept as
     a frozen dataclass so the rendering layer can rely on a stable shape and
     so equality checks make tests trivial.
+
+    Telemetry fields (gpu_*, cpu_*, ram_*, disk_*) are populated from the
+    ``metrics`` sub-dict written by :func:`gpu_service.worker.process_job`.
+    They stay ``None`` for jobs that ran before telemetry was added or
+    finished before the first progress callback fired — the template renders
+    ``—`` in that case.
     """
 
     job_id: str
@@ -64,15 +70,26 @@ class JobSummary:
     updated_at: str
     duration_s: float | None
     error: str | None
+    gpu_util_peak_pct: float | None = None
+    gpu_temp_peak_c: float | None = None
+    cpu_util_peak_pct: float | None = None
+    ram_used_peak_pct: float | None = None
+    disk_used_pct: float | None = None
 
 
 def _summarize(job_id: str, status: dict[str, Any]) -> JobSummary:
+    metrics = status.get("metrics") or {}
     return JobSummary(
         job_id=job_id,
         status=str(status.get("status", "unknown")),
         updated_at=str(status.get("updated_at", "")),
         duration_s=_compute_duration_s(status),
         error=status.get("error") or None,
+        gpu_util_peak_pct=metrics.get("gpu_util_peak_pct"),
+        gpu_temp_peak_c=metrics.get("gpu_temp_peak_c"),
+        cpu_util_peak_pct=metrics.get("cpu_util_peak_pct"),
+        ram_used_peak_pct=metrics.get("ram_used_peak_pct"),
+        disk_used_pct=metrics.get("disk_used_pct"),
     )
 
 
@@ -103,6 +120,7 @@ _DASHBOARD_TEMPLATE = """<!doctype html>
  .status-failed    { color: #a00; }
  .status-processing { color: #036; }
  .status-pending   { color: #666; }
+ .metric { text-align: right; font-variant-numeric: tabular-nums; }
  .error { color: #a00; font-family: monospace; font-size: 12px; }
 </style>
 </head>
@@ -111,7 +129,13 @@ _DASHBOARD_TEMPLATE = """<!doctype html>
 {% if jobs %}
 <table>
 <thead><tr>
- <th>Job ID</th><th>Status</th><th>Updated</th><th>Duration</th><th>Error</th>
+ <th>Job ID</th><th>Status</th><th>Updated</th><th>Duration</th>
+ <th title="Peak GPU utilization %">GPU%</th>
+ <th title="Peak GPU temperature °C">GPU °C</th>
+ <th title="Peak CPU utilization %">CPU%</th>
+ <th title="Peak system RAM usage %">RAM%</th>
+ <th title="Disk usage % of root partition at job end">Disk%</th>
+ <th>Error</th>
 </tr></thead>
 <tbody>
 {% for j in jobs %}
@@ -119,7 +143,12 @@ _DASHBOARD_TEMPLATE = """<!doctype html>
  <td>{{ j.job_id }}</td>
  <td class="status-{{ j.status }}">{{ j.status }}</td>
  <td>{{ j.updated_at }}</td>
- <td>{{ j.duration_s | round(1) if j.duration_s is not none else "—" }}</td>
+ <td class="metric">{{ fmt_metric(j.duration_s, 1) }}</td>
+ <td class="metric">{{ fmt_metric(j.gpu_util_peak_pct) }}</td>
+ <td class="metric">{{ fmt_metric(j.gpu_temp_peak_c) }}</td>
+ <td class="metric">{{ fmt_metric(j.cpu_util_peak_pct) }}</td>
+ <td class="metric">{{ fmt_metric(j.ram_used_peak_pct) }}</td>
+ <td class="metric">{{ fmt_metric(j.disk_used_pct) }}</td>
  <td class="error">{{ j.error or "" }}</td>
 </tr>
 {% endfor %}
@@ -131,6 +160,18 @@ _DASHBOARD_TEMPLATE = """<!doctype html>
 </body>
 </html>
 """
+
+
+def _fmt_metric(value: float | None, digits: int = 0) -> str:
+    """Format a numeric metric for the dashboard table.
+
+    Returns an em-dash for ``None`` so the eye can tell 'no data recorded'
+    apart from a real ``0`` reading. ``digits=1`` is used for the duration
+    column; metrics columns use the default ``digits=0`` (whole percent).
+    """
+    if value is None:
+        return "—"
+    return f"{value:.{digits}f}"
 
 
 def make_handler(client: DashboardR2Like) -> type:
@@ -196,5 +237,6 @@ def render_dashboard_html(jobs: list[JobSummary]) -> str:
     from jinja2 import Environment, select_autoescape
 
     env = Environment(autoescape=select_autoescape(["html", "xml"]))
+    env.globals["fmt_metric"] = _fmt_metric
     template = env.from_string(_DASHBOARD_TEMPLATE)
     return template.render(jobs=jobs)

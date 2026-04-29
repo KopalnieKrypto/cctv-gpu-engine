@@ -14,7 +14,7 @@
 #   make test-gpu TEST_VIDEO=test-data/cctv-1h.mp4 TEST_TIMESTAMP=120
 TEST_VIDEO ?= test-data/sample.mp4
 TEST_TIMESTAMP ?= 5
-MODEL ?= models/yolo11n-pose.onnx
+MODEL ?= models/yolo11s-pose.onnx
 
 REPORT_OUTPUT ?= report.html
 

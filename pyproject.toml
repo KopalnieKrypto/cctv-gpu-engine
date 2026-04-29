@@ -35,6 +35,13 @@ gpu = [
     # silently falls back to CPU (libcublasLt.so.12 missing).
     "onnxruntime-gpu[cuda,cudnn]>=1.17 ; sys_platform == 'linux'",
     "nvidia-cublas-cu12>=12.0 ; sys_platform == 'linux'",
+    # Per-job telemetry collected by gpu_service.metrics.SystemMetricsCollector:
+    # psutil for CPU/RAM/disk, nvidia-ml-py (the official NVML wrapper, imported
+    # as `pynvml`) for GPU utilization/temp/memory. Linux-only because the
+    # collector only runs inside the gpu-service container on the GPU box;
+    # macOS dev unit tests use the in-memory FakeMetricsCollector instead.
+    "psutil>=6.0 ; sys_platform == 'linux'",
+    "nvidia-ml-py>=12.0 ; sys_platform == 'linux'",
 ]
 cpu-stub = [
     "onnxruntime>=1.17",

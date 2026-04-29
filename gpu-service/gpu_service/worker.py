@@ -19,6 +19,11 @@ The pipeline interface is::
 
 where ``ProgressCallback`` accepts an int 0-100 to be persisted into
 ``status.json``.
+
+Optional ``MetricsCollector`` (see :mod:`gpu_service.metrics`) is sampled on
+every progress callback; per-job peak/avg telemetry lands in
+``status.json["metrics"]`` so the dashboard can show GPU/CPU/RAM/disk usage
+alongside each job.
 """
 
 from __future__ import annotations
@@ -29,6 +34,8 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
+
+from gpu_service.metrics import MetricsAggregator, MetricsCollector
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +85,7 @@ def process_job(
     pipeline: PipelineFn,
     workdir: Path,
     now: NowFn = _utc_now_iso,
+    metrics_collector: MetricsCollector | None = None,
 ) -> str:
     """Run a single job's lifecycle. Returns the final outcome.
 
@@ -89,6 +97,12 @@ def process_job(
 
     The worker never raises out of this function for expected errors — those
     are recorded into ``status.json`` so the polling loop can keep going.
+
+    When ``metrics_collector`` is provided, ``status.json`` gains a ``metrics``
+    key with peak/avg of GPU/CPU/RAM/disk sampled on every progress callback
+    plus one final sample taken right before the ``completed`` write. ``None``
+    keeps the original (metrics-free) status payload — preserved for tests
+    and any future caller that doesn't need telemetry.
     """
     status = client.get_status(job_id)
     if status is None or status.get("status") != "pending":
@@ -118,10 +132,15 @@ def process_job(
             now,
         )
 
+    aggregator = MetricsAggregator()
+
     def report_progress(pct: int) -> None:
         current = client.get_status(job_id)
         if current is None:
             return
+        if metrics_collector is not None:
+            aggregator.add(metrics_collector.sample())
+            current["metrics"] = aggregator.summary()
         current["progress_pct"] = pct
         current["updated_at"] = now()
         client.put_status(job_id, current)
@@ -137,6 +156,12 @@ def process_job(
     final["progress_pct"] = 100
     final["report_key"] = report_key
     final["error"] = None
+    if metrics_collector is not None:
+        # Final post-pipeline sample so the recorded peak reflects the full
+        # job duration even if the last chunk's progress(100) call already
+        # fired before we got here.
+        aggregator.add(metrics_collector.sample())
+        final["metrics"] = aggregator.summary()
     final["updated_at"] = now()
     client.put_status(job_id, final)
     return "completed"
@@ -151,6 +176,7 @@ def worker_loop(
     sleep: Callable[[float], None] = time.sleep,
     max_iterations: int | None = None,
     now: NowFn = _utc_now_iso,
+    metrics_collector: MetricsCollector | None = None,
 ) -> None:
     """Long-running poll loop: discover pending jobs, process them, sleep.
 
@@ -181,6 +207,7 @@ def worker_loop(
                     pipeline=pipeline,
                     workdir=workdir,
                     now=now,
+                    metrics_collector=metrics_collector,
                 )
             except Exception:
                 # Defense in depth — process_job already records failures into
@@ -194,6 +221,26 @@ def worker_loop(
 
 
 _REQUIRED_ENV = ("R2_ENDPOINT", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY")
+
+
+def _build_metrics_collector() -> MetricsCollector:
+    """Construct the production telemetry collector with a graceful fallback.
+
+    On a Linux gpu-service container this returns a ``SystemMetricsCollector``
+    backed by psutil + NVML. On a host where either dependency fails to
+    import (or NVML init fails on a no-GPU box), we log and fall back to
+    ``NullMetricsCollector`` so the worker keeps running — the dashboard
+    just shows ``—`` in metrics columns.
+    """
+    try:
+        from gpu_service.metrics import SystemMetricsCollector
+
+        return SystemMetricsCollector()
+    except Exception as exc:  # noqa: BLE001 — psutil missing, NVML failed, etc.
+        logger.warning("metrics collector init failed (%s) — telemetry disabled", exc)
+        from gpu_service.metrics import NullMetricsCollector
+
+        return NullMetricsCollector()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -234,12 +281,18 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     classifier = os.environ.get("CLASSIFIER", "heuristic")
+    model_path = os.environ.get("MODEL_PATH", "models/yolo11s-pose.onnx")
 
     def pipeline(chunks: list[Path], progress: ProgressCallback) -> bytes:
         # Lazy import: keeps the unit-test path free of onnxruntime / GPU deps.
         from pipeline.analyze import run_full_video_to_html
 
-        return run_full_video_to_html(chunks, progress=progress, classifier=classifier)
+        return run_full_video_to_html(
+            chunks,
+            progress=progress,
+            model_path=model_path,
+            classifier=classifier,
+        )
 
     workdir.mkdir(parents=True, exist_ok=True)
 
@@ -260,13 +313,22 @@ def main(argv: list[str] | None = None) -> int:
     dashboard_thread.start()
     logger.info("dashboard listening on :%d/dashboard", dashboard_port)
 
-    logger.info("starting worker_loop worker_id=%s bucket=%s", worker_id, bucket)
+    metrics_collector = _build_metrics_collector()
+
+    logger.info(
+        "starting worker_loop worker_id=%s bucket=%s model=%s classifier=%s",
+        worker_id,
+        bucket,
+        model_path,
+        classifier,
+    )
     worker_loop(
         client=client,
         worker_id=worker_id,
         pipeline=pipeline,
         workdir=workdir,
         poll_interval_s=poll_interval_s,
+        metrics_collector=metrics_collector,
     )
     return 0
 

@@ -1,25 +1,33 @@
 #!/usr/bin/env bash
 # Download the canonical YOLO pose ONNX model into ./models/.
 #
-# Default: YOLO11n-pose v1.0 (12 MB nano model, fast — fine for prototyping
-# on RTX 5070). Pinned to a versioned GitHub release so every checkout of
-# the repo lands the *same* weights — `yolo export` from ultralytics would
-# otherwise resolve to whatever upstream tagged latest at fetch time.
+# Default: YOLO11s-pose v1.0 (38 MB small model, ~150 ms/frame on RTX 5070,
+# noticeably better detection than nano). Pinned to a versioned GitHub
+# release so every checkout of the repo lands the *same* weights —
+# `yolo export` from ultralytics would otherwise resolve to whatever
+# upstream tagged latest at fetch time.
 #
-# Want a bigger model (s / m / l / x) for higher accuracy? Don't use this
-# script — see README "Using a different model size" for the
-# `yolo export` one-liner. The pipeline only assumes the standard YOLO11*-pose
-# output layout ([1,56,N] — 4 bbox + 1 conf + 17×3 keypoints), so any
-# yolo11{n,s,m,l,x}-pose ONNX exported at imgsz=640 will work as a drop-in.
+# Need the smaller `n` variant (12 MB, ~70 ms/frame) for low-latency runs?
+# Override the env vars:
+#   MODEL_TAG=yolo11n-pose-v1.0 \
+#   MODEL_FILE=yolo11n-pose.onnx \
+#   MODEL_SHA256=70bd721f9cb797eb44cbc70bc65213397a0a26da38fe6fd5ccdf699016d33d3c \
+#   ./setup-models.sh
+#
+# Want an even bigger model (m / l / x) for higher accuracy? Don't use
+# this script — see README "Using a different model size" for the
+# `yolo export` one-liner. The pipeline only assumes the standard
+# YOLO11*-pose output layout ([1,56,N] — 4 bbox + 1 conf + 17×3 keypoints),
+# so any yolo11{n,s,m,l,x}-pose ONNX exported at imgsz=640 is a drop-in.
 
 set -euo pipefail
 
 # Pin both the release tag AND the expected sha256 so an unexpected file
 # swap on the GitHub release (compromise, accidental re-upload) fails the
 # script instead of silently substituting weights.
-MODEL_TAG="${MODEL_TAG:-yolo11n-pose-v1.0}"
-MODEL_FILE="${MODEL_FILE:-yolo11n-pose.onnx}"
-MODEL_SHA256="${MODEL_SHA256:-70bd721f9cb797eb44cbc70bc65213397a0a26da38fe6fd5ccdf699016d33d3c}"
+MODEL_TAG="${MODEL_TAG:-yolo11s-pose-v1.0}"
+MODEL_FILE="${MODEL_FILE:-yolo11s-pose.onnx}"
+MODEL_SHA256="${MODEL_SHA256:-469beac503fdc788ea3980331bc4bfbd2bd00de3772eb0984f4c53032740583f}"
 MODEL_URL="${MODEL_URL:-https://github.com/KopalnieKrypto/cctv-gpu-engine/releases/download/${MODEL_TAG}/${MODEL_FILE}}"
 
 DEST_DIR="models"

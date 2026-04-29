@@ -74,7 +74,7 @@ COPY pipeline /app/pipeline
 
 # Models are NOT baked into the image (would push it over 5GB). Mount the
 # host's models/ dir at runtime via docker compose.
-ENV MODEL_PATH=/app/models/yolo11n-pose.onnx \
+ENV MODEL_PATH=/app/models/yolo11s-pose.onnx \
     CLASSIFIER=vlm \
     DASHBOARD_PORT=5000 \
     WORKDIR=/tmp/cctv-jobs \

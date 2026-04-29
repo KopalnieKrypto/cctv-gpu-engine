@@ -37,7 +37,7 @@ DEFAULT_FPS = 1
 def run_full_video_to_html(
     chunks: list[Path],
     progress: Callable[[int], None] | None = None,
-    model_path: str = "models/yolo11n-pose.onnx",
+    model_path: str = "models/yolo11s-pose.onnx",
     fps: int = DEFAULT_FPS,
     classifier: str = "heuristic",
 ) -> bytes:
@@ -163,7 +163,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--model",
-        default="models/yolo11n-pose.onnx",
+        default="models/yolo11s-pose.onnx",
         help="Path to the YOLO-pose ONNX model file",
     )
     parser.add_argument(

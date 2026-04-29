@@ -18,7 +18,29 @@ import json
 from pathlib import Path
 from typing import Any
 
+from gpu_service.metrics import MetricsSample
 from gpu_service.worker import ProgressCallback, process_job, worker_loop
+
+
+class FakeMetricsCollector:
+    """Returns a pre-seeded sequence of MetricsSamples in order.
+
+    Mirrors the boundary-driven pattern used by InMemoryR2: a tiny in-memory
+    stand-in for the production collector so we never touch real psutil/NVML
+    in unit tests. When the seeded list is exhausted we keep returning the
+    last sample — process_job can call ``sample()`` more times than we
+    pre-baked (one extra final sample at completion).
+    """
+
+    def __init__(self, samples: list[MetricsSample]) -> None:
+        assert samples, "FakeMetricsCollector needs at least one seeded sample"
+        self._samples = list(samples)
+        self.call_count = 0
+
+    def sample(self) -> MetricsSample:
+        self.call_count += 1
+        idx = min(self.call_count - 1, len(self._samples) - 1)
+        return self._samples[idx]
 
 
 class InMemoryR2:
@@ -407,6 +429,97 @@ def test_worker_loop_processes_pending_then_sleeps(tmp_path: Path) -> None:
     assert r2.get_status("job-1")["status"] == "completed"
     assert r2.get_status("job-2")["status"] == "completed"
     assert sleep_calls == [7.5]
+
+
+def test_process_job_records_metrics_when_collector_provided(tmp_path: Path) -> None:
+    """Telemetry hook — passing a MetricsCollector populates status['metrics'].
+
+    The collector is sampled on every progress callback plus once more after
+    the pipeline finishes (so the recorded peak reflects the full job).
+    Status payload exposes the aggregator's summary keys (peak/avg) so the
+    dashboard can render GPU/CPU/RAM/disk columns next to each job.
+    """
+    r2 = InMemoryR2()
+    _seed_pending_job(r2, "job-metrics", ["chunk_001.mp4"])
+
+    collector = FakeMetricsCollector(
+        [
+            MetricsSample(
+                cpu_util_pct=10,
+                ram_used_pct=20,
+                disk_used_pct=30,
+                gpu_util_pct=40,
+                gpu_temp_c=55,
+                gpu_mem_used_mb=600,
+            ),
+            MetricsSample(
+                cpu_util_pct=85,
+                ram_used_pct=42,
+                disk_used_pct=31,
+                gpu_util_pct=78,
+                gpu_temp_c=72,
+                gpu_mem_used_mb=900,
+            ),
+        ]
+    )
+
+    def progressing_pipeline(chunks: list[Path], progress: ProgressCallback) -> bytes:
+        progress(50)
+        return b"<html>ok</html>"
+
+    result = process_job(
+        client=r2,
+        job_id="job-metrics",
+        worker_id="worker-1",
+        pipeline=progressing_pipeline,
+        workdir=tmp_path,
+        now=lambda: "2026-04-29T07:00:00Z",
+        metrics_collector=collector,
+    )
+
+    assert result == "completed"
+    # Two samples taken: one on progress(50), one final after upload.
+    assert collector.call_count == 2
+
+    final = r2.get_status("job-metrics")
+    assert final is not None
+    metrics = final["metrics"]
+    assert metrics["samples_count"] == 2
+    assert metrics["cpu_util_peak_pct"] == 85
+    assert metrics["gpu_util_peak_pct"] == 78
+    assert metrics["gpu_temp_peak_c"] == 72
+    assert metrics["ram_used_peak_pct"] == 42
+    # disk_used_pct = last sample
+    assert metrics["disk_used_pct"] == 31
+
+
+def test_process_job_works_without_collector(tmp_path: Path) -> None:
+    """Backward compat — omitting metrics_collector keeps status.json metrics-free.
+
+    Existing call sites and the worker_loop default path pass no collector;
+    status.json must not gain a stray ``metrics`` key in that case (the
+    dashboard treats its absence as 'no telemetry recorded').
+    """
+    r2 = InMemoryR2()
+    _seed_pending_job(r2, "job-no-metrics", ["chunk_001.mp4"])
+
+    def progressing_pipeline(chunks: list[Path], progress: ProgressCallback) -> bytes:
+        progress(33)
+        return b"<html>ok</html>"
+
+    result = process_job(
+        client=r2,
+        job_id="job-no-metrics",
+        worker_id="worker-1",
+        pipeline=progressing_pipeline,
+        workdir=tmp_path,
+        now=lambda: "2026-04-29T07:00:00Z",
+    )
+
+    assert result == "completed"
+    final = r2.get_status("job-no-metrics")
+    assert final is not None
+    assert "metrics" not in final
 
 
 class TestMainCli:

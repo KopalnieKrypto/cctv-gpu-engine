@@ -66,7 +66,7 @@ git clone https://github.com/KopalnieKrypto/cctv-gpu-engine.git
 cd cctv-gpu-engine
 
 # 2. Download the YOLO-pose model (NOT baked into the image to keep size down)
-./setup-models.sh   # curls models/yolo11n-pose.onnx (~12 MB) from GitHub release, sha256-verified
+./setup-models.sh   # curls models/yolo11s-pose.onnx (~38 MB) from GitHub release, sha256-verified
 
 # 3. Configure R2 credentials
 cp .env.gpu.example .env.gpu
@@ -87,7 +87,7 @@ curl http://localhost:5000/dashboard   # investor dashboard — shows job histor
 docker compose logs -f gpu-service     # should log "polling for pending jobs" every 30s
 ```
 
-The dashboard on `:5000` shows every job that's ever been processed (job id, status, duration, errors). It's read-only — pure observability. Refreshes itself every 10 seconds.
+The dashboard on `:5000` shows every job that's ever been processed (job id, status, duration, **per-job telemetry: peak GPU%, GPU temperature, peak CPU%, peak RAM%, disk usage**, and error). It's read-only — pure observability. Refreshes itself every 10 seconds. Telemetry is sampled by the worker on every progress callback (powered by `psutil` + NVML) and persisted into each job's `status.json` under `metrics`, so the same numbers are available programmatically via R2.
 
 **Healthcheck:** the container is "healthy" only when the dashboard responds with HTTP 200. If the worker crashes the daemon thread dies with it, so a 200 here means **both** processes are alive.
 
@@ -161,7 +161,7 @@ make test-gpu TEST_VIDEO=test-data/your.mp4        # end-to-end CUDA inference
 Or invoke the CLI directly:
 
 ```bash
-uv run python -m pipeline.analyze input.mp4 --timestamp 12.5 --model models/yolo11n-pose.onnx
+uv run python -m pipeline.analyze input.mp4 --timestamp 12.5 --model models/yolo11s-pose.onnx
 ```
 
 > A bare `uv sync` (no `--extra`) installs only numpy/pillow/opencv — handy for
@@ -169,25 +169,37 @@ uv run python -m pipeline.analyze input.mp4 --timestamp 12.5 --model models/yolo
 
 ### Using a different model size
 
-`./setup-models.sh` ships the **nano** variant (`yolo11n-pose.onnx`, 12 MB) — the
-fastest YOLO11 pose model, fine for prototyping and most CCTV use cases. If you
-need higher accuracy (small/distant subjects, harder camera angles, etc.) you
-can swap in any larger size: **s / m / l / x**.
+`./setup-models.sh` ships the **small** variant (`yolo11s-pose.onnx`, 38 MB) —
+sweet spot between detection accuracy and inference latency on RTX 5070.
+For low-latency / VRAM-constrained runs you can swap to **nano** (12 MB);
+for higher accuracy on tougher footage swap up to **m / l / x**.
 
 The pipeline only assumes the standard YOLO11*-pose ONNX shape
 (input `[1,3,640,640]`, output `[1,56,N]` — 4 bbox + 1 conf + 17×3 keypoints),
 so any `yolo11{n,s,m,l,x}-pose` exported at imgsz=640 is a drop-in.
 
-**1. Export the variant** (one-off, requires `ultralytics` — install in a
-throwaway venv so it doesn't pollute the project):
+**Switch back to nano (pinned release on GH):**
 
 ```bash
-# Pick one: yolo11s-pose, yolo11m-pose, yolo11l-pose, yolo11x-pose
-uvx --from ultralytics yolo export model=yolo11m-pose.pt format=onnx imgsz=640
+MODEL_TAG=yolo11n-pose-v1.0 \
+MODEL_FILE=yolo11n-pose.onnx \
+MODEL_SHA256=70bd721f9cb797eb44cbc70bc65213397a0a26da38fe6fd5ccdf699016d33d3c \
+./setup-models.sh
+```
+
+**Switch up to a bigger variant** (one-off — m/l/x aren't on GH releases,
+you export them yourself; ultralytics needs a few onnx deps in the same
+throwaway venv as itself):
+
+```bash
+# Pick one: yolo11m-pose, yolo11l-pose, yolo11x-pose
+uvx --with onnx --with onnxslim --with onnxruntime --from ultralytics \
+  yolo export model=yolo11m-pose.pt format=onnx imgsz=640
 mv yolo11m-pose.onnx models/
 ```
 
-**2. Point the pipeline at it** — every entry point takes `--model`:
+**Point the pipeline at it** — every entry point takes `--model` (CLI) or
+`MODEL_PATH` (gpu-service container):
 
 ```bash
 # Direct CLI
@@ -195,27 +207,26 @@ uv run python -m pipeline.analyze input.mp4 --model models/yolo11m-pose.onnx
 
 # make targets — override MODEL on the command line
 make test-gpu MODEL=models/yolo11m-pose.onnx TEST_VIDEO=test-data/your.mp4
-```
 
-**3. (Optional) make it the default for `gpu-service` / `client-agent`** by
-either renaming your file to `yolo11n-pose.onnx` (the hard-coded path
-`models/yolo11n-pose.onnx` is the worker default) or by passing
-`--model` through the worker entry point.
+# gpu-service container — set MODEL_PATH in your .env.gpu or compose file
+# (defaults to /app/models/yolo11s-pose.onnx)
+```
 
 **Trade-offs to expect:**
 
 | Variant | Size  | Speed (RTX 5070, ~ms/frame) | Accuracy |
 |---------|-------|------------------------------|----------|
-| nano    | 12 MB | ~100 ms                      | baseline |
-| small   | 36 MB | ~150 ms                      | +        |
+| nano    | 12 MB | ~70–100 ms                   | baseline |
+| **small** (default) | 38 MB | ~150 ms          | +        |
 | medium  | 76 MB | ~250 ms                      | ++       |
 | large   | 96 MB | ~350 ms                      | +++      |
 | xlarge  | 222 MB| ~500 ms                      | ++++     |
 
 Numbers are rough — measure on your hardware. The activity classifier and NMS
 thresholds (0.25 conf, 0.45 IoU) are size-independent so you don't need to retune.
-`setup-models.sh` is **only** for the canonical nano release; non-nano variants
-are export-it-yourself by design (we don't want to host every size on GH releases).
+`setup-models.sh` is pinned to the **nano** and **small** GH releases only;
+m/l/x variants are export-it-yourself by design (we don't want to host every
+size on GH releases).
 
 ## Report Output
 
@@ -263,8 +274,8 @@ Works on RTX 5070 and RTX 4090.
 ├── gpu-service/           # R2 polling worker + investor dashboard
 ├── client-agent/          # Flask UI + ffmpeg recorder + R2 uploader
 ├── scripts/               # Standalone test/benchmark scripts
-├── setup-models.sh        # curl + sha256-verify yolo11n-pose.onnx (GH release pin)
-├── models/                # yolo11n-pose.onnx (gitignored, fetched by setup-models.sh)
+├── setup-models.sh        # curl + sha256-verify yolo11s-pose.onnx (GH release pin)
+├── models/                # yolo11s-pose.onnx (gitignored, fetched by setup-models.sh)
 ├── test/                  # Validation scripts
 └── SPEC.md                # Full technical specification
 ```
