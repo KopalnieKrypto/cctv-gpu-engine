@@ -56,10 +56,20 @@ def render_report(data: ReportData) -> str:
     keyframes_b64 = []
     for kf in data.keyframes:
         annotated = annotate_frame(kf.frame, kf.detections)
+        # De-duplicate while preserving order — single-person frames have
+        # one activity, multi-person frames may show multiple ("sitting +
+        # walking") which the meta line surfaces verbatim.
+        seen: set[str] = set()
+        activities = []
+        for d in kf.detections:
+            if d.activity and d.activity not in seen:
+                seen.add(d.activity)
+                activities.append(d.activity)
         keyframes_b64.append(
             {
                 "timestamp_s": kf.timestamp_s,
                 "person_count": kf.person_count,
+                "activities": activities,
                 "b64": _encode_keyframe_to_base64_png(annotated),
             }
         )

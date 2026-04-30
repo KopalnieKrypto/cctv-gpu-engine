@@ -53,7 +53,7 @@
       <div class="keyframe">
         <img src="data:image/png;base64,{{ kf.b64 }}" alt="keyframe at {{ kf.timestamp_s }}s">
         <div class="meta">
-          t={{ "%.1f"|format(kf.timestamp_s) }}s — {{ kf.person_count }} person(s)
+          t={{ "%.1f"|format(kf.timestamp_s) }}s — {{ kf.person_count }} person(s){% if kf.activities %} — {{ kf.activities|join(", ") }}{% endif %}
         </div>
       </div>
     {% endfor %}

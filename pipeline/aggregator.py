@@ -66,8 +66,8 @@ class Aggregator:
     def __init__(
         self,
         fps: int = 1,
-        keyframe_count: int = 5,
-        keyframe_min_spacing_s: float = 120.0,
+        keyframe_count: int = 8,
+        keyframe_min_spacing_s: float = 30.0,
     ) -> None:
         self.fps = fps
         self.keyframe_count = keyframe_count
@@ -118,17 +118,55 @@ class Aggregator:
             )
 
     def _select_keyframes(self) -> list[Keyframe]:
-        """Greedy: sort by person_count desc, take top-K with ≥spacing gaps."""
-        ranked = sorted(self._candidates, key=lambda k: k.person_count, reverse=True)
+        """Two-pass selection: one keyframe per detected activity, then fill.
+
+        Pass 1 (per-activity coverage): for each activity that appeared in
+        the video, pick the candidate with the highest ``person_count`` (ties
+        broken by earliest timestamp). Different activities ⇒ different
+        scenes, so the spacing constraint does NOT apply between activities
+        — we want every observed activity represented in the report.
+
+        Pass 2 (fill): top up to ``keyframe_count`` from the highest
+        ``person_count`` remaining candidates, this time enforcing
+        ``keyframe_min_spacing_s`` against everything already selected so the
+        report doesn't show 5 nearly-identical frames.
+
+        Final list is sorted chronologically so the renderer gives a
+        narrative tour of the video.
+        """
+        if not self._candidates:
+            return []
+
         selected: list[Keyframe] = []
+        chosen_ids: set[int] = set()
+
+        # Pass 1 — at least one keyframe per activity that occurred.
+        for activity in ACTIVITIES:
+            cands = [
+                c for c in self._candidates if any(d.activity == activity for d in c.detections)
+            ]
+            if not cands:
+                continue
+            best = max(cands, key=lambda k: (k.person_count, -k.timestamp_s))
+            if id(best) not in chosen_ids:
+                selected.append(best)
+                chosen_ids.add(id(best))
+
+        # Pass 2 — fill remaining slots, this time enforcing min-spacing.
+        ranked = sorted(self._candidates, key=lambda k: k.person_count, reverse=True)
         for cand in ranked:
             if len(selected) >= self.keyframe_count:
                 break
+            if id(cand) in chosen_ids:
+                continue
             if all(
                 abs(cand.timestamp_s - k.timestamp_s) >= self.keyframe_min_spacing_s
                 for k in selected
             ):
                 selected.append(cand)
+                chosen_ids.add(id(cand))
+
+        selected.sort(key=lambda k: k.timestamp_s)
         return selected
 
     def build_report_data(self) -> ReportData:

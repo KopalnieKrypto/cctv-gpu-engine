@@ -208,3 +208,34 @@ class TestAggregatorKeyframes:
         report = agg.build_report_data()
 
         assert len(report.keyframes) == 2
+
+    def test_includes_at_least_one_keyframe_per_activity(self):
+        """Each activity that appears in the video gets a representative keyframe.
+
+        Without per-activity coverage, the report could legitimately ship 5
+        ``walking`` keyframes (because walking dominates by frame count) and
+        zero ``sitting`` even though sitting is present in the timeline —
+        the operator scanning the keyframes section gets a misleading
+        impression of what happened.
+        """
+        agg = Aggregator(fps=1, keyframe_count=8, keyframe_min_spacing_s=10.0)
+        # Walking dominates by count; one short sitting + one short standing.
+        for t in range(20):
+            agg.add_frame(float(t), _frame(), [_det("walking")])
+        agg.add_frame(50.0, _frame(), [_det("sitting")])
+        agg.add_frame(80.0, _frame(), [_det("standing")])
+
+        activities = {kf.detections[0].activity for kf in agg.build_report_data().keyframes}
+
+        assert {"walking", "sitting", "standing"}.issubset(activities)
+
+    def test_keyframes_returned_in_chronological_order(self):
+        """Sorting by timestamp produces a narrative tour through the video."""
+        agg = Aggregator(fps=1, keyframe_count=4, keyframe_min_spacing_s=0)
+        agg.add_frame(100.0, _frame(), [_det("walking")] * 3)
+        agg.add_frame(10.0, _frame(), [_det("sitting")])
+        agg.add_frame(200.0, _frame(), [_det("standing")] * 2)
+
+        timestamps = [kf.timestamp_s for kf in agg.build_report_data().keyframes]
+
+        assert timestamps == sorted(timestamps)
