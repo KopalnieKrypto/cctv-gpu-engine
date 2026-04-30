@@ -6,6 +6,10 @@ models/*.pt
 test-data/*.mp4
 test-data/*.avi
 
+# Local test artifacts — commit notes/reports only, regenerate binaries from R2
+jobs/*.mp4
+jobs/*.html
+
 # Python
 __pycache__/
 *.pyc
@@ -18,6 +22,7 @@ venv/
 
 # Environment
 .env
+.env.client
 
 # OS
 .DS_Store
