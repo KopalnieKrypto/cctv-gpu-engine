@@ -18,6 +18,15 @@ dependencies = [
     # gets it via plain `uv sync` and the same wheel cache the gpu-service
     # build uses.
     "flask>=3.0",
+    # ONVIF camera discovery for the client-agent (issue #21).
+    # ``WSDiscovery`` runs WS-Discovery multicast (UDP 239.255.255.250:3702),
+    # ``onvif-zeep`` does the per-device SOAP (GetDeviceInformation /
+    # GetStreamUri / GetSnapshotUri). Both pull pure-Python deps (zeep,
+    # lxml) — ~15 MB total. Live in the default install so the docker
+    # client-agent image gets them via plain ``uv sync``; the standalone
+    # appliance entrypoint (Phase 3) will reuse the same package.
+    "WSDiscovery>=2.0",
+    "onvif-zeep>=0.2",
 ]
 
 # ONNX Runtime is opt-in to keep `uv sync` lightweight (~50MB instead of ~1.5GB).

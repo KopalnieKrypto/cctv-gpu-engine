@@ -22,10 +22,14 @@ a shared module — out of scope for #7.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
+from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from flask import Flask, jsonify, redirect, request, url_for
+
+from client_agent.discovery import DiscoveredCamera
 
 
 class ClientR2Like(Protocol):
@@ -126,6 +130,13 @@ _UPLOAD_FORM_HTML = """<!doctype html>
 </fieldset>
 
 <fieldset>
+<legend>Wykryj kamery ONVIF w LAN</legend>
+<button type="button" onclick="discoverCameras()">Wykryj kamery</button>
+<p id="discover-status" style="margin: .5rem 0; color: #555;"></p>
+<ul id="discover-results" style="list-style: none; padding: 0; margin: 0;"></ul>
+</fieldset>
+
+<fieldset>
 <legend>Record from RTSP camera</legend>
 <form action="/start" method="post">
   <label>RTSP URL
@@ -171,10 +182,71 @@ function testConnection() {
   .catch(function(e) { alert('Request error: ' + e); })
   .finally(function() { btn.disabled = false; btn.textContent = 'Test connection'; });
 }
+
+function discoverCameras() {
+  var btn = event.target;
+  var status = document.getElementById('discover-status');
+  var list = document.getElementById('discover-results');
+  btn.disabled = true; btn.textContent = 'Skanuję...';
+  status.textContent = 'Wysyłam ONVIF probe (timeout 5s)...';
+  list.innerHTML = '';
+  fetch('/cameras/discover')
+   .then(function(r) { return r.json(); })
+   .then(function(data) {
+     if (data.error) {
+       status.textContent = 'Błąd: ' + data.error;
+       return;
+     }
+     if (!data.cameras.length) {
+       status.textContent = 'Nie znaleziono kamer ONVIF (skan: ' + data.scanned_at + ').';
+       return;
+     }
+     status.textContent = 'Znaleziono ' + data.cameras.length +
+       ' kamer (skan: ' + data.scanned_at + '). Kliknij aby wybrać.';
+     data.cameras.forEach(function(cam) {
+       var li = document.createElement('li');
+       li.style.cssText = 'border:1px solid #ccc;padding:.5rem;margin:.4rem 0;'
+         + 'cursor:pointer;display:flex;gap:.8rem;align-items:center;';
+       li.title = 'Kliknij, aby wkleić ' + cam.rtsp_url + ' do formularza';
+       var img = document.createElement('img');
+       img.alt = cam.vendor + ' ' + cam.model;
+       img.style.cssText = 'width:120px;height:90px;object-fit:cover;'
+         + 'background:#eee;border:1px solid #aaa;';
+       if (cam.snapshot_url) { img.src = cam.snapshot_url; }
+       var meta = document.createElement('div');
+       var badgeColor = cam.discovery_method === 'onvif' ? '#0a7' : '#d49a00';
+       var badgeText = cam.discovery_method === 'onvif' ? 'ONVIF' : 'RTSP scan';
+       var badge = '<span style="background:' + badgeColor + ';color:#fff;'
+         + 'padding:.1rem .4rem;border-radius:.2rem;font-size:.75em;'
+         + 'margin-right:.4rem;">' + badgeText + '</span>';
+       var credsHint = '';
+       if (cam.discovery_method === 'rtsp-scan' && cam.rtsp_url.indexOf('@') < 0) {
+         credsHint = '<br><em style="color:#a60;font-size:.85em;">'
+           + 'Brak creds w env — uzupełnij RTSP_DEFAULT_USER/PASS w .env.client</em>';
+       }
+       meta.innerHTML = badge + '<strong>' + (cam.vendor || '?') + ' '
+         + (cam.model || '?') + '</strong><br>' + cam.ip + ':' + cam.port
+         + '<br><code style="font-size:.85em;">' + cam.rtsp_url + '</code>'
+         + credsHint;
+       li.appendChild(img);
+       li.appendChild(meta);
+       li.onclick = function() {
+         document.getElementById('rtsp_url').value = cam.rtsp_url;
+         status.textContent = 'Wybrano ' + cam.ip + ' — RTSP URL wklejony do formularza.';
+       };
+       list.appendChild(li);
+     });
+   })
+   .catch(function(e) { status.textContent = 'Request error: ' + e; })
+   .finally(function() { btn.disabled = false; btn.textContent = 'Wykryj kamery'; });
+}
 </script>
 </body>
 </html>
 """
+
+
+DiscoverFn = Callable[[], list[DiscoveredCamera]]
 
 
 def create_app(
@@ -182,6 +254,7 @@ def create_app(
     *,
     job_id_factory=_default_job_id,
     recorder=None,
+    discover_fn: DiscoverFn | None = None,
 ) -> Flask:
     """Build a Flask app bound to the given R2 client and job_id factory.
 
@@ -191,6 +264,10 @@ def create_app(
     ``start``/``stop``/``status``/``probe`` so the tests can pass a fake.
     Passing ``None`` disables the RTSP routes; production wires the real
     Recorder in ``agent.py``.
+
+    ``discover_fn`` runs ONVIF WS-Discovery and returns the enriched camera
+    list. ``None`` disables ``GET /cameras/discover``; production wires the
+    real :func:`client_agent.discovery.discover_cameras`.
     """
     app = Flask(__name__)
 
@@ -346,6 +423,31 @@ def create_app(
                 # the operator can match files back to jobs without renaming.
                 "Content-Disposition": f'attachment; filename="report-{job_id}.html"',
             },
+        )
+
+    @app.get("/cameras/discover")
+    def cameras_discover():
+        # Same pattern as /start when no recorder is wired — a clear 404
+        # so the operator (or a curl probe) sees "not configured" rather
+        # than a confusing 500 traceback.
+        if discover_fn is None:
+            return ("camera discovery not configured", 404)
+        scanned_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        # Discovery touches the network (ONVIF multicast + per-device SOAP),
+        # so any failure mode — multicast blocked, slow camera, vendor
+        # quirk — must surface as JSON ``error: <msg>`` instead of a 500.
+        # Issue #21: response shape is ``{cameras, scanned_at, error: null|str}``
+        # *always*, so the UI's fetch().then() can render uniformly.
+        try:
+            cameras = discover_fn()
+        except Exception as exc:  # noqa: BLE001 — ONVIF/network is broad
+            return jsonify({"cameras": [], "scanned_at": scanned_at, "error": str(exc)})
+        return jsonify(
+            {
+                "cameras": [asdict(c) for c in cameras],
+                "scanned_at": scanned_at,
+                "error": None,
+            }
         )
 
     return app

@@ -30,6 +30,11 @@ from pathlib import Path
 
 from gpu_service.r2_client import R2Client
 
+from client_agent.discovery import (
+    discover_cameras,
+    make_real_rtsp_scan,
+    resolve_camera_credentials,
+)
 from client_agent.recorder import BackgroundRecorder, Recorder
 from client_agent.web import create_app
 
@@ -75,7 +80,25 @@ def main() -> None:
     )
     recorder = BackgroundRecorder(sync_recorder)
 
-    app = create_app(client, recorder=recorder)
+    # Discovery (issue #21): Stage 1 ONVIF + Stage 2 RTSP-scan, both wired
+    # to the same env-driven credentials resolver. Operators populate
+    # ``RTSP_DEFAULT_USER/PASS`` in ``.env.client`` (with optional per-IP
+    # overrides ``RTSP_CAM_<sanitized_ip>_USER/PASS``); both stages use
+    # those creds — Stage 1 hands them to ``ONVIFCamera``, Stage 2 embeds
+    # them in the RTSP URL templates. The resolver closes over a snapshot
+    # of ``os.environ`` so a long-running container always sees the same
+    # creds it started with (no surprise reloads on /cameras/discover).
+    env_snapshot = dict(os.environ)
+    creds_resolver = lambda ip: resolve_camera_credentials(ip, env_snapshot)  # noqa: E731
+    rtsp_scan = make_real_rtsp_scan(creds_resolver)
+
+    def _discover():
+        return discover_cameras(
+            credentials_resolver=creds_resolver,
+            rtsp_scan_fn=rtsp_scan,
+        )
+
+    app = create_app(client, recorder=recorder, discover_fn=_discover)
 
     logger.info(
         "client-agent web UI starting on http://0.0.0.0:8080 (bucket=%s, recordings=%s)",

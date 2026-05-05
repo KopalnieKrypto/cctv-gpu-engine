@@ -698,3 +698,153 @@ def test_post_stop_invokes_recorder_stop() -> None:
 
     assert resp.status_code == 200
     assert fake_recorder.stops == 1
+
+
+# ===== ONVIF discovery surface (issue #21) =====
+
+
+def test_get_cameras_discover_returns_json_with_cameras_and_scanned_at() -> None:
+    """`GET /cameras/discover` runs the injected discovery function and
+    returns JSON ``{cameras: [...], scanned_at: <iso>, error: null}``.
+
+    Acceptance criterion (#21): endpoint shape exactly as specified. The
+    discovery function is duck-typed and injected via ``create_app`` so
+    these tests never run real WS-Discovery — same pattern as the
+    recorder/R2 client. Cameras serialize as plain dicts so the JS in the
+    UI can render without a translation layer."""
+    from client_agent.discovery import DiscoveredCamera
+
+    cams = [
+        DiscoveredCamera(
+            ip="192.168.1.10",
+            port=80,
+            vendor="Hikvision",
+            model="DS-2CD2042",
+            rtsp_url="rtsp://192.168.1.10:554/Streaming/Channels/101",
+            snapshot_url="http://192.168.1.10/Streaming/Channels/101/picture",
+        ),
+        DiscoveredCamera(
+            ip="192.168.1.11",
+            port=80,
+            vendor="Dahua",
+            model="IPC-HFW1230S",
+            rtsp_url="rtsp://192.168.1.11:554/cam/realmonitor",
+            snapshot_url=None,
+        ),
+    ]
+
+    fake_r2 = FakeR2()
+    app = create_app(fake_r2, discover_fn=lambda: cams)
+    app.config["TESTING"] = True
+
+    resp = app.test_client().get("/cameras/discover")
+
+    assert resp.status_code == 200
+    assert resp.is_json
+    body = resp.get_json()
+    assert body["error"] is None
+    assert isinstance(body["scanned_at"], str) and body["scanned_at"].endswith("Z")
+    assert body["cameras"] == [
+        {
+            "ip": "192.168.1.10",
+            "port": 80,
+            "vendor": "Hikvision",
+            "model": "DS-2CD2042",
+            "rtsp_url": "rtsp://192.168.1.10:554/Streaming/Channels/101",
+            "snapshot_url": "http://192.168.1.10/Streaming/Channels/101/picture",
+            "discovery_method": "onvif",
+        },
+        {
+            "ip": "192.168.1.11",
+            "port": 80,
+            "vendor": "Dahua",
+            "model": "IPC-HFW1230S",
+            "rtsp_url": "rtsp://192.168.1.11:554/cam/realmonitor",
+            "snapshot_url": None,
+            "discovery_method": "onvif",
+        },
+    ]
+
+
+def test_get_cameras_discover_without_discover_fn_returns_404() -> None:
+    """Same shape as `/start` when no recorder is wired: a clear 404 with a
+    readable message. Tests that don't care about discovery don't have to
+    inject a fake."""
+    fake_r2 = FakeR2()
+    app = create_app(fake_r2)  # no discover_fn
+    app.config["TESTING"] = True
+
+    resp = app.test_client().get("/cameras/discover")
+
+    assert resp.status_code == 404
+    assert b"discovery" in resp.data.lower()
+
+
+def test_get_cameras_discover_surfaces_errors_as_json_error_field() -> None:
+    """When discovery raises (multicast blocked, ONVIF library failure,
+    network blip) the endpoint must still return 200 + JSON with the
+    error in the ``error`` field — never a 500 traceback.
+
+    The UI does ``fetch().then(r => r.json())`` and renders ``error`` as a
+    banner; a 500 with HTML body would break that contract. Issue #21:
+    "error: null|string"."""
+
+    def boom() -> list:
+        raise RuntimeError("multicast not reachable: blocked by docker bridge")
+
+    fake_r2 = FakeR2()
+    app = create_app(fake_r2, discover_fn=boom)
+    app.config["TESTING"] = True
+    # Make sure Flask doesn't re-raise in TESTING mode and skip our handler.
+    app.config["PROPAGATE_EXCEPTIONS"] = False
+
+    resp = app.test_client().get("/cameras/discover")
+
+    assert resp.status_code == 200
+    assert resp.is_json
+    body = resp.get_json()
+    assert body["cameras"] == []
+    assert isinstance(body["scanned_at"], str)
+    assert "multicast not reachable" in body["error"]
+
+
+def test_get_root_includes_camera_discovery_button_and_results_container() -> None:
+    """The same landing page that hosts the upload + RTSP forms must also
+    expose ONVIF discovery: a "Wykryj kamery" button, a results container,
+    and JS that (a) fetches /cameras/discover, (b) renders each camera with
+    a snapshot thumbnail (issue #21 design tweak — operator wybiera kamerę
+    po obrazie), and (c) on click pastes the rtsp_url into the existing
+    rtsp_url field. Substring assertions only — future template tweaks
+    don't have to fight a brittle DOM test."""
+    app, _, _ = _make_app_with_recorder()
+    body = app.test_client().get("/").get_data(as_text=True)
+
+    # Button + container are present and labeled in Polish (operator UX).
+    assert "Wykryj kamery" in body
+    # JS hits the new endpoint and uses snapshot_url for the thumbnail.
+    assert "/cameras/discover" in body
+    assert "snapshot_url" in body
+    # Click on a result must paste the rtsp_url into the existing input —
+    # otherwise the operator still has to copy/paste manually.
+    assert "rtsp_url" in body
+    # Vendor + model + IP must end up in the rendered list so the operator
+    # can disambiguate between identical-snapshot cameras.
+    for field in ("vendor", "model", "ip"):
+        assert field in body, f"missing field reference {field!r} in UI"
+
+
+def test_get_root_renders_discovery_method_badge_in_js() -> None:
+    """The JS that renders camera rows must show *which* discovery channel
+    found each camera (ONVIF Stage 1 vs RTSP-scan Stage 2). Operators need
+    this for two reasons: ONVIF is more trustworthy (vendor/model came from
+    the device), and RTSP-scan rows often need creds populated in
+    ``.env.client``. Substring assertions: we look for the
+    ``discovery_method`` reference and the human-facing labels."""
+    app, _, _ = _make_app_with_recorder()
+    body = app.test_client().get("/").get_data(as_text=True)
+
+    # JS reads cam.discovery_method from the response.
+    assert "discovery_method" in body
+    # Human labels for both channels.
+    assert "ONVIF" in body
+    assert "RTSP" in body

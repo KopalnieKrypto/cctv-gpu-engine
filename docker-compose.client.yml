@@ -16,6 +16,18 @@ services:
     restart: unless-stopped
     env_file:
       - .env.client
+    # ONVIF WS-Discovery (issue #21) uses UDP multicast 239.255.255.250:3702.
+    # Docker's default ``bridge`` network does NOT forward multicast, so
+    # ``GET /cameras/discover`` will return zero cameras even with cameras
+    # on the host LAN. To enable discovery, switch to host networking by
+    # uncommenting ``network_mode: host`` below AND removing the ``ports:``
+    # mapping (host networking exposes :8080 directly). Caveats:
+    #   - host networking is Linux-only (Docker Desktop on macOS/Windows
+    #     ignores it); on those platforms run the standalone appliance
+    #     entrypoint instead (Phase 3, follow-up issue).
+    #   - the container shares the host's network namespace — port 8080
+    #     must be free on the host.
+    # network_mode: host
     ports:
       - "8080:8080"
     volumes:
