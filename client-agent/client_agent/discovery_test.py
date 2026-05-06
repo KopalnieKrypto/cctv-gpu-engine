@@ -417,6 +417,50 @@ def test_rtsp_template_url_encodes_password_special_chars() -> None:
     assert url == "rtsp://admin:Pa%24%24%3Aw%40rd@10.0.0.11:554/Streaming/Channels/101"
 
 
+# ===== Strip credentials from URL (issue #22) =====
+
+
+def test_strip_credentials_removes_user_pass_userinfo() -> None:
+    """Issue #22: passwords must never reach the DOM. The discovery JSON
+    response runs every ``rtsp_url`` through this helper so even when
+    ONVIF GetStreamUri or the RTSP-scan template produced a URL with creds
+    embedded, the UI receives a credential-free version."""
+    from client_agent.discovery import strip_credentials_from_url
+
+    url = "rtsp://admin:Secret1!@192.168.50.2:554/Streaming/Channels/101"
+    assert strip_credentials_from_url(url) == "rtsp://192.168.50.2:554/Streaming/Channels/101"
+
+
+def test_strip_credentials_passthrough_when_no_userinfo() -> None:
+    """A URL that already lacks ``user:pass@`` survives unchanged — no
+    accidental rewrite of host/port/path."""
+    from client_agent.discovery import strip_credentials_from_url
+
+    url = "rtsp://192.168.50.2:554/Streaming/Channels/101"
+    assert strip_credentials_from_url(url) == url
+
+
+def test_strip_credentials_handles_url_encoded_password() -> None:
+    """Passwords with special chars are URL-encoded by
+    :func:`rtsp_template_for_vendor`. Stripping must still work — the
+    helper splits on ``@`` between userinfo and host, and ``%XX`` cannot
+    contain a literal ``@`` because we encode it."""
+    from client_agent.discovery import strip_credentials_from_url
+
+    url = "rtsp://admin:Pa%24%24%3Aw%40rd@10.0.0.11:554/Streaming/Channels/101"
+    assert strip_credentials_from_url(url) == "rtsp://10.0.0.11:554/Streaming/Channels/101"
+
+
+def test_strip_credentials_preserves_path_with_at_sign() -> None:
+    """``@`` is legal in a URL path (RFC 3986 §3.3). The helper must split
+    only on the userinfo separator, not on the first ``@`` it sees, so a
+    path like ``/foo@bar`` stays intact when there's no userinfo."""
+    from client_agent.discovery import strip_credentials_from_url
+
+    url = "rtsp://192.168.50.2:554/path@with@ats"
+    assert strip_credentials_from_url(url) == url
+
+
 # ===== Credentials resolver wired into discover_cameras =====
 
 

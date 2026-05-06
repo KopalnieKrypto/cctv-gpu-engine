@@ -193,6 +193,31 @@ def rtsp_template_for_vendor(
     return f"rtsp://{userinfo}{ip}:{port}{path}"
 
 
+def strip_credentials_from_url(url: str) -> str:
+    """Remove the ``user:pass@`` userinfo from a URL.
+
+    Issue #22: passwords must never reach the DOM or be visible to the
+    browser. The web layer runs every ``rtsp_url`` produced by discovery
+    through this helper before serialising to JSON, so even URLs that
+    came back with creds embedded (ONVIF GetStreamUri on some firmwares,
+    Stage-2 RTSP-scan templates) are safe to render. The credential-free
+    URL is paired with ``camera_ip`` in the UI; ``/start`` re-attaches
+    creds server-side from the env-driven resolver.
+
+    Implementation note: ``urlparse`` correctly identifies the userinfo
+    boundary (the ``@`` before host:port), so a path containing ``@`` —
+    legal per RFC 3986 §3.3 — is preserved.
+    """
+    parsed = urlparse(url)
+    if not parsed.username and not parsed.password:
+        return url
+    host = parsed.hostname or ""
+    netloc = host
+    if parsed.port is not None:
+        netloc = f"{host}:{parsed.port}"
+    return parsed._replace(netloc=netloc).geturl()
+
+
 def guess_vendor_from_open_ports(open_ports: set[int]) -> str:
     """Secondary vendor fingerprint based on management-port presence.
 

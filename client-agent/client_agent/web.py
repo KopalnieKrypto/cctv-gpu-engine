@@ -29,7 +29,7 @@ from typing import Any, Protocol
 
 from flask import Flask, jsonify, redirect, request, url_for
 
-from client_agent.discovery import DiscoveredCamera
+from client_agent.discovery import DiscoveredCamera, strip_credentials_from_url
 
 
 class ClientR2Like(Protocol):
@@ -139,10 +139,12 @@ _UPLOAD_FORM_HTML = """<!doctype html>
 <fieldset>
 <legend>Record from RTSP camera</legend>
 <form action="/start" method="post">
-  <label>RTSP URL
-    <input type="text" id="rtsp_url" name="rtsp_url" placeholder="rtsp://host/stream" required>
+  <label>RTSP URL (manual)
+    <input type="text" id="rtsp_url" name="rtsp_url" placeholder="rtsp://host/stream">
   </label>
   <button type="button" onclick="testConnection()">Test connection</button>
+  <input type="hidden" id="camera_ip" name="camera_ip" value="">
+  <p id="selected-camera" style="margin: .25rem 0; color: #036; min-height: 1.2em;"></p>
   <label>Duration
     <select name="duration_s" required>
       <option value="300">5 minutes</option>
@@ -220,9 +222,9 @@ function discoverCameras() {
          + 'padding:.1rem .4rem;border-radius:.2rem;font-size:.75em;'
          + 'margin-right:.4rem;">' + badgeText + '</span>';
        var credsHint = '';
-       if (cam.discovery_method === 'rtsp-scan' && cam.rtsp_url.indexOf('@') < 0) {
+       if (cam.discovery_method === 'rtsp-scan') {
          credsHint = '<br><em style="color:#a60;font-size:.85em;">'
-           + 'Brak creds w env — uzupełnij RTSP_DEFAULT_USER/PASS w .env.client</em>';
+           + 'Wymaga RTSP_DEFAULT_USER/PASS (lub RTSP_CAM_<ip>_USER/PASS) w env</em>';
        }
        meta.innerHTML = badge + '<strong>' + (cam.vendor || '?') + ' '
          + (cam.model || '?') + '</strong><br>' + cam.ip + ':' + cam.port
@@ -231,8 +233,18 @@ function discoverCameras() {
        li.appendChild(img);
        li.appendChild(meta);
        li.onclick = function() {
-         document.getElementById('rtsp_url').value = cam.rtsp_url;
-         status.textContent = 'Wybrano ' + cam.ip + ' — RTSP URL wklejony do formularza.';
+         // Issue #22: send camera_ip, not the full URL — server-side
+         // resolver attaches creds from env so the password never reaches
+         // the DOM. Clear rtsp_url so a stale manual entry doesn't carry
+         // over (route gives camera_ip priority anyway, but the visible
+         // input would be confusing).
+         document.getElementById('camera_ip').value = cam.ip;
+         document.getElementById('rtsp_url').value = '';
+         document.getElementById('selected-camera').textContent =
+           'Wybrana kamera: ' + cam.ip + ' (' + (cam.vendor || '?') + ' '
+           + (cam.model || '?') + ') — kliknij "Start recording".';
+         status.textContent = 'Wybrano ' + cam.ip
+           + ' — creds zostaną pobrane z env po stronie serwera.';
        };
        list.appendChild(li);
      });
@@ -247,6 +259,7 @@ function discoverCameras() {
 
 
 DiscoverFn = Callable[[], list[DiscoveredCamera]]
+CredentialsResolverFn = Callable[[str], "tuple[str, str] | None"]
 
 
 def create_app(
@@ -255,6 +268,7 @@ def create_app(
     job_id_factory=_default_job_id,
     recorder=None,
     discover_fn: DiscoverFn | None = None,
+    credentials_resolver: CredentialsResolverFn | None = None,
 ) -> Flask:
     """Build a Flask app bound to the given R2 client and job_id factory.
 
@@ -268,8 +282,20 @@ def create_app(
     ``discover_fn`` runs ONVIF WS-Discovery and returns the enriched camera
     list. ``None`` disables ``GET /cameras/discover``; production wires the
     real :func:`client_agent.discovery.discover_cameras`.
+
+    ``credentials_resolver`` (issue #22) maps an IP to ``(user, pass)`` from
+    the env-driven hierarchy. ``/start`` with ``{camera_ip, ...}`` looks up
+    the camera in the in-memory cache populated by ``/cameras/discover``,
+    asks the resolver for creds, builds a vendor-specific RTSP URL with
+    creds inline, and hands it to the recorder. The cache + resolver split
+    is what keeps passwords out of the DOM — the UI never sees them.
     """
     app = Flask(__name__)
+    # Issue #22: cache the most recent discovery so /start with camera_ip
+    # can rebuild the full RTSP URL without re-running multicast probe on
+    # every recording start. Keyed by IP because that's what the UI sends;
+    # value carries vendor + port so the URL template lookup is exact.
+    last_discovery: dict[str, DiscoveredCamera] = {}
 
     @app.get("/")
     def upload_form() -> tuple[str, int, dict[str, str]]:
@@ -331,12 +357,32 @@ def create_app(
 
     @app.post("/start")
     def start_recording():
+        from client_agent.discovery import rtsp_template_for_vendor
+
         if recorder is None:
             return ("recorder not configured", 404)
         rtsp_url = (request.form.get("rtsp_url") or "").strip()
+        camera_ip = (request.form.get("camera_ip") or "").strip()
         duration_raw = (request.form.get("duration_s") or "").strip()
-        if not rtsp_url:
-            return ("missing rtsp_url", 400)
+        if camera_ip:
+            # Issue #22: build the URL server-side from the last discovery
+            # so the password never needs to round-trip through the DOM.
+            cam = last_discovery.get(camera_ip)
+            if cam is None:
+                return (
+                    f"camera_ip {camera_ip!r} not in last discovery — re-run scan",
+                    400,
+                )
+            creds = credentials_resolver(camera_ip) if credentials_resolver else None
+            if creds is None:
+                return (
+                    f"no credentials for {camera_ip!r}: set RTSP_DEFAULT_USER/PASS "
+                    f"or RTSP_CAM_<ip>_USER/PASS in env",
+                    400,
+                )
+            rtsp_url = rtsp_template_for_vendor(cam.vendor, cam.ip, cam.port, creds)
+        elif not rtsp_url:
+            return ("missing rtsp_url or camera_ip", 400)
         try:
             duration_s = int(duration_raw)
         except ValueError:
@@ -442,13 +488,22 @@ def create_app(
             cameras = discover_fn()
         except Exception as exc:  # noqa: BLE001 — ONVIF/network is broad
             return jsonify({"cameras": [], "scanned_at": scanned_at, "error": str(exc)})
-        return jsonify(
-            {
-                "cameras": [asdict(c) for c in cameras],
-                "scanned_at": scanned_at,
-                "error": None,
-            }
-        )
+        # Issue #22: stash the result keyed by IP so /start with camera_ip
+        # can rebuild the URL with creds without re-running multicast probe.
+        # Each scan replaces the cache so a removed camera doesn't linger.
+        last_discovery.clear()
+        for c in cameras:
+            last_discovery[c.ip] = c
+        # Issue #22: scrub creds before they reach the DOM. Some ONVIF
+        # firmwares return ``user:pass@`` in GetStreamUri and the Stage 2
+        # RTSP-scan path embeds creds inline by design — both paths must
+        # be sanitised here so the UI never sees a password.
+        rows = []
+        for c in cameras:
+            row = asdict(c)
+            row["rtsp_url"] = strip_credentials_from_url(row["rtsp_url"])
+            rows.append(row)
+        return jsonify({"cameras": rows, "scanned_at": scanned_at, "error": None})
 
     return app
 

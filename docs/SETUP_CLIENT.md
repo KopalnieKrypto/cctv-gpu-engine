@@ -110,16 +110,60 @@ R2_ACCESS_KEY_ID=<from operator>
 R2_SECRET_ACCESS_KEY=<from operator>
 R2_BUCKET=surveillance-data
 
-# Default RTSP URL prefilled in the recording form (optional —
-# you can also paste it in the UI each time).
-RTSP_DEFAULT_URL=rtsp://camera-user:camera-pass@192.168.1.50:554/Streaming/Channels/101
-
-# Hard cap on a single recording session — protects the workdir disk
-# from runaway sessions. The UI only allows {1, 2, 4, 8} hours.
-MAX_RECORDING_HOURS=8
+# Camera credentials (see §4.3 below for the resolution hierarchy)
+RTSP_DEFAULT_USER=
+RTSP_DEFAULT_PASS=
 ```
 
-The RTSP URL format depends on your camera vendor. Common patterns:
+### 4.3 Camera credentials (`RTSP_DEFAULT_USER/PASS` + per-IP overrides)
+
+When the operator clicks a discovered camera in the UI ("Wykryj kamery" →
+camera tile → "Start recording"), the agent attaches credentials **server-side**
+so the password never reaches the browser DOM and never lands in Flask logs.
+The resolver checks env vars in this order; the first match wins, otherwise the
+recording is refused with a `400` naming the missing variables:
+
+1. **Per-IP override** — `RTSP_CAM_<sanitized_ip>_USER` + `RTSP_CAM_<sanitized_ip>_PASS`
+2. **Default for every camera** — `RTSP_DEFAULT_USER` + `RTSP_DEFAULT_PASS`
+3. **None** → 400 from `POST /start`
+
+A half-configured pair (only `_USER` or only `_PASS`) collapses to "none",
+not to a blank-password attempt — that would be worse than auth-less for most
+camera firmware.
+
+**IP → env-var name (sanitization).** Env-var names cannot contain `.` or `:`,
+so dots and colons are mapped to underscores:
+
+| Camera IP | Env-var prefix |
+|---|---|
+| `192.168.50.2` | `RTSP_CAM_192_168_50_2_*` |
+| `10.0.0.7` | `RTSP_CAM_10_0_0_7_*` |
+| `[fe80::1]` | `RTSP_CAM_fe80__1_*` (IPv6, colons too) |
+
+**Common deployment shapes:**
+
+```dotenv
+# 1) Single NVR / single set of creds for everything (most common):
+RTSP_DEFAULT_USER=admin
+RTSP_DEFAULT_PASS=YourCameraPassword!
+
+# 2) Default + one camera with a different password (a stock-creds outlier):
+RTSP_DEFAULT_USER=admin
+RTSP_DEFAULT_PASS=YourCameraPassword!
+RTSP_CAM_192_168_50_99_USER=operator
+RTSP_CAM_192_168_50_99_PASS=DifferentPass#2
+
+# 3) No default — each camera must be listed explicitly:
+RTSP_CAM_192_168_50_2_USER=admin
+RTSP_CAM_192_168_50_2_PASS=Cam2Pass
+RTSP_CAM_192_168_50_3_USER=admin
+RTSP_CAM_192_168_50_3_PASS=Cam3Pass
+```
+
+**Manual URL flow.** If you'd rather paste a full `rtsp://user:pass@host/path`
+URL into the form (legacy / one-off / camera not yet on the LAN), that path
+still works and bypasses the resolver — useful for VLC-validated URLs. Common
+URL patterns by vendor:
 
 | Vendor | URL pattern |
 |---|---|
@@ -131,7 +175,13 @@ The RTSP URL format depends on your camera vendor. Common patterns:
 When in doubt, check the camera's web UI under "ONVIF" or "RTSP" settings, or
 test the URL with VLC (Media → Open Network Stream).
 
-### 4.3 Pull and start
+**Reloading creds.** The resolver snapshots `os.environ` at container startup,
+so editing `.env.client` requires `docker compose -f docker-compose.client.yml up -d`
+to take effect — the container is recreated and re-reads the env file. A live
+container won't pick up env changes mid-flight (intentional: a long-running
+recording shouldn't be surprised by a creds rotation).
+
+### 4.4 Pull and start
 
 ```bash
 docker compose -f docker-compose.client.yml pull
@@ -184,10 +234,30 @@ When it reaches `done`, the **view** link opens the standalone HTML report;
 
 ## 6. Recording from a camera
 
+Two flows feed the same recording form:
+
+**A. Discovered camera (recommended).** Requires `RTSP_DEFAULT_USER/PASS` (or
+per-IP overrides — see §4.3) so the server can attach creds without exposing
+them to the browser.
+
 1. Open `http://localhost:8080`
-2. Paste the RTSP URL into the recording form
-3. Pick a duration: **1 / 2 / 4 / 8 hours** (capped by `MAX_RECORDING_HOURS`)
-4. Click **Start recording**
+2. Click **Wykryj kamery** — the agent runs ONVIF WS-Discovery + an RTSP
+   port-scan on the local /24
+3. Click a camera tile from the results — the form's hidden `camera_ip` field
+   gets populated; the password is **not** put into the DOM
+4. Pick a duration from the dropdown
+5. Click **Start recording**
+
+**B. Manual URL.** For one-offs or cameras not yet on the LAN.
+
+1. Paste a full `rtsp://user:pass@host:port/path` URL into the **RTSP URL
+   (manual)** field
+2. Optionally click **Test connection** (2-second ffmpeg probe)
+3. Pick a duration and click **Start recording**
+
+Supported durations (form dropdown): **5, 15, 30, 45 minutes** and **1, 2, 4,
+8 hours**. Anything outside this preset list is refused at the HTTP boundary
+with a `400`.
 
 The agent will:
 
@@ -216,7 +286,9 @@ side handles the queue.
 | Test connection returns `Connection refused` | Wrong IP, wrong port, or camera firewall | Check the camera is reachable: `ping <camera-ip>` and `nc -zv <camera-ip> 554`. |
 | Job stays `pending` forever | GPU side is offline or pointed at a different bucket | Check [GPU §7](SETUP_GPU.md#7-troubleshooting). Confirm `R2_BUCKET` and `R2_ENDPOINT` match on both sides. |
 | Job goes `failed` immediately | GPU side fetched the chunks but inference crashed | `docker compose logs gpu-service` on the **GPU** host. The error message is also written to `status.json` in R2. |
-| Workdir filling up the host disk | Long recording + slow upload bandwidth means chunks queue up locally | Lower `MAX_RECORDING_HOURS`, or upgrade upload bandwidth, or wipe `cctv-client-workdir` volume after stopping the container. |
+| Workdir filling up the host disk | Long recording + slow upload bandwidth means chunks queue up locally | Pick a shorter duration in the form, upgrade upload bandwidth, or wipe `cctv-client-workdir` volume after stopping the container. |
+| `POST /start` returns `400 no credentials for <ip>` | The IP isn't covered by `RTSP_DEFAULT_USER/PASS` nor a per-IP override | Add the missing env vars (see §4.3) and `docker compose ... up -d` to recreate the container. |
+| `POST /start` returns `400 camera_ip ... not in last discovery` | The form was submitted with a stale `camera_ip` (container was restarted, or the UI tab was opened before the discovery scan) | Click "Wykryj kamery" again to repopulate the in-memory discovery cache, then click the camera tile and "Start recording". |
 
 ## 8. Updating
 

@@ -833,6 +833,47 @@ def test_get_root_includes_camera_discovery_button_and_results_container() -> No
         assert field in body, f"missing field reference {field!r} in UI"
 
 
+def test_get_root_form_has_camera_ip_field_for_discovered_camera_path() -> None:
+    """Issue #22 acceptance: ``UI: po kliknięciu wykrytej kamery formularz
+    dostaje camera_ip zamiast pełnego URL; hasło nigdy nie pojawia się w
+    DOM``. The recording form must expose a ``camera_ip`` field
+    (typically a hidden input populated by JS) so the click-from-list
+    flow can submit IP-only and let the server re-attach creds."""
+    app, _, _ = _make_app_with_recorder()
+    body = app.test_client().get("/").get_data(as_text=True)
+
+    assert 'name="camera_ip"' in body
+
+
+def test_get_root_js_click_sets_camera_ip_not_full_url() -> None:
+    """Click on a discovered camera assigns the IP to the camera_ip field;
+    it must NOT paste the full RTSP URL anywhere visible. The JS must
+    also clear the rtsp_url field so a previous manual entry doesn't
+    accidentally piggy-back onto the camera_ip submission (the server
+    treats camera_ip as the priority signal — but a stale rtsp_url
+    visible in the DOM violates the spirit of "hasło nie w DOM")."""
+    app, _, _ = _make_app_with_recorder()
+    body = app.test_client().get("/").get_data(as_text=True)
+
+    # JS references camera_ip and assigns from cam.ip.
+    assert "camera_ip" in body
+    assert "cam.ip" in body
+    # The previous behavior — pasting cam.rtsp_url into the rtsp_url
+    # input on click — must be gone. We can't assert exact code shape,
+    # so we assert the click handler clears the rtsp_url input.
+    # ``rtsp_url'' clearing pattern: set value to '' or similar.
+    # Substring assertion: look for either ``rtsp_url').value = ''`` or
+    # ``rtsp_url').value=''``.
+    assert any(
+        snippet in body.replace(" ", "")
+        for snippet in (
+            "rtsp_url').value=''",
+            'rtsp_url").value=""',
+            'rtsp_url\').value=""',
+        )
+    ), "JS does not clear rtsp_url field on camera click — stale URL stays in DOM"
+
+
 def test_get_root_renders_discovery_method_badge_in_js() -> None:
     """The JS that renders camera rows must show *which* discovery channel
     found each camera (ONVIF Stage 1 vs RTSP-scan Stage 2). Operators need
@@ -848,3 +889,321 @@ def test_get_root_renders_discovery_method_badge_in_js() -> None:
     # Human labels for both channels.
     assert "ONVIF" in body
     assert "RTSP" in body
+
+
+def test_get_cameras_discover_strips_credentials_from_rtsp_url() -> None:
+    """Issue #22 acceptance: ``hasło nigdy nie pojawia się w DOM``. Even if
+    the discovery layer baked creds into the URL (``_real_rtsp_scan``
+    template, or some ONVIF firmwares returning ``user:pass@`` in
+    GetStreamUri), the JSON shipped to the browser must be credential-free.
+    The UI pairs the cred-less URL with the camera_ip and lets ``/start``
+    re-attach creds server-side."""
+    from client_agent.discovery import DiscoveredCamera
+
+    cams = [
+        DiscoveredCamera(
+            ip="192.168.50.2",
+            port=554,
+            vendor="Hikvision",
+            model="",
+            rtsp_url="rtsp://admin:Secret1!@192.168.50.2:554/Streaming/Channels/101",
+            snapshot_url=None,
+            discovery_method="rtsp-scan",
+        ),
+    ]
+    fake_r2 = FakeR2()
+    app = create_app(fake_r2, discover_fn=lambda: cams)
+    app.config["TESTING"] = True
+
+    body = app.test_client().get("/cameras/discover").get_json()
+
+    cam = body["cameras"][0]
+    assert "Secret1" not in cam["rtsp_url"]
+    assert "admin@" not in cam["rtsp_url"]
+    assert "@" not in cam["rtsp_url"].split("/", 3)[2], (
+        f"userinfo not stripped: {cam['rtsp_url']!r}"
+    )
+    assert cam["rtsp_url"] == "rtsp://192.168.50.2:554/Streaming/Channels/101"
+
+
+def test_get_cameras_discover_passes_through_credless_urls_unchanged() -> None:
+    """Already-cred-less URLs (the ONVIF happy path on most cameras) must
+    flow through untouched — the strip helper is idempotent so a re-render
+    or a debug pass through the response doesn't accidentally mutate the
+    host/port/path."""
+    from client_agent.discovery import DiscoveredCamera
+
+    cams = [
+        DiscoveredCamera(
+            ip="192.168.1.10",
+            port=80,
+            vendor="Hikvision",
+            model="DS-2CD2042",
+            rtsp_url="rtsp://192.168.1.10:554/Streaming/Channels/101",
+            snapshot_url=None,
+        ),
+    ]
+    fake_r2 = FakeR2()
+    app = create_app(fake_r2, discover_fn=lambda: cams)
+    app.config["TESTING"] = True
+
+    body = app.test_client().get("/cameras/discover").get_json()
+    assert body["cameras"][0]["rtsp_url"] == "rtsp://192.168.1.10:554/Streaming/Channels/101"
+
+
+# ===== /start with camera_ip (issue #22) =====
+
+
+def test_post_start_with_camera_ip_resolves_creds_and_starts_recording() -> None:
+    """Issue #22 happy path: operator clicks a discovered camera. The UI
+    posts ``{camera_ip, duration_s}`` (no rtsp_url, no creds in DOM). The
+    route looks up the camera in the last-discovery cache, calls the
+    injected ``credentials_resolver`` to get user/pass from env, builds
+    a vendor-specific RTSP URL, and hands the **full** URL to the
+    recorder. The recorder's URL must contain the resolved creds — that
+    is what ffmpeg connects with."""
+    from client_agent.discovery import DiscoveredCamera
+
+    cams = [
+        DiscoveredCamera(
+            ip="192.168.50.2",
+            port=554,
+            vendor="Hikvision",
+            model="DS-2CD2042",
+            rtsp_url="rtsp://192.168.50.2:554/Streaming/Channels/101",
+            snapshot_url=None,
+            discovery_method="rtsp-scan",
+        ),
+    ]
+    fake_r2 = FakeR2()
+    fake_recorder = FakeRecorder()
+    resolver_calls: list[str] = []
+
+    def resolver(ip: str) -> tuple[str, str] | None:
+        resolver_calls.append(ip)
+        return ("admin", "Secret1!")
+
+    app = create_app(
+        fake_r2,
+        recorder=fake_recorder,
+        discover_fn=lambda: cams,
+        credentials_resolver=resolver,
+    )
+    app.config["TESTING"] = True
+    test_client = app.test_client()
+
+    # Discovery first — populates the cache the /start handler reads.
+    test_client.get("/cameras/discover")
+
+    resp = test_client.post(
+        "/start",
+        data={"camera_ip": "192.168.50.2", "duration_s": "300"},
+    )
+
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/jobs")
+    assert resolver_calls == ["192.168.50.2"]
+    assert len(fake_recorder.starts) == 1
+    started = fake_recorder.starts[0]
+    assert started["duration_s"] == 300
+    # The URL the recorder receives MUST carry creds — that's the whole
+    # point of resolving them server-side. Hikvision template + URL-encoded
+    # password (``!`` is preserved by quote(safe="")).
+    assert started["url"] == ("rtsp://admin:Secret1%21@192.168.50.2:554/Streaming/Channels/101")
+
+
+def test_post_start_with_camera_ip_not_in_cache_returns_400() -> None:
+    """No prior /cameras/discover, or the IP wasn't in the last scan →
+    we don't have vendor/port to build a URL. Refuse early with a
+    readable message so the operator knows to re-scan, instead of
+    fabricating a URL that ffmpeg would fail to connect to."""
+    fake_r2 = FakeR2()
+    fake_recorder = FakeRecorder()
+    app = create_app(
+        fake_r2,
+        recorder=fake_recorder,
+        discover_fn=lambda: [],
+        credentials_resolver=lambda _ip: ("admin", "Secret"),
+    )
+    app.config["TESTING"] = True
+
+    resp = app.test_client().post(
+        "/start",
+        data={"camera_ip": "10.0.0.99", "duration_s": "300"},
+    )
+
+    assert resp.status_code == 400
+    assert b"10.0.0.99" in resp.data
+    assert b"discovery" in resp.data.lower() or b"scan" in resp.data.lower()
+    assert fake_recorder.starts == []
+
+
+def test_post_start_with_camera_ip_but_no_resolved_creds_returns_400() -> None:
+    """Issue #22 acceptance: ``→ błąd 400 z czytelnym komunikatem``. When
+    the resolver returns ``None`` (no per-IP override and no
+    ``RTSP_DEFAULT_USER/PASS`` set), refuse the recording. Building a
+    no-creds URL would let ffmpeg attempt anonymous auth which most IP
+    cameras reject — better to surface the misconfiguration to the
+    operator with a clear message naming the env vars to set."""
+    from client_agent.discovery import DiscoveredCamera
+
+    cams = [
+        DiscoveredCamera(
+            ip="192.168.50.2",
+            port=554,
+            vendor="Hikvision",
+            model="",
+            rtsp_url="rtsp://192.168.50.2:554/Streaming/Channels/101",
+            snapshot_url=None,
+        ),
+    ]
+    fake_r2 = FakeR2()
+    fake_recorder = FakeRecorder()
+    app = create_app(
+        fake_r2,
+        recorder=fake_recorder,
+        discover_fn=lambda: cams,
+        credentials_resolver=lambda _ip: None,  # nothing in env
+    )
+    app.config["TESTING"] = True
+    test_client = app.test_client()
+    test_client.get("/cameras/discover")  # populate cache
+
+    resp = test_client.post(
+        "/start",
+        data={"camera_ip": "192.168.50.2", "duration_s": "300"},
+    )
+
+    assert resp.status_code == 400
+    body = resp.data.decode()
+    # Message must name the env vars so the operator can fix it without
+    # opening the source.
+    assert "RTSP_DEFAULT" in body
+    assert "RTSP_CAM_" in body
+    assert fake_recorder.starts == []
+
+
+def test_post_start_with_neither_rtsp_url_nor_camera_ip_returns_400() -> None:
+    """The body must carry one of the two — anything else is a
+    misconfigured client (curl probe, stale UI). Pre-#22 the rejection
+    message was ``missing rtsp_url``; updated to mention both fields so
+    the operator sees what's allowed."""
+    fake_r2 = FakeR2()
+    fake_recorder = FakeRecorder()
+    app = create_app(
+        fake_r2,
+        recorder=fake_recorder,
+        discover_fn=lambda: [],
+        credentials_resolver=lambda _ip: None,
+    )
+    app.config["TESTING"] = True
+
+    resp = app.test_client().post("/start", data={"duration_s": "300"})
+
+    assert resp.status_code == 400
+    body = resp.data.lower()
+    assert b"rtsp_url" in body
+    assert b"camera_ip" in body
+    assert fake_recorder.starts == []
+
+
+def test_post_start_with_camera_ip_does_not_log_password(caplog) -> None:
+    """Issue #22 acceptance: ``Logi Flask nie zawierają hasła w żadnej
+    formie``. The /start route resolves creds and builds the full RTSP
+    URL — that URL must reach the recorder but must NOT show up in
+    werkzeug request logs, app logs, or Flask error logs.
+
+    We instrument with caplog at DEBUG level so even verbose third-party
+    output is captured. The assertion grep looks for the literal password
+    in any record across any logger; a match means the URL leaked
+    somewhere we can't easily contain (e.g. werkzeug echoing the form
+    body — currently it doesn't, but a future Flask upgrade could)."""
+    import logging
+
+    from client_agent.discovery import DiscoveredCamera
+
+    cams = [
+        DiscoveredCamera(
+            ip="192.168.50.2",
+            port=554,
+            vendor="Hikvision",
+            model="",
+            rtsp_url="rtsp://192.168.50.2:554/Streaming/Channels/101",
+            snapshot_url=None,
+        ),
+    ]
+    fake_r2 = FakeR2()
+    fake_recorder = FakeRecorder()
+    secret_password = "TopSecret-Pa$$word-9876"
+    app = create_app(
+        fake_r2,
+        recorder=fake_recorder,
+        discover_fn=lambda: cams,
+        credentials_resolver=lambda _ip: ("admin", secret_password),
+    )
+    app.config["TESTING"] = True
+    test_client = app.test_client()
+    test_client.get("/cameras/discover")
+
+    with caplog.at_level(logging.DEBUG):
+        resp = test_client.post(
+            "/start",
+            data={"camera_ip": "192.168.50.2", "duration_s": "300"},
+        )
+
+    assert resp.status_code == 302
+    # Recorder DID receive the URL with the (URL-encoded) password — the
+    # whole point of resolving server-side. Sanity check the bottom-up.
+    started_url = fake_recorder.starts[0]["url"]
+    # quote(safe="") encodes the special chars, so the literal password
+    # *substring* "TopSecret-Pa" survives URL-encoding (only $ : @ change).
+    # We assert that *no* substring of the password appears verbatim or
+    # URL-encoded in any captured log message.
+    encoded_password = "TopSecret-Pa%24%24word-9876"
+    assert encoded_password in started_url
+
+    # Iterate every captured log record across every logger.
+    for record in caplog.records:
+        msg = record.getMessage()
+        assert secret_password not in msg, f"raw password leaked into log {record.name!r}: {msg!r}"
+        assert encoded_password not in msg, (
+            f"url-encoded password leaked into log {record.name!r}: {msg!r}"
+        )
+
+
+def test_post_start_with_camera_ip_and_no_resolver_configured_returns_400() -> None:
+    """``credentials_resolver=None`` is a misconfigured deploy (operator
+    forgot to wire it in agent.py). Treat it the same as "no creds":
+    refuse with a 400 instead of starting an auth-less recording. The
+    whole point of #22 is that creds live in env, not URL."""
+    from client_agent.discovery import DiscoveredCamera
+
+    cams = [
+        DiscoveredCamera(
+            ip="192.168.50.2",
+            port=554,
+            vendor="Hikvision",
+            model="",
+            rtsp_url="rtsp://192.168.50.2:554/Streaming/Channels/101",
+            snapshot_url=None,
+        ),
+    ]
+    fake_r2 = FakeR2()
+    fake_recorder = FakeRecorder()
+    app = create_app(
+        fake_r2,
+        recorder=fake_recorder,
+        discover_fn=lambda: cams,
+        # credentials_resolver intentionally omitted
+    )
+    app.config["TESTING"] = True
+    test_client = app.test_client()
+    test_client.get("/cameras/discover")
+
+    resp = test_client.post(
+        "/start",
+        data={"camera_ip": "192.168.50.2", "duration_s": "300"},
+    )
+
+    assert resp.status_code == 400
+    assert fake_recorder.starts == []

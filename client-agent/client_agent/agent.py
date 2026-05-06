@@ -98,7 +98,12 @@ def main() -> None:
             rtsp_scan_fn=rtsp_scan,
         )
 
-    app = create_app(client, recorder=recorder, discover_fn=_discover)
+    app = create_app(
+        client,
+        recorder=recorder,
+        discover_fn=_discover,
+        credentials_resolver=creds_resolver,
+    )
 
     logger.info(
         "client-agent web UI starting on http://0.0.0.0:8080 (bucket=%s, recordings=%s)",
