@@ -1,0 +1,19 @@
+[Unit]
+Description=CCTV client-agent (recorder + ONVIF discovery)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cctv
+Group=cctv
+EnvironmentFile=-/etc/cctv-client/r2.env
+EnvironmentFile=-/etc/cctv-client/cameras.env
+ExecStart=/opt/cctv-client/bin/python -m client_agent.appliance --env-dir /etc/cctv-client
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
