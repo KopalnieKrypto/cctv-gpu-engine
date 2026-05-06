@@ -13,7 +13,8 @@ Batch surveillance video analysis: MP4 → YOLO-pose + VLM → activity classifi
 - Run unit tests: `make test`
 - Run end-to-end GPU smoke test: `make test-gpu`
 - GPU service: `docker compose up` (polls R2 for pending jobs)
-- Client agent: `docker compose -f docker-compose.client.yml up` (Flask UI :8080)
+- Client agent (Docker): `docker compose -f docker-compose.client.yml up` (Flask UI :8080)
+- Client appliance (bare-metal mini-PC, no Docker): `sudo ./client-appliance/install.sh` then `systemctl enable --now cctv-client` — see `client-appliance/README.md`
 
 ## Remote infrastructure
 
@@ -36,7 +37,8 @@ client-agent (Flask :8080) → R2 bucket (surveillance-data) → gpu-service (Do
 ```
 
 - **Pipeline** (`pipeline/`): frame extraction → YOLO-pose (person detection + displacement) → VLM or heuristic activity classification → HTML report
-- **Client Agent** (`client-agent/`): Flask UI on :8080 for MP4 upload + job status (#7 ✅) and RTSP recorder with ffmpeg stream-copy + segmented chunks (#8 ✅, e2e-validated on cctv-vps).
+- **Client Agent** (`client-agent/`): Flask UI on :8080 for MP4 upload + job status (#7 ✅) and RTSP recorder with ffmpeg stream-copy + segmented chunks (#8 ✅, e2e-validated on cctv-vps). Shared package `client_agent/` has **two entrypoints**: `client_agent.agent` (Docker; existing) and `client_agent.appliance` (bare-metal via waitress; #23 ✅).
+- **Client Appliance** (`client-appliance/`): packaging-only target (#24 ✅) — systemd unit, idempotent `install.sh`, env templates, README. Zero Python; consumes the shared `client_agent` package. Operator runs `sudo ./client-appliance/install.sh` on a fresh Ubuntu/RPi mini-PC and gets a `systemctl enable --now`-ed Flask UI in LAN.
 - **GPU Service** (`gpu-service/`): R2 polling worker + investor dashboard, downloads video, runs pipeline, uploads report
 
 ## Stack
@@ -72,6 +74,7 @@ client-agent (Flask :8080) → R2 bucket (surveillance-data) → gpu-service (Do
 - Job coordination: `status.json` in R2, no database
 - Confidence threshold: 0.25, NMS IoU: 0.45
 - uv over pip for Python dependency management
+- Client-agent dual target: shared package `client_agent/` powers both Docker (`client-agent/Dockerfile`, entrypoint `client_agent.agent`) and bare-metal appliance (`client-appliance/`, entrypoint `client_agent.appliance` via waitress). Every new feature in `client_agent/` must work in both targets — no Docker-only or appliance-only code paths.
 
 ## Don't
 
@@ -111,7 +114,13 @@ client-agent (Flask :8080) → R2 bucket (surveillance-data) → gpu-service (Do
 │   └── gpu_service/           # worker.py, dashboard.py, r2_client.py (+tests)
 ├── client-agent/              # Flask UI :8080 (#7) + RTSP recorder (#8)
 │   ├── Dockerfile             # python:3.12-slim + ffmpeg, ENTRYPOINT client_agent.agent
-│   └── client_agent/          # web.py (Flask), recorder.py (ffmpeg+R2), agent.py (entrypoint) (+tests)
+│   └── client_agent/          # web.py (Flask), recorder.py (ffmpeg+R2), discovery.py (ONVIF/RTSP-scan), agent.py (Docker entrypoint), appliance.py (bare-metal entrypoint via waitress, #23) (+tests)
+├── client-appliance/          # Standalone-appliance packaging (#24) — zero Python, just packaging
+│   ├── cctv-client.service    # systemd unit (Type=simple, EnvironmentFile r2.env+cameras.env, journald)
+│   ├── install.sh             # idempotent root installer (creates cctv user + venv at /opt/cctv-client)
+│   ├── r2.env.example / cameras.env.example  # operator-edited templates → /etc/cctv-client/ (perms 600)
+│   ├── README.md              # install/update/troubleshooting + 5-min smoke runbook + ADR git-vs-tarball
+│   └── tests/                 # unit_file/env_examples/install_script/readme contract tests
 ├── tests/                     # Repo-level meta tests (build_config_test.py)
 ├── test/                      # Legacy single-frame validation scripts (pre-#4)
 ├── docs/                      # Operator setup guides (SETUP_GPU.md, SETUP_CLIENT.md)
