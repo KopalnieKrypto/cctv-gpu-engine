@@ -26,8 +26,11 @@ import logging
 import os
 import subprocess
 import tempfile
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
+from flask import Flask
 from gpu_service.r2_client import R2Client
 
 from client_agent.discovery import (
@@ -41,19 +44,39 @@ from client_agent.web import create_app
 logger = logging.getLogger(__name__)
 
 
-def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+@dataclass(frozen=True)
+class BuiltApp:
+    """Bundle returned by :func:`build_app`.
 
+    Carries the ready-to-serve Flask app plus a couple of values the
+    entrypoint logs at startup so the operator can confirm wiring without
+    grepping env. Frozen so a downstream caller can't accidentally rebind
+    ``app`` after construction."""
+
+    app: Flask
+    bucket: str
+    recordings_root: Path
+
+
+def build_app(environ: Mapping[str, str], *, recordings_root: Path | None = None) -> BuiltApp:
+    """Construct the full client-agent Flask app from the given environment.
+
+    Shared between the Docker entrypoint (:func:`main`, runs Werkzeug dev
+    server) and the standalone appliance entrypoint
+    (``client_agent.appliance.main``, runs waitress). Both must produce
+    byte-identical behaviour, so all wiring lives here.
+
+    ``recordings_root`` is injectable so the appliance can override the
+    Docker default (``$TMPDIR/cctv-recordings``) with the XDG state dir.
+    When ``None``, the historical Docker behaviour is preserved.
+    """
     # Required env vars — fail loud at startup so a misconfigured deploy
     # surfaces in `docker logs` immediately instead of as a 500 on first
     # upload. Bucket has a default because CLAUDE.md pins it project-wide.
-    endpoint = os.environ["R2_ENDPOINT"]
-    access_key = os.environ["R2_ACCESS_KEY_ID"]
-    secret_key = os.environ["R2_SECRET_ACCESS_KEY"]
-    bucket = os.environ.get("R2_BUCKET", "surveillance-data")
+    endpoint = environ["R2_ENDPOINT"]
+    access_key = environ["R2_ACCESS_KEY_ID"]
+    secret_key = environ["R2_SECRET_ACCESS_KEY"]
+    bucket = environ.get("R2_BUCKET", "surveillance-data")
 
     client = R2Client(
         endpoint=endpoint,
@@ -68,9 +91,10 @@ def main() -> None:
     # The synchronous Recorder is wrapped by BackgroundRecorder so the
     # Flask request handler returns immediately while ffmpeg runs for
     # hours.
-    recordings_root = (
-        Path(os.environ.get("RECORDINGS_DIR", tempfile.gettempdir())) / "cctv-recordings"
-    )
+    if recordings_root is None:
+        recordings_root = (
+            Path(environ.get("RECORDINGS_DIR", tempfile.gettempdir())) / "cctv-recordings"
+        )
     recordings_root.mkdir(parents=True, exist_ok=True)
 
     sync_recorder = Recorder(
@@ -86,9 +110,9 @@ def main() -> None:
     # overrides ``RTSP_CAM_<sanitized_ip>_USER/PASS``); both stages use
     # those creds — Stage 1 hands them to ``ONVIFCamera``, Stage 2 embeds
     # them in the RTSP URL templates. The resolver closes over a snapshot
-    # of ``os.environ`` so a long-running container always sees the same
-    # creds it started with (no surprise reloads on /cameras/discover).
-    env_snapshot = dict(os.environ)
+    # of ``environ`` so a long-running process always sees the same creds
+    # it started with (no surprise reloads on /cameras/discover).
+    env_snapshot = dict(environ)
     creds_resolver = lambda ip: resolve_camera_credentials(ip, env_snapshot)  # noqa: E731
     rtsp_scan = make_real_rtsp_scan(creds_resolver)
 
@@ -105,12 +129,23 @@ def main() -> None:
         credentials_resolver=creds_resolver,
     )
 
+    return BuiltApp(app=app, bucket=bucket, recordings_root=recordings_root)
+
+
+def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+
+    built = build_app(os.environ)
+
     logger.info(
         "client-agent web UI starting on http://0.0.0.0:8080 (bucket=%s, recordings=%s)",
-        bucket,
-        recordings_root,
+        built.bucket,
+        built.recordings_root,
     )
-    app.run(host="0.0.0.0", port=8080)
+    built.app.run(host="0.0.0.0", port=8080)
 
 
 if __name__ == "__main__":

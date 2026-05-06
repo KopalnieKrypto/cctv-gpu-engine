@@ -27,6 +27,12 @@ dependencies = [
     # appliance entrypoint (Phase 3) will reuse the same package.
     "WSDiscovery>=2.0",
     "onvif-zeep>=0.2",
+    # WSGI server for the standalone appliance entrypoint (issue #23).
+    # Multithreaded, pure Python, ~1 MB. Replaces Werkzeug's dev server
+    # for bare-metal deployments where concurrent UI requests matter; the
+    # Docker entrypoint still uses Werkzeug because docker-compose treats
+    # the container as a single-tenant fixture.
+    "waitress>=3.0",
 ]
 
 # ONNX Runtime is opt-in to keep `uv sync` lightweight (~50MB instead of ~1.5GB).

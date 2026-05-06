@@ -135,6 +135,38 @@ docker compose -f docker-compose.client.yml logs    # Flask boot logs
 
 Open `http://localhost:8080` in your browser for the Flask UI: MP4 upload form, RTSP recorder controls (test connection / start / stop, durations 1/2/4/8 h), and the job list with status badges that auto-refreshes every 10 s. Reports open inline once the GPU side marks the job as `done`.
 
+### Standalone (poza Dockerem)
+
+For bare-metal deployments (mini-PC, Raspberry Pi 5, Intel N100) where Docker is overkill or unavailable, the client-agent ships a second entrypoint that runs directly from a Python venv. Same Flask app, same R2 bucket, same camera discovery — just served by `waitress` (multithreaded WSGI) instead of Werkzeug's dev server, with credentials read from disk instead of compose env.
+
+```bash
+# 1. Clone + sync deps in a venv (only the default deps — no GPU / VLM)
+git clone https://github.com/KopalnieKrypto/cctv-gpu-engine.git
+cd cctv-gpu-engine
+uv sync                                  # pulls flask, boto3, waitress, ONVIF deps
+
+# 2. Create env files (operator credentials live on disk, not in shell history)
+sudo mkdir -p /etc/cctv-client
+sudo install -m 600 /dev/stdin /etc/cctv-client/r2.env <<'EOF'
+R2_ENDPOINT=https://<account>.r2.cloudflarestorage.com
+R2_ACCESS_KEY_ID=...
+R2_SECRET_ACCESS_KEY=...
+R2_BUCKET=surveillance-data
+EOF
+sudo install -m 600 /dev/stdin /etc/cctv-client/cameras.env <<'EOF'
+RTSP_DEFAULT_USER=admin
+RTSP_DEFAULT_PASS=...
+# Optional per-camera overrides:
+# RTSP_CAM_192_168_1_50_USER=other
+# RTSP_CAM_192_168_1_50_PASS=...
+EOF
+
+# 3. Run (foreground — designed for systemd Type=simple)
+uv run python -m client_agent.appliance --env-dir /etc/cctv-client
+```
+
+The recordings dir defaults to the XDG state dir (`${XDG_STATE_HOME:-$HOME/.local/state}/cctv-client/recordings`) and is created idempotently at startup. Override with the `RECORDINGS_DIR` env var if you need to point at fast NVMe / external storage. The systemd unit + `install.sh` packaging lands in a follow-up issue (#24); for now `tmux`, `nohup`, or a hand-rolled unit file are fine.
+
 ---
 
 ## Local Pipeline (development)
