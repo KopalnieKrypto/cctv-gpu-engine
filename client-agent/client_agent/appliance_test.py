@@ -220,3 +220,308 @@ def test_main_serves_built_app_on_8080_via_waitress(
 
     # Recordings root was created idempotently under XDG state dir.
     assert (tmp_path / ".local" / "state" / "cctv-client" / "recordings").is_dir()
+
+
+# ----- 5. platform integration adapter (issue #26) -----
+
+
+def _make_camera(ip: str = "192.168.50.2") -> object:
+    """Build a real DiscoveredCamera so the test exercises the adapter's
+    real serialization path (not a MagicMock that always returns truthy)."""
+    from client_agent.discovery import DiscoveredCamera
+
+    return DiscoveredCamera(
+        ip=ip,
+        port=554,
+        vendor="Hikvision",
+        model="DS-2CD2143G2-IS",
+        rtsp_url=f"rtsp://{ip}:554/Streaming/Channels/101",
+    )
+
+
+def test_run_platform_session_registers_pushes_and_heartbeats() -> None:
+    """Single iteration of the platform loop hits all three endpoints in
+    the right order. ``run_platform_session`` is the testable unit; the
+    production heartbeat loop wraps this in ``while True: sleep(30); ...``
+    (covered separately, not in this unit test)."""
+    import httpx
+    import respx
+
+    from client_agent.appliance import run_platform_session
+    from client_agent.platform import PlatformClient
+
+    discover_fn = lambda: [_make_camera()]  # noqa: E731
+    recorder = MagicMock()
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        register_route = mock.post("/appliance/register").mock(
+            return_value=httpx.Response(
+                200, json={"appliance_id": "app-1", "tenant_id": "tenant-1"}
+            )
+        )
+        push_route = mock.post("/appliance/cameras").mock(return_value=httpx.Response(204))
+        heartbeat_route = mock.post("/appliance/heartbeat").mock(
+            return_value=httpx.Response(200, json={"config": {"cameras": []}})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        run_platform_session(
+            platform_client=client,
+            discover_fn=discover_fn,
+            recorder=recorder,
+            environ={"HOSTNAME": "cctv-mini-01"},
+        )
+
+    assert register_route.called
+    assert push_route.called
+    assert heartbeat_route.called
+
+
+def test_run_platform_session_falls_back_to_rtsp_default_url_when_discovery_empty() -> None:
+    """ONVIF multicast can fail for many reasons (managed switch dropping
+    multicast, camera firmware non-compliant, appliance on a subnet that
+    doesn't share L2 with the cameras). The operator can still configure
+    a single fallback camera by hand: ``RTSP_DEFAULT_URL`` in the env. The
+    appliance must not crash on empty discovery — it must push that single
+    synthetic entry so the operator can at least record from one camera."""
+    import json as _json
+
+    import httpx
+    import respx
+
+    from client_agent.appliance import run_platform_session
+    from client_agent.platform import PlatformClient
+
+    discover_fn = lambda: []  # noqa: E731
+    recorder = MagicMock()
+    fallback_url = "rtsp://operator-supplied-camera.local:554/stream"
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/register").mock(
+            return_value=httpx.Response(
+                200, json={"appliance_id": "app-1", "tenant_id": "tenant-1"}
+            )
+        )
+        push_route = mock.post("/appliance/cameras").mock(return_value=httpx.Response(204))
+        mock.post("/appliance/heartbeat").mock(
+            return_value=httpx.Response(200, json={"config": {"cameras": []}})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        run_platform_session(
+            platform_client=client,
+            discover_fn=discover_fn,
+            recorder=recorder,
+            environ={"RTSP_DEFAULT_URL": fallback_url},
+        )
+
+    body = _json.loads(push_route.calls.last.request.read())
+    cameras = body["cameras"]
+    assert len(cameras) == 1
+    assert cameras[0]["rtsp_url"] == fallback_url
+
+
+def test_run_platform_session_starts_recorder_for_each_enabled_camera() -> None:
+    """The platform's heartbeat response is the source of truth for which
+    cameras should be recording. The appliance reconciles by spawning a
+    recorder per ``enabled=True`` camera with the RTSP URL the platform
+    provides (which may differ from what was discovered if the operator
+    overrode it in the platform UI). ``enabled=False`` cameras must not
+    spawn — they are present in the config so the appliance knows they
+    exist (e.g. for surfacing a per-camera "disabled" state in logs)."""
+    import httpx
+    import respx
+
+    from client_agent.appliance import run_platform_session
+    from client_agent.platform import PlatformClient
+
+    discover_fn = lambda: [_make_camera()]  # noqa: E731
+    recorder = MagicMock()
+
+    config = {
+        "cameras": [
+            {
+                "id": "cam-1",
+                "enabled": True,
+                "rtsp_url": "rtsp://192.168.50.2:554/live",
+                "duration_s": 1800,
+            },
+            {
+                "id": "cam-2",
+                "enabled": False,
+                "rtsp_url": "rtsp://192.168.50.3:554/live",
+            },
+        ]
+    }
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/register").mock(
+            return_value=httpx.Response(
+                200, json={"appliance_id": "app-1", "tenant_id": "tenant-1"}
+            )
+        )
+        mock.post("/appliance/cameras").mock(return_value=httpx.Response(204))
+        mock.post("/appliance/heartbeat").mock(
+            return_value=httpx.Response(200, json={"config": config})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        run_platform_session(
+            platform_client=client,
+            discover_fn=discover_fn,
+            recorder=recorder,
+            environ={},
+        )
+
+    # Exactly one recorder.start — for the enabled camera, with the URL
+    # and duration from the platform (not the discovered values).
+    recorder.start.assert_called_once_with(url="rtsp://192.168.50.2:554/live", duration_s=1800)
+
+
+def test_main_exits_nonzero_on_platform_auth_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bad APPLIANCE_TOKEN must surface as a non-zero exit so systemd
+    flags the unit as failed (and the operator gets paged via
+    ``OnFailure=`` if configured). Letting the process die silently or
+    re-loop on a known-bad token would mask a configuration problem the
+    operator must fix manually."""
+    import httpx
+    import respx
+
+    from client_agent.appliance import main
+    from client_agent.platform import PlatformAuthError
+
+    env_dir = tmp_path / "etc-cctv-client"
+    env_dir.mkdir()
+    (env_dir / "r2.env").write_text(
+        "R2_ENDPOINT=https://acct.r2.cloudflarestorage.com\n"
+        "R2_ACCESS_KEY_ID=AK-test\n"
+        "R2_SECRET_ACCESS_KEY=SK-test\n"
+        "R2_BUCKET=surveillance-data\n"
+    )
+    (env_dir / "platform.env").write_text(
+        "PLATFORM_URL=https://platform.example\nAPPLIANCE_TOKEN=bad-token\n"
+    )
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    for k in (
+        "R2_ENDPOINT",
+        "R2_ACCESS_KEY_ID",
+        "R2_SECRET_ACCESS_KEY",
+        "R2_BUCKET",
+        "PLATFORM_URL",
+        "APPLIANCE_TOKEN",
+    ):
+        monkeypatch.delenv(k, raising=False)
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/register").mock(return_value=httpx.Response(401))
+
+        with (
+            patch("client_agent.agent.R2Client", return_value=MagicMock()),
+            patch("client_agent.appliance.serve"),
+            pytest.raises((SystemExit, PlatformAuthError)) as exc_info,
+        ):
+            main(["--env-dir", str(env_dir)])
+
+    # Either SystemExit with non-zero code OR PlatformAuthError propagated
+    # to the caller — both end the process with a non-zero exit. We accept
+    # either to give the implementation a small amount of latitude (catch
+    # and sys.exit(1), or let the exception propagate).
+    if isinstance(exc_info.value, SystemExit):
+        assert exc_info.value.code != 0
+
+
+def test_main_exits_nonzero_on_platform_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Persistent platform 5xx (after retries) must also surface as a
+    non-zero exit so systemd's ``Restart=on-failure`` policy backs off and
+    retries with delay rather than busy-looping."""
+    import httpx
+    import respx
+
+    from client_agent.appliance import main
+    from client_agent.platform import PlatformUnavailableError
+
+    env_dir = tmp_path / "etc-cctv-client"
+    env_dir.mkdir()
+    (env_dir / "r2.env").write_text(
+        "R2_ENDPOINT=https://acct.r2.cloudflarestorage.com\n"
+        "R2_ACCESS_KEY_ID=AK-test\n"
+        "R2_SECRET_ACCESS_KEY=SK-test\n"
+        "R2_BUCKET=surveillance-data\n"
+    )
+    (env_dir / "platform.env").write_text(
+        "PLATFORM_URL=https://platform.example\nAPPLIANCE_TOKEN=tok\n"
+    )
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    for k in (
+        "R2_ENDPOINT",
+        "R2_ACCESS_KEY_ID",
+        "R2_SECRET_ACCESS_KEY",
+        "R2_BUCKET",
+        "PLATFORM_URL",
+        "APPLIANCE_TOKEN",
+    ):
+        monkeypatch.delenv(k, raising=False)
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/register").mock(return_value=httpx.Response(503))
+
+        with (
+            patch("client_agent.agent.R2Client", return_value=MagicMock()),
+            patch("client_agent.appliance.serve"),
+            patch("client_agent.platform.time.sleep"),
+            pytest.raises((SystemExit, PlatformUnavailableError)) as exc_info,
+        ):
+            main(["--env-dir", str(env_dir)])
+
+    if isinstance(exc_info.value, SystemExit):
+        assert exc_info.value.code != 0
+
+
+def test_main_skips_platform_mode_when_env_unset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Auto-fallback: without PLATFORM_URL+APPLIANCE_TOKEN the appliance
+    runs the legacy standalone flow (Phase 1-3). This test guards against
+    a regression where introducing platform mode silently breaks
+    operators who haven't onboarded onto the platform yet."""
+    env_dir = tmp_path / "etc-cctv-client"
+    env_dir.mkdir()
+    (env_dir / "r2.env").write_text(
+        "R2_ENDPOINT=https://acct.r2.cloudflarestorage.com\n"
+        "R2_ACCESS_KEY_ID=AK-test\n"
+        "R2_SECRET_ACCESS_KEY=SK-test\n"
+        "R2_BUCKET=surveillance-data\n"
+    )
+    # Note: no platform.env at all — the legacy standalone path.
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    for k in (
+        "R2_ENDPOINT",
+        "R2_ACCESS_KEY_ID",
+        "R2_SECRET_ACCESS_KEY",
+        "R2_BUCKET",
+        "PLATFORM_URL",
+        "APPLIANCE_TOKEN",
+    ):
+        monkeypatch.delenv(k, raising=False)
+
+    with (
+        patch("client_agent.agent.R2Client", return_value=MagicMock()),
+        patch("client_agent.appliance.serve") as fake_serve,
+        patch("client_agent.appliance.run_platform_session") as fake_session,
+    ):
+        from client_agent.appliance import main
+
+        main(["--env-dir", str(env_dir)])
+
+    fake_serve.assert_called_once()
+    fake_session.assert_not_called()

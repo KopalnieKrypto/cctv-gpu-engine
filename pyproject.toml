@@ -33,6 +33,11 @@ dependencies = [
     # Docker entrypoint still uses Werkzeug because docker-compose treats
     # the container as a single-tenant fixture.
     "waitress>=3.0",
+    # HTTP client for the GPU Exchange platform-integration adapter
+    # (issue #26). Used by ``client_agent.platform.PlatformClient`` for
+    # register / push_cameras / heartbeat. httpx (sync API) is paired
+    # with respx in tests; both are small (~2MB combined), pure Python.
+    "httpx>=0.27",
 ]
 
 # ONNX Runtime is opt-in to keep `uv sync` lightweight (~50MB instead of ~1.5GB).
@@ -68,6 +73,10 @@ dev = [
     "pytest-mock>=3.12",
     "ruff>=0.6",
     "pre-commit>=3.7",
+    # respx mocks the httpx transport — same library used by
+    # ``client_agent.platform`` (issue #26). Tests assert request
+    # method / URL / headers / body without binding a socket.
+    "respx>=0.21",
 ]
 
 [tool.ruff]

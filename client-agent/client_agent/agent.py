@@ -50,12 +50,15 @@ class BuiltApp:
 
     Carries the ready-to-serve Flask app plus a couple of values the
     entrypoint logs at startup so the operator can confirm wiring without
-    grepping env. Frozen so a downstream caller can't accidentally rebind
-    ``app`` after construction."""
+    grepping env. ``recorder`` is exposed so the appliance entrypoint
+    (issue #26) can drive it from the platform heartbeat without going
+    through the Flask request layer. Frozen so a downstream caller can't
+    accidentally rebind ``app`` after construction."""
 
     app: Flask
     bucket: str
     recordings_root: Path
+    recorder: BackgroundRecorder
 
 
 def build_app(environ: Mapping[str, str], *, recordings_root: Path | None = None) -> BuiltApp:
@@ -129,7 +132,7 @@ def build_app(environ: Mapping[str, str], *, recordings_root: Path | None = None
         credentials_resolver=creds_resolver,
     )
 
-    return BuiltApp(app=app, bucket=bucket, recordings_root=recordings_root)
+    return BuiltApp(app=app, bucket=bucket, recordings_root=recordings_root, recorder=recorder)
 
 
 def main() -> None:
