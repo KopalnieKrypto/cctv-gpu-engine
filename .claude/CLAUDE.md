@@ -13,6 +13,7 @@ Batch surveillance video analysis: MP4 → YOLO-pose + VLM → activity classifi
 - Run unit tests: `make test`
 - Run end-to-end GPU smoke test: `make test-gpu`
 - GPU service: `docker compose up` (polls R2 for pending jobs)
+- GPU service REST mode (gpu-exchange integration, #25): `docker run --entrypoint python <image> -m gpu_service.rest_server` — Flask on :5003. Routes: `POST /analyze` (presigned URL passthrough), `GET /healthz`, `GET /status/:id`.
 - Client agent (Docker): `docker compose -f docker-compose.client.yml up` (Flask UI :8080)
 - Client appliance (bare-metal mini-PC, no Docker): `sudo ./client-appliance/install.sh` then `systemctl enable --now cctv-client` — see `client-appliance/README.md`
 
@@ -39,7 +40,9 @@ client-agent (Flask :8080) → R2 bucket (surveillance-data) → gpu-service (Do
 - **Pipeline** (`pipeline/`): frame extraction → YOLO-pose (person detection + displacement) → VLM or heuristic activity classification → HTML report
 - **Client Agent** (`client-agent/`): Flask UI on :8080 for MP4 upload + job status (#7 ✅) and RTSP recorder with ffmpeg stream-copy + segmented chunks (#8 ✅, e2e-validated on cctv-vps). Shared package `client_agent/` has **two entrypoints**: `client_agent.agent` (Docker; existing) and `client_agent.appliance` (bare-metal via waitress; #23 ✅).
 - **Client Appliance** (`client-appliance/`): packaging-only target (#24 ✅) — systemd unit, idempotent `install.sh`, env templates, README. Zero Python; consumes the shared `client_agent` package. Operator runs `sudo ./client-appliance/install.sh` on a fresh Ubuntu/RPi mini-PC and gets a `systemctl enable --now`-ed Flask UI in LAN.
-- **GPU Service** (`gpu-service/`): R2 polling worker + investor dashboard, downloads video, runs pipeline, uploads report
+- **GPU Service** (`gpu-service/`): two run-modes share one Docker image:
+  - `gpu_service.worker` (default ENTRYPOINT, :5000 dashboard): R2 polling worker for the SPEC §6 client-agent flow.
+  - `gpu_service.rest_server` (override entrypoint, :5003 REST): URL-passthrough contract for the [gpu-exchange](https://github.com/KopalnieKrypto/gpu-exchange) `gpu-agent` (#25 ✅). Routes: `POST /analyze` (multi-chunk, presigned URLs, tenant-prefix defense-in-depth), `GET /healthz` (model+CUDA gate, 503 while warming), `GET /status/:id` (state only, no result payload).
 
 ## Stack
 
@@ -109,9 +112,14 @@ client-agent (Flask :8080) → R2 bucket (surveillance-data) → gpu-service (Do
 │   ├── preprocessing.py / postprocessing.py        # PIL→CHW; transpose+NMS
 │   ├── annotator.py / aggregator.py                # boxes+keypoints; person-minutes
 │   └── vendor/                # vendored Chart.js for offline reports
-├── gpu-service/               # R2 polling worker (#5) + investor dashboard (#6)
-│   ├── Dockerfile             # nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 + PyTorch cu128
-│   └── gpu_service/           # worker.py, dashboard.py, r2_client.py (+tests)
+├── gpu-service/               # R2 polling worker (#5) + investor dashboard (#6) + gpu-exchange REST contract (#25)
+│   ├── Dockerfile             # nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 + PyTorch cu128, EXPOSE 5000 5003
+│   └── gpu_service/
+│       ├── worker.py, dashboard.py, r2_client.py     # R2 polling mode (default entrypoint)
+│       ├── rest_server.py, rest_api.py               # gpu-agent REST mode (override entrypoint, :5003)
+│       ├── task_runner.py, ffmpeg_concat.py          # download → concat → pipeline → upload
+│       ├── http_client.py, http_retry.py             # urllib + 3-try exp-backoff (1s/2s)
+│       └── tenant_url.py                             # defense-in-depth tenants/{tid}/results/{tid}/ check
 ├── client-agent/              # Flask UI :8080 (#7) + RTSP recorder (#8)
 │   ├── Dockerfile             # python:3.12-slim + ffmpeg, ENTRYPOINT client_agent.agent
 │   └── client_agent/          # web.py (Flask), recorder.py (ffmpeg+R2), discovery.py (ONVIF/RTSP-scan), agent.py (Docker entrypoint), appliance.py (bare-metal entrypoint via waitress, #23) (+tests)

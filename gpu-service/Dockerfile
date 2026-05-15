@@ -77,10 +77,14 @@ COPY pipeline /app/pipeline
 ENV MODEL_PATH=/app/models/yolo11s-pose.onnx \
     CLASSIFIER=vlm \
     DASHBOARD_PORT=5000 \
+    REST_PORT=5003 \
     WORKDIR=/tmp/cctv-jobs \
     PATH="/app/.venv/bin:${PATH}"
 
-EXPOSE 5000
+# :5000 — investor dashboard (default ENTRYPOINT = gpu_service.worker, R2 poll).
+# :5003 — gpu-agent REST contract (issue #25). Override entrypoint at run time:
+#   docker run --entrypoint python <image> -m gpu_service.rest_server
+EXPOSE 5000 5003
 
 # Healthcheck: dashboard responds on /dashboard. If the worker crashes the
 # daemon thread dies with it, so a 200 here = both processes alive.
