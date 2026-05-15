@@ -13,6 +13,8 @@ on the PlatformClient so retry tests run in <1ms instead of 3s real-time.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import httpx
 import pytest
 import respx
@@ -260,3 +262,88 @@ def test_two_clients_send_their_own_bearer_never_the_other() -> None:
         tenant_a.push_cameras([{"ip": "10.0.0.3"}])
 
     assert seen_tokens == ["tok-A", "tok-B", "tok-A"]
+
+
+# ----- 8. fetch_next_task: 204 → None (idle, no work) -----
+
+
+def test_fetch_next_task_returns_none_on_204() -> None:
+    """The platform returns 204 No Content when its queue is empty. The
+    poller treats this as "idle — sleep and try again", so the client
+    returns ``None`` rather than raising. The 204 path is the steady
+    state of a healthy appliance, so it must not allocate or log noisily."""
+    from client_agent.platform import PlatformClient
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        route = mock.get("/appliance/tasks/next").mock(return_value=httpx.Response(204))
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        result = client.fetch_next_task()
+
+    assert result is None
+    assert route.called
+    sent = route.calls.last.request
+    assert sent.headers["authorization"] == "Bearer tok"
+
+
+# ----- 9. fetch_next_task: 200 with task body → Task dataclass -----
+
+
+def test_fetch_next_task_returns_task_object_on_200() -> None:
+    """The platform returns 200 with a task envelope ``{"task": {id,
+    camera_id, start_time, end_time, ...}}``. We surface those four
+    fields on a typed ``Task`` so the poller does not key-index into a
+    raw dict (and miss a renamed field silently)."""
+    from client_agent.platform import PlatformClient
+
+    task_body = {
+        "task": {
+            "id": "task-abc",
+            "camera_id": "cam-1",
+            "start_time": "2026-05-15T10:15:00Z",
+            "end_time": "2026-05-15T10:45:00Z",
+        }
+    }
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.get("/appliance/tasks/next").mock(return_value=httpx.Response(200, json=task_body))
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        task = client.fetch_next_task()
+
+    assert task is not None
+    assert task.id == "task-abc"
+    assert task.camera_id == "cam-1"
+    assert task.start_time == datetime(2026, 5, 15, 10, 15, 0, tzinfo=UTC)
+    assert task.end_time == datetime(2026, 5, 15, 10, 45, 0, tzinfo=UTC)
+
+
+# ----- 10. update_task_status: POST with status + optional error -----
+
+
+def test_update_task_status_posts_status_and_optional_error() -> None:
+    """The poller emits status transitions back to the platform: claimed
+    → recording → uploading (happy path) or → failed (with error message).
+    The ``error`` field is only present on the failed transition so the
+    success path keeps the body minimal."""
+    from client_agent.platform import PlatformClient
+
+    seen_bodies: list[dict] = []
+
+    def _capture(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        seen_bodies.append(_json.loads(request.read()))
+        return httpx.Response(204)
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/tasks/task-abc/status").mock(side_effect=_capture)
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        client.update_task_status("task-abc", status="recording")
+        client.update_task_status("task-abc", status="failed", error="buffer empty")
+
+    assert seen_bodies == [
+        {"status": "recording"},
+        {"status": "failed", "error": "buffer empty"},
+    ]

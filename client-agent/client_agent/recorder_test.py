@@ -461,3 +461,51 @@ def test_recorder_status_preserves_chunks_uploaded_after_idle(tmp_path) -> None:
     snapshot = rec.status()
     assert snapshot.state == "idle"
     assert snapshot.chunks_uploaded == 3
+
+
+# ----- 13. buffer mode (#27): camera_id routes output, no upload, no cleanup -----
+
+
+def test_recorder_buffer_mode_routes_to_camera_id_and_leaves_chunks(tmp_path) -> None:  # noqa: ANN001
+    """When ``camera_id`` is passed to ``start``, the recorder is in
+    continuous-buffer mode (issue #27, Slice 1c.2):
+
+    * ``output_dir_factory`` is invoked with ``camera_id`` (not ``job_id``),
+      so the caller can route writes to ``{BUFFER_DIR}/{camera_id}/``.
+    * Chunks are **left on disk** — the rolling buffer is the source of
+      truth for the task poller. No ``upload_input_chunk``, no
+      ``put_status``, no ``rmtree`` of the output dir.
+
+    The legacy job_id-keyed upload flow (no ``camera_id`` passed) is the
+    other path and is exercised by every other test in this file."""
+    fake_r2 = FakeR2ForRecorder()
+    factory_calls: list[str] = []
+
+    def _factory(key: str) -> str:
+        factory_calls.append(key)
+        return str(tmp_path / "buffer" / key)
+
+    rec = Recorder(
+        uploader=fake_r2,
+        runner=_make_runner_that_writes_chunks({"chunk_000.mp4": b"aaa", "chunk_001.mp4": b"bbb"}),
+        output_dir_factory=_factory,
+        # job_id_factory should NOT be called in buffer mode — wire it to a
+        # sentinel that would explode if invoked.
+        job_id_factory=lambda: (_ for _ in ()).throw(AssertionError("job_id used in buffer mode")),
+    )
+
+    rec.start(url="rtsp://camera.local/stream", duration_s=4 * 3600, camera_id="cam-front-door")
+
+    # Factory routed by camera_id, not a generated job_id.
+    assert factory_calls == ["cam-front-door"]
+    # No R2 traffic in buffer mode — poller does the upload later.
+    assert fake_r2.uploaded == []
+    assert fake_r2.statuses == {}
+    # Chunks still on disk for the poller to find.
+    chunk_dir = tmp_path / "buffer" / "cam-front-door"
+    assert sorted(p.name for p in chunk_dir.glob("chunk_*.mp4")) == [
+        "chunk_000.mp4",
+        "chunk_001.mp4",
+    ]
+    # State machine back to idle so the next start (or per-camera respawn) works.
+    assert rec.status().state == "idle"

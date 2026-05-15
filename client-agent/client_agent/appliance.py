@@ -58,12 +58,49 @@ def _camera_to_push_dict(cam: DiscoveredCamera) -> dict[str, Any]:
     }
 
 
+def reconcile_recorders(
+    config_cameras: list[dict],
+    *,
+    active: dict[str, Any],
+    spawn: Callable[[dict], Any],
+    stop: Callable[[Any], None],
+) -> None:
+    """Apply the heartbeat config to the live recorder set (issue #27).
+
+    Camera approval lock semantics:
+
+    * ``enabled=True`` and not active → ``spawn``; record the handle.
+    * ``enabled=False`` (or absent from config) and active → ``stop``;
+      drop the handle.
+    * ``enabled=True`` and already active → no-op (steady state must be
+      idempotent across heartbeats).
+
+    The ``active`` dict is mutated in place; the appliance loop reuses
+    the same dict across iterations so handle lifetime is bounded by
+    the appliance process, not by a per-heartbeat scope.
+    """
+    desired_ids: set[str] = set()
+    for cam in config_cameras:
+        cam_id = cam["id"]
+        if cam.get("enabled"):
+            desired_ids.add(cam_id)
+            if cam_id not in active:
+                active[cam_id] = spawn(cam)
+
+    # Anything currently active that the heartbeat doesn't list as
+    # ``enabled=True`` (either ``enabled=False`` or removed) must stop.
+    for cam_id in list(active.keys()):
+        if cam_id not in desired_ids:
+            stop(active.pop(cam_id))
+
+
 def run_platform_session(
     *,
     platform_client: PlatformClient,
     discover_fn: Callable[[], list[DiscoveredCamera]],
-    recorder: Any,
+    recorder_factory: Callable[[], Any],
     environ: Mapping[str, str],
+    active_recorders: dict[str, Any] | None = None,
     hostname: str | None = None,
     version: str = "0.5.0",
 ) -> HeartbeatResponse:
@@ -77,11 +114,22 @@ def run_platform_session(
     3. ``push_cameras`` the discovered list (platform tags new cameras
        with ``enabled=False``; the operator opts in via the platform UI).
     4. ``heartbeat`` once. The response carries the desired config.
-    5. For each camera the platform marked ``enabled=True``, spawn a
-       recorder thread (``recorder.start``).
+    5. Reconcile recorders against the desired config: spawn one fresh
+       recorder per newly-``enabled=True`` camera (via ``recorder_factory``)
+       and stop any active recorder whose camera flipped to disabled or
+       was removed (camera approval lock, issue #27).
 
-    Side-effecting collaborators (the platform client, discovery, the
-    recorder) are injected so the unit tests stay hermetic."""
+    ``active_recorders`` carries the active set across heartbeat
+    iterations. The caller (``main()``) owns the dict so its lifetime is
+    bound to the appliance process; reconcile mutates it in place. When
+    omitted (typical test fixture) a fresh empty dict is used per call
+    and previously-spawned recorders cannot be stopped — fine for a
+    single iteration, wrong for a multi-iteration loop.
+
+    Each spawn calls ``recorder.start(url=..., duration_s=..., camera_id=...)``
+    where ``camera_id`` puts the recorder into buffer mode (issue #27):
+    chunks land in the per-camera rolling buffer for the task poller to
+    pick up, not in R2."""
     resolved_hostname = hostname or environ.get("HOSTNAME") or "cctv-appliance"
     platform_client.register(hostname=resolved_hostname, version=version)
 
@@ -109,14 +157,32 @@ def run_platform_session(
     payload = [_camera_to_push_dict(cam) for cam in cameras]
     platform_client.push_cameras(payload)
 
-    response = platform_client.heartbeat(status={}, recording_cameras=[])
+    if active_recorders is None:
+        active_recorders = {}
 
-    for cam in response.config.get("cameras", []):
-        if cam.get("enabled"):
-            recorder.start(
-                url=cam["rtsp_url"],
-                duration_s=int(cam.get("duration_s", DEFAULT_RECORDING_DURATION_S)),
-            )
+    response = platform_client.heartbeat(
+        status={},
+        recording_cameras=list(active_recorders.keys()),
+    )
+
+    def _spawn(cam: dict) -> Any:
+        rec = recorder_factory()
+        rec.start(
+            url=cam["rtsp_url"],
+            duration_s=int(cam.get("duration_s", DEFAULT_RECORDING_DURATION_S)),
+            camera_id=cam["id"],
+        )
+        return rec
+
+    def _stop(handle: Any) -> None:
+        handle.stop()
+
+    reconcile_recorders(
+        response.config.get("cameras", []),
+        active=active_recorders,
+        spawn=_spawn,
+        stop=_stop,
+    )
 
     return response
 
@@ -221,15 +287,38 @@ def main(argv: Sequence[str] | None = None) -> None:
                 rtsp_scan_fn=make_real_rtsp_scan(creds_resolver),
             )
 
-        # The Recorder lives behind ``built.app`` — pulling it out via the
-        # Flask app's extensions dict would couple the appliance to web.py
-        # internals. Instead, build_app already constructs a recorder; we
-        # reach for it through the same import path web.py uses. For #26
-        # the recorder lives in the BuiltApp surface (see agent.py).
+        # Buffer-mode recorder factory (issue #27): each platform-approved
+        # camera gets its own BackgroundRecorder writing into the per-camera
+        # rolling buffer at ``BUFFER_DIR/{camera_id}/chunk_NNN.mp4``. The
+        # uploader is None — buffer mode skips R2; the task poller picks
+        # up chunks from the buffer on demand.
+        import subprocess as _sp
+
+        from client_agent.recorder import BackgroundRecorder, Recorder
+
+        buffer_dir = Path(
+            os.environ.get("BUFFER_DIR") or built.recordings_root.parent / "cctv-buffer"
+        )
+        buffer_dir.mkdir(parents=True, exist_ok=True)
+
+        def _recorder_factory() -> BackgroundRecorder:
+            return BackgroundRecorder(
+                Recorder(
+                    runner=_sp.run,
+                    output_dir_factory=lambda cam_id: str(buffer_dir / cam_id),
+                )
+            )
+
+        # Active map lives in main()'s scope so a future heartbeat loop
+        # wrapping run_platform_session in ``while True: sleep(30); ...``
+        # can re-use the dict across iterations and reconcile correctly.
+        active_recorders: dict[str, Any] = {}
+
         run_platform_session(
             platform_client=platform_client,
             discover_fn=_discover,
-            recorder=built.recorder,
+            recorder_factory=_recorder_factory,
+            active_recorders=active_recorders,
             environ=os.environ,
         )
 

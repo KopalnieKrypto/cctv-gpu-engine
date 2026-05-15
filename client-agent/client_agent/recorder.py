@@ -157,7 +157,7 @@ def _default_job_id() -> str:
     return f"job-{uuid.uuid4().hex[:12]}"
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Recorder:
     """Single-recording state machine.
 
@@ -171,9 +171,12 @@ class Recorder:
     All side-effecting collaborators (subprocess runner, R2 client, dir
     factory, job_id factory, clock) are injected so the unit tests stay
     hermetic.
-    """
 
-    uploader: _UploaderLike
+    ``uploader`` is optional: buffer-mode (issue #27) recordings skip the
+    R2 upload entirely, so platform-mode appliances pass ``None``. Legacy
+    one-shot recordings (Flask UI flow) still require an uploader."""
+
+    uploader: _UploaderLike | None = None
     runner: Callable[..., Any]
     output_dir_factory: Callable[[str], str]
     job_id_factory: Callable[[], str] = _default_job_id
@@ -192,16 +195,28 @@ class Recorder:
                 chunks_uploaded=self._status.chunks_uploaded,
             )
 
-    def start(self, *, url: str, duration_s: int) -> str:
+    def start(self, *, url: str, duration_s: int, camera_id: str | None = None) -> str:
         """Run ffmpeg synchronously, then upload the produced chunks.
 
         Returns the ``job_id`` of the recording. Raises
         :class:`RecorderBusy` if another recording is already in flight.
-        """
+
+        ``camera_id`` switches the recorder into **buffer mode** (issue #27):
+        chunks land in ``output_dir_factory(camera_id)`` and are **left on
+        disk** for the task poller to pick up later. The R2 upload + status
+        handshake + temp-dir cleanup are all skipped — the rolling buffer
+        is the source of truth in this mode.
+
+        Default (``camera_id=None``) is the legacy one-shot mode: chunks
+        upload to R2 immediately and the temp dir is removed afterwards."""
+        buffer_mode = camera_id is not None
         with self._lock:
             if self._status.state in ("recording", "uploading"):
                 raise RecorderBusy(f"recorder already busy in state {self._status.state!r}")
-            job_id = self.job_id_factory()
+            # In buffer mode the camera_id stands in for the job_id on the
+            # status snapshot — operators and metrics key on it the same
+            # way (one identifier per active recording).
+            job_id = camera_id if buffer_mode else self.job_id_factory()
             self._status = RecorderStatus(state="recording", job_id=job_id)
 
         out_dir = Path(self.output_dir_factory(job_id))
@@ -227,7 +242,19 @@ class Recorder:
                     message=(getattr(result, "stderr", "") or "").strip()
                     or f"ffmpeg exited {getattr(result, 'returncode', '?')} with no output",
                 )
-            shutil.rmtree(out_dir, ignore_errors=True)
+            if not buffer_mode:
+                shutil.rmtree(out_dir, ignore_errors=True)
+            return job_id
+
+        if buffer_mode:
+            # Chunks stay on disk for the task poller to find later — no
+            # upload, no cleanup, no status handshake (the buffer layout
+            # IS the contract). Flip straight back to idle so the next
+            # restart cycle (e.g. per-day -t expiry) proceeds cleanly.
+            with self._lock:
+                self._status = RecorderStatus(
+                    state="idle", job_id=job_id, chunks_uploaded=len(chunks)
+                )
             return job_id
 
         with self._lock:
@@ -299,7 +326,7 @@ class BackgroundRecorder:
     def __init__(self, inner: Recorder) -> None:
         self._inner = inner
 
-    def start(self, *, url: str, duration_s: int) -> str:
+    def start(self, *, url: str, duration_s: int, camera_id: str | None = None) -> str:
         # Pre-flight the busy check on the main thread so /start can
         # return 409 *before* the operator's request returns. Otherwise
         # the rejection would be invisible to the HTTP layer.
@@ -309,7 +336,7 @@ class BackgroundRecorder:
 
         thread = threading.Thread(
             target=self._inner.start,
-            kwargs={"url": url, "duration_s": duration_s},
+            kwargs={"url": url, "duration_s": duration_s, "camera_id": camera_id},
             daemon=True,
             name=f"recorder-{url[:32]}",
         )

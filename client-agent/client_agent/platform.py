@@ -23,6 +23,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 
 import httpx
 
@@ -158,3 +159,81 @@ class PlatformClient:
         )
         data = response.json()
         return HeartbeatResponse(config=data["config"])
+
+    def fetch_next_task(self) -> Task | None:
+        """GET ``/appliance/tasks/next`` — claim the next pending task.
+
+        Returns a :class:`Task` if the platform has work, ``None`` on 204
+        (idle steady state — appliance sleeps and retries on the next
+        poll tick). Server-side claiming is atomic: a single GET both
+        reserves and returns the task, so two appliances racing for the
+        same task is platform's problem to solve."""
+        response = self._get("/appliance/tasks/next")
+        if response.status_code == 204:
+            return None
+        data = response.json()["task"]
+        return Task(
+            id=data["id"],
+            camera_id=data["camera_id"],
+            start_time=_parse_iso(data["start_time"]),
+            end_time=_parse_iso(data["end_time"]),
+        )
+
+    def update_task_status(self, task_id: str, *, status: str, error: str | None = None) -> None:
+        """POST ``/appliance/tasks/{task_id}/status`` — status transition.
+
+        ``error`` is only included in the body on the ``failed`` transition
+        so the happy-path payload stays minimal (the platform decides
+        whether ``error`` on a success is a server-side validation error)."""
+        body: dict = {"status": status}
+        if error is not None:
+            body["error"] = error
+        self._post(f"/appliance/tasks/{task_id}/status", json=body)
+
+    def _get(self, path: str) -> httpx.Response:
+        """GET ``path`` with Bearer auth, 5xx retry, and typed errors.
+
+        Mirrors :meth:`_post` — split into its own helper because httpx's
+        sync API has separate ``get`` / ``post`` functions and combining
+        them through a method dispatch would obscure the call site."""
+        last: httpx.Response | None = None
+        for i in range(_DEFAULT_ATTEMPTS):
+            last = httpx.get(
+                f"{self._base_url}{path}",
+                headers={"Authorization": f"Bearer {self._token}"},
+            )
+            if last.status_code == 401:
+                raise PlatformAuthError("platform rejected APPLIANCE_TOKEN (401)")
+            if last.status_code < 500:
+                return last
+            if i + 1 >= _DEFAULT_ATTEMPTS:
+                break
+            self._sleep(
+                _DEFAULT_BACKOFFS[i] if i < len(_DEFAULT_BACKOFFS) else _DEFAULT_BACKOFFS[-1]
+            )
+        assert last is not None
+        raise PlatformUnavailableError(f"platform returned {last.status_code} after retries")
+
+
+@dataclass(frozen=True)
+class Task:
+    """One task pulled off the platform's queue.
+
+    The poller hands these fields to :class:`RollingBuffer.chunks_in_range`
+    and :func:`ffmpeg_trim.trim_and_concat`. ISO-8601 strings get parsed
+    into aware datetimes at this boundary so downstream code never has
+    to think about timezone parsing again."""
+
+    id: str
+    camera_id: str
+    start_time: datetime
+    end_time: datetime
+
+
+def _parse_iso(s: str) -> datetime:
+    """Parse a platform-emitted ISO-8601 timestamp into an aware datetime.
+
+    The platform emits ``Z`` for UTC (per DD-09); Python 3.11's
+    ``fromisoformat`` accepts that natively, but we keep the explicit
+    replace as belt-and-suspenders for older platform code paths."""
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))

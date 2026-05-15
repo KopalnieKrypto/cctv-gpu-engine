@@ -77,6 +77,7 @@ dev = [
     # ``client_agent.platform`` (issue #26). Tests assert request
     # method / URL / headers / body without binding a socket.
     "respx>=0.21",
+    "pytest-cov>=7.1.0",
 ]
 
 [tool.ruff]
