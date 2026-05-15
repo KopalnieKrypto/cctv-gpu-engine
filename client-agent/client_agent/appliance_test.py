@@ -130,6 +130,55 @@ def test_default_recordings_dir_falls_back_to_home_local_state() -> None:
     assert result == Path("/home/operator/.local/state/cctv-client/recordings")
 
 
+# ----- 2b. BUFFER_HOURS boot validation (issue #30) -----
+
+
+def test_parse_buffer_hours_defaults_to_1_when_unset() -> None:
+    """1 hour is the dev/MVP default. Production overrides to 8+ in
+    platform.env. Default lives in the parser so missing env doesn't crash
+    appliance boot — the operator gets a working rolling buffer either way."""
+    from client_agent.appliance import parse_buffer_hours
+
+    assert parse_buffer_hours({}) == 1
+
+
+def test_parse_buffer_hours_accepts_positive_integer() -> None:
+    """Numeric env values parse cleanly. Operator on production hardware
+    sets ``BUFFER_HOURS=8`` (or higher) to keep more history available
+    for forensic task requests."""
+    from client_agent.appliance import parse_buffer_hours
+
+    assert parse_buffer_hours({"BUFFER_HOURS": "8"}) == 8
+
+
+def test_parse_buffer_hours_rejects_non_numeric() -> None:
+    """Operator typo (e.g. ``BUFFER_HOURS=eight``) must fail fast at boot,
+    not 30 minutes later when the first trim cycle hits an int(...) cast.
+    The error message has to name the var and the bad value so
+    ``journalctl -u cctv-client`` points at the fix."""
+    import pytest
+
+    from client_agent.appliance import parse_buffer_hours
+
+    with pytest.raises(ValueError, match="BUFFER_HOURS"):
+        parse_buffer_hours({"BUFFER_HOURS": "eight"})
+
+
+def test_parse_buffer_hours_rejects_zero_and_negative() -> None:
+    """``BUFFER_HOURS=0`` would mean "delete every chunk immediately",
+    which is logically a misconfig (no task could ever find footage).
+    Negative is also a typo. Both fail at boot rather than producing an
+    appliance that silently drops every chunk."""
+    import pytest
+
+    from client_agent.appliance import parse_buffer_hours
+
+    with pytest.raises(ValueError, match="BUFFER_HOURS"):
+        parse_buffer_hours({"BUFFER_HOURS": "0"})
+    with pytest.raises(ValueError, match="BUFFER_HOURS"):
+        parse_buffer_hours({"BUFFER_HOURS": "-3"})
+
+
 # ----- 3. CLI parser -----
 
 
@@ -621,6 +670,233 @@ def test_reconcile_recorders_does_not_respawn_already_active() -> None:
     assert spawn_calls == []
     assert stop_calls == []
     assert active == {"cam-1": "handle-cam-1"}
+
+
+# ----- 5c. TaskPoller wired into appliance boot (issue #30) -----
+
+
+def test_start_poller_thread_returns_started_daemon_thread(tmp_path: Path) -> None:
+    """The poller runs in the background so waitress can still serve the
+    Flask UI on the main thread. ``daemon=True`` is non-negotiable —
+    without it the appliance can't exit on SIGTERM (systemd would have to
+    SIGKILL it after the stop timeout), and an ``--update`` flow would
+    leak a poller thread per redeploy.
+
+    :class:`TaskPoller` is patched so the daemon thread returns
+    immediately — we want to assert the *threading* contract, not drive
+    the loop here (the loop is covered in :file:`poller_test.py`).
+    """
+    from unittest.mock import MagicMock
+
+    from client_agent.appliance import start_poller_thread
+
+    fake_poller = MagicMock()
+    fake_poller.run = MagicMock(return_value=None)
+    with patch("client_agent.appliance.TaskPoller", return_value=fake_poller):
+        thread = start_poller_thread(
+            platform_client=MagicMock(),
+            buffer_dir=tmp_path / "buf",
+            trim_output_dir=tmp_path / "trim",
+            environ={"BUFFER_HOURS": "1"},
+        )
+
+    thread.join(timeout=2)
+    assert thread.daemon is True
+    fake_poller.run.assert_called_once_with()
+
+
+def test_start_poller_thread_uses_buffer_hours_from_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``BUFFER_HOURS`` from env flows into the :class:`RollingBuffer`
+    the poller queries. A wrong wiring (e.g. hardcoded 1) would silently
+    lose every hour past the first on a production 8-hour appliance —
+    silent because the trim-failure path looks the same to the operator
+    as a not-yet-recorded camera."""
+    from unittest.mock import MagicMock, patch
+
+    from client_agent.appliance import start_poller_thread
+
+    captured: dict[str, object] = {}
+
+    def fake_rolling_buffer(*, base_dir, buffer_hours, **kw):
+        captured["buffer_hours"] = buffer_hours
+        captured["base_dir"] = base_dir
+        return MagicMock()
+
+    fake_poller = MagicMock()
+    fake_poller.run = MagicMock(return_value=None)
+    with (
+        patch("client_agent.appliance.RollingBuffer", side_effect=fake_rolling_buffer),
+        patch("client_agent.appliance.TaskPoller", return_value=fake_poller),
+    ):
+        thread = start_poller_thread(
+            platform_client=MagicMock(),
+            buffer_dir=tmp_path / "buf",
+            trim_output_dir=tmp_path / "trim",
+            environ={"BUFFER_HOURS": "8"},
+        )
+
+    thread.join(timeout=2)
+    assert captured["buffer_hours"] == 8
+    assert captured["base_dir"] == tmp_path / "buf"
+    assert thread.daemon is True
+
+
+def test_main_starts_poller_thread_in_platform_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End-to-end wiring guard: when platform.env is present, ``main()``
+    calls ``start_poller_thread`` (or an equivalent helper) after the
+    first ``run_platform_session``. Without this, the appliance would
+    register + heartbeat once but never actually consume any task from
+    the platform queue — Phase 4 demo blocker."""
+    import httpx
+    import respx
+
+    from client_agent.appliance import main
+
+    env_dir = tmp_path / "etc-cctv-client"
+    env_dir.mkdir()
+    (env_dir / "r2.env").write_text(
+        "R2_ENDPOINT=https://acct.r2.cloudflarestorage.com\n"
+        "R2_ACCESS_KEY_ID=AK-test\n"
+        "R2_SECRET_ACCESS_KEY=SK-test\n"
+        "R2_BUCKET=surveillance-data\n"
+    )
+    (env_dir / "platform.env").write_text(
+        "PLATFORM_URL=https://platform.example\nAPPLIANCE_TOKEN=tok\nBUFFER_HOURS=1\n"
+    )
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    for k in (
+        "R2_ENDPOINT",
+        "R2_ACCESS_KEY_ID",
+        "R2_SECRET_ACCESS_KEY",
+        "R2_BUCKET",
+        "PLATFORM_URL",
+        "APPLIANCE_TOKEN",
+        "BUFFER_HOURS",
+    ):
+        monkeypatch.delenv(k, raising=False)
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/register").mock(
+            return_value=httpx.Response(
+                200, json={"appliance_id": "app-1", "tenant_id": "tenant-1"}
+            )
+        )
+        mock.post("/appliance/cameras").mock(return_value=httpx.Response(204))
+        mock.post("/appliance/heartbeat").mock(
+            return_value=httpx.Response(200, json={"config": {"cameras": []}})
+        )
+
+        with (
+            patch("client_agent.agent.R2Client", return_value=MagicMock()),
+            patch("client_agent.appliance.serve"),
+            patch("client_agent.appliance.start_poller_thread") as fake_start,
+        ):
+            main(["--env-dir", str(env_dir)])
+
+    fake_start.assert_called_once()
+    call_kwargs = fake_start.call_args.kwargs
+    # buffer_dir defaults to <recordings_parent>/cctv-buffer; trim_output_dir
+    # lives under the same parent so the poller can write trimmed mp4s
+    # adjacent to the buffer without crossing fs boundaries (would slow
+    # the rename + slow the upload).
+    assert "platform_client" in call_kwargs
+    assert "buffer_dir" in call_kwargs
+    assert "trim_output_dir" in call_kwargs
+
+
+def test_main_does_not_start_poller_thread_in_legacy_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Auto-fallback: without platform.env the appliance runs the legacy
+    Phase 1-3 flow and the poller stays asleep. A regression that started
+    the poller anyway would crash on first ``fetch_next_task`` (no
+    PlatformClient configured)."""
+    env_dir = tmp_path / "etc-cctv-client"
+    env_dir.mkdir()
+    (env_dir / "r2.env").write_text(
+        "R2_ENDPOINT=https://acct.r2.cloudflarestorage.com\n"
+        "R2_ACCESS_KEY_ID=AK-test\n"
+        "R2_SECRET_ACCESS_KEY=SK-test\n"
+        "R2_BUCKET=surveillance-data\n"
+    )
+    # No platform.env — legacy mode.
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    for k in (
+        "R2_ENDPOINT",
+        "R2_ACCESS_KEY_ID",
+        "R2_SECRET_ACCESS_KEY",
+        "R2_BUCKET",
+        "PLATFORM_URL",
+        "APPLIANCE_TOKEN",
+    ):
+        monkeypatch.delenv(k, raising=False)
+
+    with (
+        patch("client_agent.agent.R2Client", return_value=MagicMock()),
+        patch("client_agent.appliance.serve"),
+        patch("client_agent.appliance.start_poller_thread") as fake_start,
+    ):
+        from client_agent.appliance import main
+
+        main(["--env-dir", str(env_dir)])
+
+    fake_start.assert_not_called()
+
+
+def test_main_exits_nonzero_on_buffer_hours_misconfig(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``BUFFER_HOURS=eight`` in platform.env must abort boot with a
+    non-zero exit — systemd's ``Restart=on-failure`` then surfaces the
+    crash to the operator via ``systemctl status``. Booting with a bad
+    value and silently defaulting to 1 would mask the typo until the
+    operator wonders why their 8-hour retention vanished."""
+    env_dir = tmp_path / "etc-cctv-client"
+    env_dir.mkdir()
+    (env_dir / "r2.env").write_text(
+        "R2_ENDPOINT=https://acct.r2.cloudflarestorage.com\n"
+        "R2_ACCESS_KEY_ID=AK-test\n"
+        "R2_SECRET_ACCESS_KEY=SK-test\n"
+        "R2_BUCKET=surveillance-data\n"
+    )
+    (env_dir / "platform.env").write_text(
+        "PLATFORM_URL=https://platform.example\nAPPLIANCE_TOKEN=tok\nBUFFER_HOURS=eight\n"
+    )
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    for k in (
+        "R2_ENDPOINT",
+        "R2_ACCESS_KEY_ID",
+        "R2_SECRET_ACCESS_KEY",
+        "R2_BUCKET",
+        "PLATFORM_URL",
+        "APPLIANCE_TOKEN",
+        "BUFFER_HOURS",
+    ):
+        monkeypatch.delenv(k, raising=False)
+
+    with (
+        patch("client_agent.agent.R2Client", return_value=MagicMock()),
+        patch("client_agent.appliance.serve"),
+        pytest.raises((SystemExit, ValueError)) as exc_info,
+    ):
+        from client_agent.appliance import main
+
+        main(["--env-dir", str(env_dir)])
+
+    if isinstance(exc_info.value, SystemExit):
+        assert exc_info.value.code != 0
+    else:
+        assert "BUFFER_HOURS" in str(exc_info.value)
 
 
 def test_main_exits_nonzero_on_platform_auth_error(

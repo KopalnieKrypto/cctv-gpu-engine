@@ -84,3 +84,49 @@ def test_links_to_unit_file_and_envs() -> None:
     assert "cctv-client.service" in text
     assert "r2.env" in text
     assert "cameras.env" in text
+
+
+# --- dual-mode docs (issue #30) ---------------------------------------------
+
+
+def test_section_dual_mode_documents_platform_mode() -> None:
+    """Phase 4 platform mode and legacy Phase 1-3 Docker UI mode coexist
+    until #29 retires the legacy one. The README has to surface both so an
+    operator picking up the appliance for the first time knows which
+    compose / env files belong to which flow."""
+    text = _text()
+    # The platform-mode entrypoint and its env file are the load-bearing
+    # references — without them the operator can't tell that a separate
+    # path exists.
+    assert "platform.env" in text, "README must reference platform.env (Phase 4 mode)"
+    assert "PLATFORM_URL" in text, "README must mention PLATFORM_URL (Phase 4 toggle)"
+    assert "APPLIANCE_TOKEN" in text, "README must mention APPLIANCE_TOKEN (Phase 4 token)"
+
+
+def test_section_dual_mode_documents_docker_appliance_compose() -> None:
+    """The Docker variant for platform mode is `docker-compose.appliance.yml`.
+    Operators who don't want bare-metal installs need this pointer."""
+    text = _text()
+    assert "docker-compose.appliance.yml" in text, (
+        "README must reference docker-compose.appliance.yml as the Phase 4 "
+        "Docker variant alongside the bare-metal install path"
+    )
+
+
+def test_section_dual_mode_links_to_issue_29() -> None:
+    """Acceptance criterion: link to #29 (retire legacy agent.py) so an
+    operator reading the dual-mode docs knows the legacy path has a
+    sunset date and is not "two equally-supported flows forever"."""
+    text = _text()
+    assert "#29" in text, "README must link to #29 (legacy retirement plan)"
+
+
+def test_section_documents_buffer_hours() -> None:
+    """``BUFFER_HOURS`` is a tunable the operator will hit at production
+    sizing time. README must mention the 1h dev default and the 8h+ prod
+    guidance so the operator does not silently ship 1h retention to a
+    customer that needed a wider forensic window."""
+    text = _text().lower()
+    assert "buffer_hours" in text, "README must document BUFFER_HOURS"
+    # Surface the prod guidance — accept either '8' or '8h' verbatim.
+    assert "8" in text, "README must document the 8h+ production guidance"

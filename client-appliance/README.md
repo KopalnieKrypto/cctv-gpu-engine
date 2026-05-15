@@ -153,3 +153,52 @@ Docker stack (`client-agent/Dockerfile` + `docker-compose.client.yml`)
 nadal działa identycznie — appliance to równoległy target, nie zamiennik.
 Współdzielony pakiet `client_agent` gwarantuje 1:1 funkcjonalność: każda
 nowa funkcja ląduje w obu trybach.
+
+## Tryby pracy: legacy Docker UI vs platform mode (issue #30)
+
+Po wprowadzeniu integracji z GPU Exchange (`PLATFORM_URL`/`APPLIANCE_TOKEN`)
+appliance ma dwa równoległe tryby pracy. Współdzielą ten sam pakiet
+`client_agent` i ten sam obraz Dockera — różnią się tylko entrypointem
+i wymaganymi env-vars.
+
+| Tryb | Entrypoint | Compose | Env | Zachowanie |
+|------|-----------|---------|-----|------------|
+| **Legacy Docker UI** (Phase 1-3) | `client_agent.agent` | `docker-compose.client.yml` | `R2_*` + `RTSP_*` | Flask UI :8080, ręczne nagrania, upload bezpośrednio do R2 z hardcoded creds |
+| **Platform mode** (Phase 4) | `client_agent.appliance` | `docker-compose.appliance.yml` | `PLATFORM_URL` + `APPLIANCE_TOKEN` + opcjonalny `BUFFER_HOURS` | Flask UI :8080 + TaskPoller w tle, rejestracja w platformie, rolling buffer, upload przez presigned URL |
+
+Wybór trybu zależy od tego, czy appliance jest podpięty do GPU Exchange:
+
+- **Standalone (bez platformy)**: ustaw tylko `R2_*` i `RTSP_*` w `/etc/cctv-client/`. `platform.env` zostaw nienaruszony — appliance auto-fallbackuje do legacy flow (`_is_platform_mode()` zwraca `False`).
+- **Z platformą**: wpisz `PLATFORM_URL` + `APPLIANCE_TOKEN` (+ opcjonalnie `BUFFER_HOURS`) w `/etc/cctv-client/platform.env`. Po restarcie unit-a appliance zarejestruje się, podejmie task'i z kolejki i będzie utrzymywał rolling buffer.
+
+### Docker variant trybu platformowego
+
+Dla operatorów wolących Docker zamiast bare-metal install:
+
+```bash
+cp .env.appliance.example .env.appliance  # wypełnij wartości
+docker compose -f docker-compose.appliance.yml up -d
+docker compose -f docker-compose.appliance.yml ps  # healthcheck po ~30 s
+```
+
+Compose `docker-compose.appliance.yml`:
+- entrypoint: `python -m client_agent.appliance`
+- env: wymaga `PLATFORM_URL` i `APPLIANCE_TOKEN` (uruchomienie z pustymi → fail-fast z czytelnym błędem);
+- volume: nazwany volume `cctv-appliance-buffer` na `/var/lib/cctv/buffer` — przeżywa `docker compose down`;
+- healthcheck: HTTP GET `http://127.0.0.1:8080/` z 30-sekundowym `start_period` na pierwszy heartbeat.
+
+### `BUFFER_HOURS` — rozmiar rolling buffera
+
+`BUFFER_HOURS` w `platform.env` kontroluje retencję per-camera bufora:
+
+- domyślnie `1` (dev / MVP demo) — wystarczy do krótkich task'ów rzędu kilku minut wstecz;
+- produkcja: ustaw `8` (lub więcej) — operator zlecający task forensic z 6-godzinnym horyzontem musi mieć w buforze odpowiedni materiał;
+- wartość nie-liczbowa lub `≤ 0` → boot validation fails fast (`systemctl status cctv-client` pokaże stack ze stringa `BUFFER_HOURS must be ...`).
+
+### Plan migracji
+
+Issue [#29](https://github.com/KopalnieKrypto/cctv-gpu-engine/issues/29)
+śledzi wycofanie legacy `client_agent.agent` trybu Dockerowego po
+demonstracji Phase 4 (gpu-exchange #24). Do tego czasu oba flavoursy
+coexistują — appliance nie wymusza migracji, ale nowe wdrożenia powinny
+od razu lądować w trybie platformowym.

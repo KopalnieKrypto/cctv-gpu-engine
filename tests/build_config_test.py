@@ -286,6 +286,120 @@ class TestClientAgentDockerfile:
         )
 
 
+class TestApplianceDockerCompose:
+    """Static smoke test for ``docker-compose.appliance.yml`` (issue #30).
+
+    Two compose flavours coexist by design (issue #29 retires the legacy
+    one later):
+
+    * ``docker-compose.client.yml`` — legacy Phase 1-3 Docker UI mode,
+      entrypoint ``client_agent.agent`` (Flask UI :8080, manual recordings).
+    * ``docker-compose.appliance.yml`` — Phase 4 platform mode, entrypoint
+      ``client_agent.appliance`` (TaskPoller + heartbeat + buffer trim).
+
+    These assertions guard the *appliance* file's shape — they fail if the
+    entrypoint reverts to the legacy module, if a required env var
+    disappears, or if the buffer volume is dropped (would lose every chunk
+    on container restart). Booting the image would catch the regressions
+    too, but only after the operator wonders why the appliance won't pick
+    up tasks.
+    """
+
+    COMPOSE_FILE = REPO_ROOT / "docker-compose.appliance.yml"
+
+    def _load(self) -> dict:
+        import yaml  # PyYAML ships transitively via wsdiscovery / other deps
+
+        with self.COMPOSE_FILE.open("r") as f:
+            return yaml.safe_load(f)
+
+    def test_compose_file_exists(self):
+        assert self.COMPOSE_FILE.exists(), (
+            f"docker-compose.appliance.yml missing at {self.COMPOSE_FILE}. "
+            f"Issue #30 requires this file to support Phase 4 platform mode."
+        )
+
+    def test_compose_file_parses_as_yaml(self):
+        data = self._load()
+        assert isinstance(data, dict), "compose file must parse to a top-level mapping"
+        assert "services" in data, "compose file has no `services:` section"
+
+    def test_compose_service_uses_appliance_entrypoint(self):
+        """Entrypoint must invoke ``client_agent.appliance`` — not the
+        legacy ``client_agent.agent``. Reverting to the legacy module
+        would silently skip the platform integration and the task poller,
+        so the appliance container would look healthy but never consume
+        a single task from the queue."""
+        data = self._load()
+        services = data["services"]
+        assert services, "no services defined"
+        # We accept any service name (operator preference); contract is
+        # *at least one* runs the appliance module.
+        bodies = list(services.values())
+        joined = " ".join(
+            " ".join(map(str, body.get("command", []) or []))
+            + " "
+            + " ".join(map(str, body.get("entrypoint", []) or []))
+            for body in bodies
+        )
+        assert "client_agent.appliance" in joined, (
+            f"no service launches `client_agent.appliance` "
+            f"(found: {[(b.get('entrypoint'), b.get('command')) for b in bodies]})"
+        )
+
+    def test_compose_requires_platform_url_and_token(self):
+        """Operator must supply ``PLATFORM_URL`` + ``APPLIANCE_TOKEN`` via
+        env interpolation. Without the ``${VAR:?error}`` form (or env_file)
+        the compose stack would boot with empty strings and silently fall
+        back to legacy mode — defeating the whole point of the appliance
+        compose file."""
+        text = self.COMPOSE_FILE.read_text()
+        for key in ("PLATFORM_URL", "APPLIANCE_TOKEN"):
+            assert key in text, f"compose file does not reference {key}"
+
+    def test_compose_declares_buffer_hours(self):
+        """``BUFFER_HOURS`` must surface in the compose env so the operator
+        can override the 1h default without rebuilding the image."""
+        text = self.COMPOSE_FILE.read_text()
+        assert "BUFFER_HOURS" in text, "compose file does not reference BUFFER_HOURS"
+
+    def test_compose_persists_buffer_volume(self):
+        """Per-camera chunks land in ``BUFFER_DIR`` (defaults under the
+        recordings root in :mod:`client_agent.appliance`). The compose
+        file must bind a volume there or every restart wipes the rolling
+        buffer — every task would fail with "buffer empty" until each
+        camera repopulates."""
+        data = self._load()
+        services = data["services"]
+        has_volume = False
+        for body in services.values():
+            vols = body.get("volumes") or []
+            for v in vols:
+                if isinstance(v, str) and (
+                    "buffer" in v.lower() or "cctv-buffer" in v or "/var/lib/cctv" in v
+                ):
+                    has_volume = True
+                    break
+                if isinstance(v, dict) and "target" in v:
+                    if "buffer" in v["target"].lower():
+                        has_volume = True
+                        break
+        assert has_volume, (
+            "compose file does not bind a volume for the rolling buffer — "
+            "every container restart would lose buffered footage"
+        )
+
+    def test_compose_defines_healthcheck(self):
+        """A healthcheck on :8080 lets ``docker compose ps`` surface the
+        appliance state (matches issue #30 AC: 'healthcheck OK after 30s').
+        Operators rely on this to know whether the appliance crashed
+        between heartbeats."""
+        data = self._load()
+        services = data["services"]
+        has_healthcheck = any("healthcheck" in body for body in services.values())
+        assert has_healthcheck, "no service defines a healthcheck"
+
+
 class TestRuffJobScope:
     """Issue #15: the CI ruff job must lint the same Python source tree that
     the local pre-commit hook covers, otherwise a contributor who bypasses

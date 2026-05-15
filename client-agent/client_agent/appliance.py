@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import threading
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -27,8 +28,12 @@ from typing import Any
 from waitress import serve
 
 from client_agent.agent import build_app
+from client_agent.buffer import RollingBuffer
 from client_agent.discovery import DiscoveredCamera
+from client_agent.ffmpeg_trim import trim_and_concat
 from client_agent.platform import HeartbeatResponse, PlatformClient
+from client_agent.poller import TaskPoller
+from client_agent.uploader import PresignedUploader
 
 logger = logging.getLogger(__name__)
 
@@ -219,6 +224,69 @@ def default_recordings_dir(environ: MutableMapping[str, str]) -> Path:
     return Path(base) / "cctv-client" / "recordings"
 
 
+def parse_buffer_hours(environ: Mapping[str, str]) -> int:
+    """Resolve and validate ``BUFFER_HOURS`` at appliance boot (issue #30).
+
+    The rolling buffer's retention window. Defaults to 1 (dev/MVP) so the
+    appliance still boots when the operator hasn't seeded ``platform.env``.
+    Bad values fail fast at boot — surfacing through systemd as a unit-
+    failed state — rather than 30 min later when the first trim cycle
+    casts to int and raises an opaque ``ValueError`` inside the poller
+    thread."""
+    raw = environ.get("BUFFER_HOURS")
+    if raw is None or raw == "":
+        return 1
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"BUFFER_HOURS must be a positive integer (got {raw!r})") from exc
+    if value <= 0:
+        raise ValueError(
+            f"BUFFER_HOURS must be > 0 (got {value}); set to 1 or higher in platform.env"
+        )
+    return value
+
+
+def start_poller_thread(
+    *,
+    platform_client: PlatformClient,
+    buffer_dir: Path,
+    trim_output_dir: Path,
+    environ: Mapping[str, str],
+) -> threading.Thread:
+    """Build a :class:`TaskPoller` and run it on a daemon background thread.
+
+    Called once at appliance boot in platform mode (after the initial
+    ``run_platform_session`` has registered + heartbeated). The poller
+    then drives the ``claim → trim → upload`` cycle indefinitely; the
+    appliance's main thread carries on into ``waitress.serve(...)`` so
+    the Flask UI keeps serving on :8080 in parallel.
+
+    ``daemon=True`` is intentional: on SIGTERM systemd wants the process
+    to exit promptly. A non-daemon thread blocking on
+    ``platform.fetch_next_task`` would force a stop-timeout SIGKILL.
+    """
+    buffer = RollingBuffer(
+        base_dir=buffer_dir,
+        buffer_hours=parse_buffer_hours(environ),
+    )
+    uploader = PresignedUploader(platform=platform_client)
+    poller = TaskPoller(
+        platform=platform_client,
+        buffer=buffer,
+        trim_fn=trim_and_concat,
+        output_dir=trim_output_dir,
+        uploader=uploader,
+    )
+    thread = threading.Thread(
+        target=poller.run,
+        name="cctv-task-poller",
+        daemon=True,
+    )
+    thread.start()
+    return thread
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse CLI args for the appliance.
 
@@ -257,6 +325,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     # tuple in load_env_files instead of looping here.
     load_env_files(args.env_dir, os.environ)
     _load_platform_env(args.env_dir, os.environ)
+
+    # Validate BUFFER_HOURS at boot (issue #30) — fails fast on typos
+    # before network or filesystem work so systemd's Restart=on-failure
+    # surfaces the misconfig to the operator instead of looping with a
+    # broken trim cycle every poll interval.
+    parse_buffer_hours(os.environ)
 
     recordings_root = default_recordings_dir(os.environ)
     built = build_app(os.environ, recordings_root=recordings_root)
@@ -319,6 +393,19 @@ def main(argv: Sequence[str] | None = None) -> None:
             discover_fn=_discover,
             recorder_factory=_recorder_factory,
             active_recorders=active_recorders,
+            environ=os.environ,
+        )
+
+        # Spawn the task poller (issue #30). Drives claim → trim → upload
+        # indefinitely on a daemon thread; main() continues into waitress
+        # so the Flask UI on :8080 keeps serving concurrently. The trim
+        # output dir lives next to the buffer to keep rename(2) on one fs.
+        trim_output_dir = buffer_dir.parent / "cctv-trim"
+        trim_output_dir.mkdir(parents=True, exist_ok=True)
+        start_poller_thread(
+            platform_client=platform_client,
+            buffer_dir=buffer_dir,
+            trim_output_dir=trim_output_dir,
             environ=os.environ,
         )
 
