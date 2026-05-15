@@ -8,8 +8,10 @@
 # Layout it sets up:
 #
 #     /opt/cctv-client/            venv (python + deps + client_agent code)
-#     /etc/cctv-client/r2.env      R2 creds (chmod 600, seeded from .example)
-#     /etc/cctv-client/cameras.env RTSP creds (chmod 600, seeded from .example)
+#     /etc/cctv-client/r2.env       R2 creds (chmod 600, seeded from .example)
+#     /etc/cctv-client/cameras.env  RTSP creds (chmod 600, seeded from .example)
+#     /etc/cctv-client/platform.env GPU Exchange platform creds, optional
+#                                   (chmod 600, seeded from .example, #26)
 #     /etc/systemd/system/cctv-client.service
 #     user `cctv`                  unprivileged owner of /opt/cctv-client
 #
@@ -97,7 +99,7 @@ log "configuring $ETC"
 install -d -o root -g cctv -m 0750 "$ETC"
 chmod 0700 "$ETC"
 
-for name in r2.env cameras.env; do
+for name in r2.env cameras.env platform.env; do
     target="$ETC/$name"
     if [[ ! -f "$target" ]]; then
         log "seeding $target from $name.example"

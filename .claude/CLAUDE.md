@@ -16,6 +16,7 @@ Batch surveillance video analysis: MP4 → YOLO-pose + VLM → activity classifi
 - GPU service REST mode (gpu-exchange integration, #25): `docker run --entrypoint python <image> -m gpu_service.rest_server` — Flask on :5003. Routes: `POST /analyze` (presigned URL passthrough), `GET /healthz`, `GET /status/:id`.
 - Client agent (Docker): `docker compose -f docker-compose.client.yml up` (Flask UI :8080)
 - Client appliance (bare-metal mini-PC, no Docker): `sudo ./client-appliance/install.sh` then `systemctl enable --now cctv-client` — see `client-appliance/README.md`
+- Client appliance platform mode (#26, optional): set `PLATFORM_URL` + `APPLIANCE_TOKEN` in `/etc/cctv-client/platform.env` (chmod 600, seeded by install.sh from `platform.env.example`) → boot calls platform `register`/`push_cameras`/`heartbeat` and recorders spawn from heartbeat config. Either key missing → auto-fallback to legacy standalone flow.
 
 ## Remote infrastructure
 
