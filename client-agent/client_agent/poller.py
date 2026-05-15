@@ -63,6 +63,19 @@ class _BufferLike(Protocol):
     def has_recorded(self, camera_id: str) -> bool: ...
 
 
+class _UploaderLike(Protocol):
+    """Narrow surface of :class:`client_agent.uploader.PresignedUploader`.
+
+    Only :meth:`upload_chunks` is used at the poller boundary — we hand
+    over a list of trimmed mp4 paths and trust the uploader's retry /
+    refresh-on-expiry logic. The result objects only need a ``success``
+    bool and ``error`` string for our purposes; declared as ``object``
+    in the return type so this Protocol does not import from uploader
+    (and create an import cycle)."""
+
+    def upload_chunks(self, task_id: str, chunks: list[Path]) -> list[Any]: ...
+
+
 class TaskPoller:
     """Single-flight task pump against the platform queue."""
 
@@ -73,6 +86,7 @@ class TaskPoller:
         buffer: _BufferLike,
         trim_fn: Callable[..., None],
         output_dir: Path,
+        uploader: _UploaderLike,
         poll_interval_s: int = 5,
         runner: Callable[..., Any] = subprocess.run,
         sleep: Callable[[float], None] = time.sleep,
@@ -81,6 +95,7 @@ class TaskPoller:
         self._buffer = buffer
         self._trim_fn = trim_fn
         self._output_dir = output_dir
+        self._uploader = uploader
         self._poll_interval_s = poll_interval_s
         self._runner = runner
         self._sleep = sleep
@@ -124,6 +139,22 @@ class TaskPoller:
         )
 
         self._platform.update_task_status(task.id, status="uploading")
+        results = self._uploader.upload_chunks(task.id, [output])
+        failed = [r for r in results if not getattr(r, "success", False)]
+        if failed:
+            # Aggregate every failed chunk's error into one operator-
+            # facing message. Keeps the platform-side error column
+            # bounded but loses nothing diagnostic — each chunk_n is
+            # tagged so the operator can spot a "chunk 7 always 503"
+            # pattern across retries.
+            error = "; ".join(
+                f"chunk {getattr(r, 'chunk_n', '?')}: {getattr(r, 'error', 'unknown')}"
+                for r in failed
+            )
+            self._platform.update_task_status(task.id, status="failed", error=error)
+            return True
+
+        self._platform.update_task_status(task.id, status="uploaded")
         return True
 
     def run(self) -> None:

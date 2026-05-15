@@ -347,3 +347,80 @@ def test_update_task_status_posts_status_and_optional_error() -> None:
         {"status": "recording"},
         {"status": "failed", "error": "buffer empty"},
     ]
+
+
+# ----- 11. get_upload_url: Bearer + query params, parses UploadUrl -----
+
+
+def test_get_upload_url_sends_query_params_and_parses_response() -> None:
+    """Per DD-09 (gpu-exchange) the appliance never holds R2 credentials —
+    every upload is gated by a fresh presigned PUT URL. ``get_upload_url``
+    is the only way the appliance can move bytes to R2; the platform binds
+    the URL to ``tenants/{tid}/appliance-uploads/{task_id}/chunk_N.mp4``
+    so cross-tenant scribbles are impossible by construction.
+
+    This test pins the wire format: GET with Bearer, ``task_id`` and
+    ``chunk_n`` as query params, response parsed into :class:`UploadUrl`."""
+    from client_agent.platform import PlatformClient, UploadUrl
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        route = mock.get(
+            "/appliance/upload-url",
+            params={"task_id": "task-9", "chunk_n": "3"},
+        ).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "url": "https://r2.example/tenants/t-1/appliance-uploads/task-9/chunk_3.mp4?sig=xyz",
+                    "key": "tenants/t-1/appliance-uploads/task-9/chunk_3.mp4",
+                    "expires_in": 1800,
+                },
+            )
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok-z")
+
+        result = client.get_upload_url("task-9", 3)
+
+    assert isinstance(result, UploadUrl)
+    assert result.url.endswith("chunk_3.mp4?sig=xyz")
+    assert result.key == "tenants/t-1/appliance-uploads/task-9/chunk_3.mp4"
+    assert result.expires_in == 1800
+    assert route.called
+    assert route.calls.last.request.headers["authorization"] == "Bearer tok-z"
+
+
+# ----- 12. get_upload_url: 5xx → retry budget shared with other GETs -----
+
+
+def test_get_upload_url_retries_on_5xx_and_succeeds_on_third_attempt() -> None:
+    """Presigned-URL generation is a normal idempotent GET — the existing
+    3-attempt / 1s+2s backoff in :meth:`PlatformClient._get` covers it.
+    This test pins that we did not accidentally bypass the shared retry
+    path when wiring the new method."""
+    from client_agent.platform import PlatformClient
+
+    sleeps: list[float] = []
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.get(
+            "/appliance/upload-url",
+            params={"task_id": "task-1", "chunk_n": "0"},
+        ).mock(
+            side_effect=[
+                httpx.Response(503),
+                httpx.Response(503),
+                httpx.Response(
+                    200, json={"url": "https://r2.example/u", "key": "k", "expires_in": 60}
+                ),
+            ]
+        )
+        client = PlatformClient(
+            base_url="https://platform.example",
+            token="tok",
+            sleep=sleeps.append,
+        )
+
+        result = client.get_upload_url("task-1", 0)
+
+    assert result.key == "k"
+    assert sleeps == [1, 2]

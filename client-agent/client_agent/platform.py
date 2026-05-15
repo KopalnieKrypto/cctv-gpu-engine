@@ -54,6 +54,21 @@ class PlatformUnavailableError(RuntimeError):
     systemd's restart policy can back off and try again later."""
 
 
+class PlatformRequestError(RuntimeError):
+    """Raised when the platform returns a non-401 4xx for a request that
+    expects a parseable JSON body (currently only ``get_upload_url``).
+
+    Carries the HTTP status so callers can build a user-facing message
+    (e.g. ``PresignedUploader`` surfaces "platform refused upload-url
+    (403)" without further dispatch on body content). 401 is handled
+    separately by :class:`PlatformAuthError` — token rotation is an
+    operator concern, not a request-level error."""
+
+    def __init__(self, status_code: int, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
 @dataclass(frozen=True)
 class HeartbeatResponse:
     """Response of POST ``/appliance/heartbeat``.
@@ -190,7 +205,34 @@ class PlatformClient:
             body["error"] = error
         self._post(f"/appliance/tasks/{task_id}/status", json=body)
 
-    def _get(self, path: str) -> httpx.Response:
+    def get_upload_url(self, task_id: str, chunk_n: int) -> UploadUrl:
+        """GET ``/appliance/upload-url`` — fetch a fresh presigned PUT URL.
+
+        The platform binds the URL to ``tenants/{tid}/appliance-uploads/
+        {task_id}/chunk_N.mp4`` based on the Bearer token's tenant. A
+        cross-tenant ``task_id`` produces a 403 at this hop, **not** at
+        the PUT, so a compromised appliance can never even learn a
+        sibling tenant's R2 key. The 30-min default TTL means
+        :class:`PresignedUploader` may need a refresh mid-upload if the
+        chunk PUT lands after expiry — the response's ``expires_in`` is
+        surfaced for diagnostics but not enforced client-side (the R2
+        edge does that for us)."""
+        response = self._get(
+            "/appliance/upload-url", params={"task_id": task_id, "chunk_n": chunk_n}
+        )
+        if response.status_code >= 400:
+            # 4xx here is meaningful: tenant mismatch (403), unknown
+            # task_id (404), bad chunk_n (400). The uploader converts
+            # this to a failed UploadResult; we surface only the status
+            # because parsed-body error fields vary across deployments.
+            raise PlatformRequestError(
+                response.status_code,
+                f"platform refused upload-url ({response.status_code})",
+            )
+        data = response.json()
+        return UploadUrl(url=data["url"], key=data["key"], expires_in=int(data["expires_in"]))
+
+    def _get(self, path: str, *, params: dict | None = None) -> httpx.Response:
         """GET ``path`` with Bearer auth, 5xx retry, and typed errors.
 
         Mirrors :meth:`_post` — split into its own helper because httpx's
@@ -201,6 +243,7 @@ class PlatformClient:
             last = httpx.get(
                 f"{self._base_url}{path}",
                 headers={"Authorization": f"Bearer {self._token}"},
+                params=params,
             )
             if last.status_code == 401:
                 raise PlatformAuthError("platform rejected APPLIANCE_TOKEN (401)")
@@ -213,6 +256,23 @@ class PlatformClient:
             )
         assert last is not None
         raise PlatformUnavailableError(f"platform returned {last.status_code} after retries")
+
+
+@dataclass(frozen=True)
+class UploadUrl:
+    """One single-use presigned PUT URL for a chunk upload (issue #28).
+
+    ``url`` is the full presigned URL (carries its own signature in the
+    query string — sending a Bearer header alongside it confuses some
+    S3-compatible backends). ``key`` is the R2 key the platform bound
+    the URL to (``tenants/{tid}/appliance-uploads/{task_id}/chunk_N.mp4``)
+    and is surfaced so the uploader can log / return it for audit.
+    ``expires_in`` is operator-readable diagnostics only — the R2 edge
+    enforces expiry, the client just refreshes on 403."""
+
+    url: str
+    key: str
+    expires_in: int
 
 
 @dataclass(frozen=True)

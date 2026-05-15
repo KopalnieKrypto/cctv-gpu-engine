@@ -55,15 +55,37 @@ class FakeBuffer:
         return list(self.chunks_by_camera.get(camera_id, []))
 
 
+@dataclass
+class FakeUploader:
+    """In-memory uploader fake matching :class:`PresignedUploader`'s
+    public surface. Scripts a result list per task_id so tests can
+    pin both success (all True) and partial-failure flows."""
+
+    results_by_task: dict[str, list[object]] = field(default_factory=dict)
+    upload_calls: list[tuple[str, list[Path]]] = field(default_factory=list)
+
+    def upload_chunks(self, task_id: str, chunks: list[Path]) -> list[object]:
+        self.upload_calls.append((task_id, list(chunks)))
+        return list(self.results_by_task.get(task_id, []))
+
+
 # ----- 1. happy path: claim → recording → trim → uploading -----
 
 
-def test_run_once_happy_path_transitions_through_recording_and_uploading(tmp_path: Path) -> None:
-    """The poller pulls a task, marks it ``recording``, finds chunks,
-    invokes the trim helper, then marks it ``uploading`` (actual upload
-    is the next slice's job per the agreed scope). The status sequence
-    is the contract the platform UI depends on for showing progress."""
+def test_run_once_happy_path_transitions_through_recording_uploading_uploaded(
+    tmp_path: Path,
+) -> None:
+    """Per #28 the poller now owns the full ``claim → recording →
+    uploading → uploaded`` transition. The previous slice (#27) stopped
+    at ``uploading`` as a stub; ``uploaded`` is reached only after the
+    injected :class:`PresignedUploader` reports every chunk succeeded.
+
+    The trimmed output is handed to the uploader as a single-element
+    list (multipart splitting is deferred per DD-09; for now one trimmed
+    mp4 = one PUT). Using ``upload_chunks`` (plural) at the boundary
+    keeps the contract stable for a future multipart slice."""
     from client_agent.poller import TaskPoller
+    from client_agent.uploader import UploadResult
 
     t10 = datetime(2026, 5, 15, 10, 0, 0, tzinfo=UTC)
     chunk = BufferChunk(
@@ -88,11 +110,18 @@ def test_run_once_happy_path_transitions_through_recording_and_uploading(tmp_pat
         trim_calls.append({"chunks": chunks, "start": start, "end": end, "output": output})
         output.write_bytes(b"fake-trimmed")
 
+    uploader = FakeUploader(
+        results_by_task={
+            "task-1": [UploadResult(chunk_n=0, success=True, key="tenants/t/x/task-1/chunk_0.mp4")]
+        }
+    )
+
     poller = TaskPoller(
         platform=platform,
         buffer=buffer,
         trim_fn=fake_trim,
         output_dir=tmp_path / "out",
+        uploader=uploader,
     )
     handled = poller.run_once()
 
@@ -100,11 +129,16 @@ def test_run_once_happy_path_transitions_through_recording_and_uploading(tmp_pat
     assert platform.status_calls == [
         ("task-1", "recording", None),
         ("task-1", "uploading", None),
+        ("task-1", "uploaded", None),
     ]
     assert len(trim_calls) == 1
     assert trim_calls[0]["chunks"] == [chunk]
     assert trim_calls[0]["start"] == t10 + timedelta(minutes=15)
     assert trim_calls[0]["end"] == t10 + timedelta(minutes=45)
+    # Uploader was handed the trimmed mp4 (single-element list — multipart deferred).
+    assert len(uploader.upload_calls) == 1
+    assert uploader.upload_calls[0][0] == "task-1"
+    assert uploader.upload_calls[0][1] == [trim_calls[0]["output"]]
 
 
 # ----- 2. idle: no task → no status calls, returns False -----
@@ -125,6 +159,7 @@ def test_run_once_returns_false_when_queue_idle(tmp_path: Path) -> None:
         buffer=buffer,
         trim_fn=lambda **kw: None,
         output_dir=tmp_path / "out",
+        uploader=FakeUploader(),
     )
     handled = poller.run_once()
 
@@ -166,6 +201,7 @@ def test_run_once_empty_buffer_marks_task_failed(tmp_path: Path) -> None:
         buffer=buffer,
         trim_fn=fake_trim,
         output_dir=tmp_path / "out",
+        uploader=FakeUploader(),
     )
     handled = poller.run_once()
 
@@ -231,6 +267,7 @@ def test_run_once_time_range_outside_buffer_marks_task_failed(tmp_path: Path) ->
         buffer=buffer,
         trim_fn=lambda **kw: None,
         output_dir=tmp_path / "out",
+        uploader=FakeUploader(),
     )
     handled = poller.run_once()
 
@@ -239,3 +276,76 @@ def test_run_once_time_range_outside_buffer_marks_task_failed(tmp_path: Path) ->
         ("task-stale", "recording", None),
         ("task-stale", "failed", "time range outside buffer"),
     ]
+
+
+# ----- 5. upload failure: any chunk fails → status=failed with aggregated error -----
+
+
+def test_run_once_upload_failure_marks_task_failed_with_chunk_errors(tmp_path: Path) -> None:
+    """The trimmed mp4 makes it through ``trim_fn`` but the uploader's
+    :class:`UploadResult` list has at least one ``success=False`` entry.
+    Per #28 the poller turns this into ``status=failed`` with an error
+    message that names which chunk_n failed and why, so an operator
+    looking at the platform UI knows whether the bug is on R2's side
+    (always 5xx) or on the platform's side (403 tenant mismatch).
+
+    The ``uploading`` status is still emitted before the failure —
+    that's the contract the UI uses to show a "uploading…" spinner,
+    and removing it would hide that the trim succeeded."""
+    from client_agent.poller import TaskPoller
+    from client_agent.uploader import UploadResult
+
+    t10 = datetime(2026, 5, 15, 10, 0, 0, tzinfo=UTC)
+    chunk = BufferChunk(
+        path=tmp_path / "chunk_001.mp4",
+        start=t10,
+        end=t10 + timedelta(hours=1),
+    )
+    platform = FakePlatform(
+        next_tasks=[
+            Task(
+                id="task-fail",
+                camera_id="cam-1",
+                start_time=t10 + timedelta(minutes=15),
+                end_time=t10 + timedelta(minutes=45),
+            )
+        ]
+    )
+    buffer = FakeBuffer(chunks_by_camera={"cam-1": [chunk]})
+
+    def fake_trim(*, chunks, start, end, output, runner):
+        output.write_bytes(b"trim-ok")
+
+    uploader = FakeUploader(
+        results_by_task={
+            "task-fail": [
+                UploadResult(
+                    chunk_n=0,
+                    success=False,
+                    error="R2 PUT returned 500 after 3 attempt(s)",
+                )
+            ]
+        }
+    )
+
+    poller = TaskPoller(
+        platform=platform,
+        buffer=buffer,
+        trim_fn=fake_trim,
+        output_dir=tmp_path / "out",
+        uploader=uploader,
+    )
+    handled = poller.run_once()
+
+    assert handled is True
+    assert [call[0] for call in platform.status_calls] == [
+        "task-fail",
+        "task-fail",
+        "task-fail",
+    ]
+    assert [call[1] for call in platform.status_calls] == ["recording", "uploading", "failed"]
+    # Final transition carries an error that names the chunk and the cause.
+    failed_call = platform.status_calls[-1]
+    assert failed_call[2] is not None
+    assert "chunk 0" in failed_call[2]
+    assert "500" in failed_call[2]
