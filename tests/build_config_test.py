@@ -10,6 +10,7 @@ See GitHub issue #9 for the rationale.
 
 from __future__ import annotations
 
+import re
 import tomllib
 from pathlib import Path
 
@@ -17,6 +18,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 MAKEFILE = REPO_ROOT / "Makefile"
 CLIENT_AGENT_DOCKERFILE = REPO_ROOT / "client-agent" / "Dockerfile"
+GPU_SERVICE_DOCKERFILE = REPO_ROOT / "gpu-service" / "Dockerfile"
+SETUP_MODELS_SCRIPT = REPO_ROOT / "setup-models.sh"
 TESTS_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "tests.yml"
 
 
@@ -398,6 +401,150 @@ class TestApplianceDockerCompose:
         services = data["services"]
         has_healthcheck = any("healthcheck" in body for body in services.values())
         assert has_healthcheck, "no service defines a healthcheck"
+
+
+class TestGpuServiceDockerfileBundlesModel:
+    """Static smoke test for the gpu-service Dockerfile bundling the
+    default YOLO pose ONNX model (issue #31).
+
+    Before the fix, ``gpu_service.rest_server`` crashed on boot when run
+    without the host bind-mount because ``/app/models/yolo11s-pose.onnx``
+    did not exist inside the image. The legacy compose worker only "worked"
+    because ``docker-compose.yml`` mounts ``./models:/app/models:ro``; the
+    REST contract (#25) used by gpu-agent has no such bind-mount.
+
+    These assertions guard the Dockerfile shape — they would catch a
+    revert that drops the model-fetching RUN step, removes the sha256
+    pin (silent model swap risk), or changes ``ENV MODEL_PATH`` to a
+    path the Dockerfile does not materialize. The real "image actually
+    boots in REST mode" check happens on cctv-vps after push.
+    """
+
+    DEFAULT_MODEL_FILENAME = "yolo11s-pose.onnx"
+    DEFAULT_MODEL_PATH_IN_IMAGE = f"/app/models/{DEFAULT_MODEL_FILENAME}"
+
+    @staticmethod
+    def _dockerfile_text() -> str:
+        return GPU_SERVICE_DOCKERFILE.read_text()
+
+    def test_dockerfile_materializes_default_model_at_model_path(self):
+        """The image must ship ``/app/models/yolo11s-pose.onnx`` so that
+        REST mode (``python -m gpu_service.rest_server``) can boot
+        without any host bind-mount. Either ``COPY`` or ``RUN curl``
+        is acceptable — both produce the same end-state inside the image."""
+        text = self._dockerfile_text()
+
+        # Pattern 1: explicit COPY of the model file (preflight approach).
+        copy_pattern = re.compile(
+            r"^\s*COPY\s+\S*" + re.escape(self.DEFAULT_MODEL_FILENAME),
+            re.MULTILINE,
+        )
+        # Pattern 2: RUN step that downloads the model into /app/models/.
+        # Match a RUN line (possibly multi-line via backslash continuation)
+        # that mentions the model filename — that is the build-time fetch.
+        run_pattern = re.compile(
+            r"RUN[^\n]*(?:\\\n[^\n]*)*" + re.escape(self.DEFAULT_MODEL_FILENAME),
+            re.DOTALL,
+        )
+
+        has_copy = bool(copy_pattern.search(text))
+        has_run = bool(run_pattern.search(text))
+
+        assert has_copy or has_run, (
+            f"gpu-service/Dockerfile does not materialize "
+            f"{self.DEFAULT_MODEL_PATH_IN_IMAGE} during build. Issue #31: REST "
+            f"mode boots without the docker-compose bind-mount, so the model "
+            f"must be baked into the image (either `COPY models/{self.DEFAULT_MODEL_FILENAME} ...` "
+            f"or `RUN curl -fL <url> -o {self.DEFAULT_MODEL_PATH_IN_IMAGE}`)."
+        )
+
+    def test_dockerfile_sha256_matches_setup_models_script(self):
+        """Local dev (``./setup-models.sh``) and Docker build must pin the
+        SAME sha256, otherwise the gpu-service image and a local
+        ``make test-gpu`` would run inference with different weights — a
+        nightmare to debug when accuracy regressions appear only in one
+        environment. The two pins are physically separate (Dockerfile ARG
+        and shell variable), so we cross-check them here."""
+        dockerfile = self._dockerfile_text()
+        script = SETUP_MODELS_SCRIPT.read_text()
+
+        # Pull the sha256 hex out of the Dockerfile ARG. Matches:
+        #   ARG YOLO_MODEL_SHA256=469beac503fdc788ea3980331bc4bfbd2bd00de3772eb0984f4c53032740583f
+        dockerfile_pin = re.search(r"ARG\s+YOLO_MODEL_SHA256\s*=\s*([0-9a-fA-F]{64})", dockerfile)
+        assert dockerfile_pin, (
+            "gpu-service/Dockerfile has no `ARG YOLO_MODEL_SHA256=<hex>` line — "
+            "the build_config_test relies on this ARG to cross-check the pin "
+            "against setup-models.sh. Either add the ARG or update the test."
+        )
+
+        # Pull the default sha256 from setup-models.sh. Matches lines like:
+        #   MODEL_SHA256="${MODEL_SHA256:-<64-hex>}"
+        script_pin = re.search(r'MODEL_SHA256="\$\{MODEL_SHA256:-([0-9a-fA-F]{64})\}"', script)
+        assert script_pin, (
+            "setup-models.sh has no parseable `MODEL_SHA256:-<hex>` default. "
+            "If you changed the variable convention, update this test."
+        )
+
+        assert dockerfile_pin.group(1).lower() == script_pin.group(1).lower(), (
+            f"sha256 drift between Dockerfile and setup-models.sh:\n"
+            f"  Dockerfile ARG: {dockerfile_pin.group(1)}\n"
+            f"  setup-models.sh: {script_pin.group(1)}\n"
+            f"Both pins must point at the same canonical weights — bump them "
+            f"together when releasing a new yolo11s-pose-vN.0 tag."
+        )
+
+    def test_dockerfile_verifies_sha256_during_build(self):
+        """The model-fetch RUN step must verify a sha256 checksum, so a
+        compromised / accidentally re-uploaded GH release asset fails the
+        build instead of silently substituting weights. Same defense-in-depth
+        rationale as ``setup-models.sh`` for local installs.
+
+        Allows either ``sha256sum -c`` (GNU coreutils, present on Ubuntu base)
+        or ``shasum -a 256 -c`` (BSD, present on macOS — irrelevant inside the
+        nvidia/cuda Ubuntu image but cheap to accept here)."""
+        text = self._dockerfile_text()
+
+        sha256_pattern = re.compile(
+            r"(sha256sum|shasum\s+-a\s+256)\s+-c\b",
+        )
+        assert sha256_pattern.search(text), (
+            "gpu-service/Dockerfile materializes the model but does not "
+            "verify its sha256. Add `... | sha256sum -c -` (or `shasum -a "
+            "256 -c -`) to the RUN step so a silent model swap on the GH "
+            "release fails the build instead of shipping different weights "
+            "than setup-models.sh produces."
+        )
+
+    def test_model_path_env_var_targets_bundled_file(self):
+        """``ENV MODEL_PATH`` is what ``gpu_service.rest_server`` reads at
+        boot to find the ONNX model (rest_server.py:111). If someone moves
+        the bundled model to a different path inside the image but forgets
+        to update the ENV (or vice versa), the REST entrypoint resurrects
+        exactly the NoSuchFile crash this issue was filed to prevent.
+
+        Asserts the ``MODEL_PATH`` value equals the canonical bundled path."""
+        text = self._dockerfile_text()
+
+        # Match `ENV MODEL_PATH=...` whether it's on its own line or part of
+        # a multi-line ENV block (`ENV FOO=bar \` continuation).
+        env_match = re.search(
+            r"\bMODEL_PATH\s*=\s*(\S+)",
+            text,
+        )
+        assert env_match, (
+            "gpu-service/Dockerfile has no `MODEL_PATH=...` env assignment — "
+            "rest_server.py:111 reads this to find the ONNX model. Without "
+            "it, REST mode falls back to the hardcoded default which may "
+            "diverge from the path the Dockerfile materializes."
+        )
+        configured_path = env_match.group(1).rstrip("\\").strip()
+        assert configured_path == self.DEFAULT_MODEL_PATH_IN_IMAGE, (
+            f"ENV MODEL_PATH={configured_path!r} does not match the path the "
+            f"Dockerfile materializes ({self.DEFAULT_MODEL_PATH_IN_IMAGE!r}). "
+            f"Either fix the RUN step to download to MODEL_PATH or update "
+            f"MODEL_PATH to point at the bundled file. Mismatch reintroduces "
+            f"issue #31's NoSuchFile crash."
+        )
 
 
 class TestRuffJobScope:

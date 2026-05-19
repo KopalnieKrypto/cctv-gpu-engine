@@ -32,6 +32,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && ln -sf /usr/bin/python3.12 /usr/local/bin/python \
     && ln -sf /usr/bin/python3.12 /usr/local/bin/python3
 
+# Bundle the default YOLO pose ONNX model into the image (issue #31). Before
+# this step the REST mode (gpu_service.rest_server, port 5003) crashed on
+# boot with NoSuchFile because docker-compose.yml's `./models:/app/models:ro`
+# bind-mount only applies to the worker entrypoint — gpu-agent and any
+# `docker run` without a volume override never had the model available.
+#
+# Pin URL + sha256 as ARGs so a malicious / accidental swap of the
+# released asset fails the build instead of silently substituting weights.
+# Keep this in sync with `setup-models.sh`; the build_config_test enforces
+# equality between the two pins.
+ARG YOLO_MODEL_URL=https://github.com/KopalnieKrypto/cctv-gpu-engine/releases/download/yolo11s-pose-v1.0/yolo11s-pose.onnx
+ARG YOLO_MODEL_SHA256=469beac503fdc788ea3980331bc4bfbd2bd00de3772eb0984f4c53032740583f
+RUN mkdir -p /app/models \
+    && curl -fL "${YOLO_MODEL_URL}" -o /app/models/yolo11s-pose.onnx \
+    && echo "${YOLO_MODEL_SHA256}  /app/models/yolo11s-pose.onnx" | sha256sum -c -
+
 # uv (preferred per CLAUDE.md). Pinned version keeps the build reproducible.
 COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /usr/local/bin/uv
 
@@ -72,8 +88,10 @@ RUN uv pip install --python /app/.venv/bin/python --no-cache \
 COPY gpu-service/gpu_service /app/gpu_service
 COPY pipeline /app/pipeline
 
-# Models are NOT baked into the image (would push it over 5GB). Mount the
-# host's models/ dir at runtime via docker compose.
+# Default model (yolo11s-pose.onnx, ~40 MB) is baked in above so the REST
+# entrypoint boots without a host bind-mount (issue #31). Operators that
+# want a different model can still mount their own ./models/ over /app/models/
+# via docker-compose.yml — the bind-mount overlays the baked file.
 ENV MODEL_PATH=/app/models/yolo11s-pose.onnx \
     CLASSIFIER=vlm \
     DASHBOARD_PORT=5000 \
