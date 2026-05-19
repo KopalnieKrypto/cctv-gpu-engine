@@ -46,21 +46,35 @@ DEFAULT_RECORDING_DURATION_S = 3600
 
 
 def _camera_to_push_dict(cam: DiscoveredCamera) -> dict[str, Any]:
-    """Project a :class:`DiscoveredCamera` into the platform push payload.
+    """Project a :class:`DiscoveredCamera` into the canonical
+    ``POST /appliance/cameras`` payload (DD-09 gpu-exchange).
 
-    The platform side stores cameras keyed by ``ip`` (per DD-09 §3.2);
-    other fields are informational. Snapshot URL is included when ONVIF
-    enrichment produced one — it lets the operator preview the camera in
-    the platform UI before activating it."""
-    return {
-        "ip": cam.ip,
-        "port": cam.port,
-        "manufacturer": cam.vendor,
-        "model": cam.model,
-        "rtsp_url": cam.rtsp_url,
-        "snapshot_url": cam.snapshot_url,
-        "discovery_method": cam.discovery_method,
-    }
+    The wire shape is ``{rtsp_url, onvif_uuid?, name?, model_info?}``.
+    Vendor / model / discovery metadata land inside ``model_info`` as a
+    free-form jsonb so the platform can persist them without a schema
+    bump every time the discovery code learns a new field. Snapshot URL
+    is included there too — the operator's preview lives in the same
+    metadata blob."""
+    body: dict[str, Any] = {"rtsp_url": cam.rtsp_url}
+    name = f"{cam.vendor} {cam.model}".strip()
+    if name:
+        body["name"] = name
+    model_info: dict[str, Any] = {}
+    if cam.vendor:
+        model_info["manufacturer"] = cam.vendor
+    if cam.model:
+        model_info["model"] = cam.model
+    if cam.snapshot_url:
+        model_info["snapshot_url"] = cam.snapshot_url
+    if cam.discovery_method:
+        model_info["discovery_method"] = cam.discovery_method
+    if cam.ip:
+        model_info["ip"] = cam.ip
+    if cam.port:
+        model_info["port"] = cam.port
+    if model_info:
+        body["model_info"] = model_info
+    return body
 
 
 def reconcile_recorders(
@@ -136,7 +150,10 @@ def run_platform_session(
     chunks land in the per-camera rolling buffer for the task poller to
     pick up, not in R2."""
     resolved_hostname = hostname or environ.get("HOSTNAME") or "cctv-appliance"
-    platform_client.register(hostname=resolved_hostname, version=version)
+    platform_client.register(
+        agent_version=version,
+        host_info={"hostname": resolved_hostname},
+    )
 
     cameras = discover_fn()
     if not cameras:

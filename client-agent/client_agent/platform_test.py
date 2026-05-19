@@ -26,18 +26,27 @@ def test_register_posts_to_appliance_register_with_bearer_and_body() -> None:
     """First contact with the platform: appliance announces itself, gets back
     its tenant binding. The Bearer token scopes the appliance to a tenant
     server-side; the appliance never sends a tenant_id of its own (defense
-    against a compromised appliance trying to impersonate another tenant)."""
+    against a compromised appliance trying to impersonate another tenant).
+
+    Body matches DD-09 canon: ``agent_version`` + optional ``host_info``."""
     from client_agent.platform import PlatformClient
 
     with respx.mock(base_url="https://platform.example") as mock:
         route = mock.post("/appliance/register").mock(
             return_value=httpx.Response(
-                200, json={"appliance_id": "app-42", "tenant_id": "tenant-7"}
+                200,
+                json={
+                    "appliance_id": "app-42",
+                    "tenant_id": "tenant-7",
+                    "installed_at": "2026-05-19T10:00:00Z",
+                },
             )
         )
         client = PlatformClient(base_url="https://platform.example", token="tok-abc")
 
-        response = client.register(hostname="cctv-mini-01", version="0.5.0")
+        response = client.register(
+            agent_version="0.5.0", host_info={"platform": "linux", "arch": "aarch64"}
+        )
 
     assert response.appliance_id == "app-42"
     assert response.tenant_id == "tenant-7"
@@ -47,7 +56,10 @@ def test_register_posts_to_appliance_register_with_bearer_and_body() -> None:
     body = sent.read()
     import json as _json
 
-    assert _json.loads(body) == {"hostname": "cctv-mini-01", "version": "0.5.0"}
+    assert _json.loads(body) == {
+        "agent_version": "0.5.0",
+        "host_info": {"platform": "linux", "arch": "aarch64"},
+    }
 
 
 # ----- 2. register: retry on 5xx with exp backoff -----
@@ -77,7 +89,7 @@ def test_register_retries_on_5xx_and_succeeds_on_third_attempt() -> None:
             sleep=sleeps.append,
         )
 
-        response = client.register(hostname="h", version="v")
+        response = client.register(agent_version="v")
 
     assert response.appliance_id == "a"
     # Two retries means two sleeps: 1s then 2s (the third would precede a
@@ -107,7 +119,7 @@ def test_register_401_raises_auth_error_without_retry() -> None:
         )
 
         with pytest.raises(PlatformAuthError):
-            client.register(hostname="h", version="v")
+            client.register(agent_version="v")
 
     # Single attempt — no retries — and no sleeps.
     assert route.call_count == 1
@@ -137,7 +149,7 @@ def test_register_503_exhausted_raises_unavailable_after_three_attempts() -> Non
         )
 
         with pytest.raises(PlatformUnavailableError):
-            client.register(hostname="h", version="v")
+            client.register(agent_version="v")
 
     assert route.call_count == 3
     assert sleeps == [1, 2]
@@ -159,18 +171,15 @@ def test_push_cameras_posts_camera_list_with_bearer() -> None:
 
     cameras = [
         {
-            "onvif_uri": "http://192.168.50.2/onvif/device_service",
-            "manufacturer": "Hikvision",
-            "model": "DS-2CD2143G2-IS",
-            "ip": "192.168.50.2",
             "rtsp_url": "rtsp://192.168.50.2:554/Streaming/Channels/101",
+            "onvif_uuid": "urn:uuid:11111111-2222-3333-4444-555555555555",
+            "name": "Hikvision DS-2CD2143G2-IS",
+            "model_info": {"manufacturer": "Hikvision", "model": "DS-2CD2143G2-IS"},
         },
         {
-            "onvif_uri": "http://192.168.50.3/onvif/device_service",
-            "manufacturer": "Dahua",
-            "model": "IPC-HDBW2431R-ZS",
-            "ip": "192.168.50.3",
             "rtsp_url": "rtsp://192.168.50.3:554/cam/realmonitor?channel=1&subtype=0",
+            "name": "Dahua IPC-HDBW2431R-ZS",
+            "model_info": {"manufacturer": "Dahua", "model": "IPC-HDBW2431R-ZS"},
         },
     ]
 

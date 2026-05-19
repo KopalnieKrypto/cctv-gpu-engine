@@ -139,12 +139,22 @@ class PlatformClient:
         assert last is not None
         raise PlatformUnavailableError(f"platform returned {last.status_code} after retries")
 
-    def register(self, *, hostname: str, version: str) -> RegisterResponse:
-        """POST ``/appliance/register`` — boot-time announcement."""
-        response = self._post(
-            "/appliance/register",
-            json={"hostname": hostname, "version": version},
-        )
+    def register(
+        self,
+        *,
+        agent_version: str,
+        host_info: dict | None = None,
+    ) -> RegisterResponse:
+        """POST ``/appliance/register`` — boot-time announcement.
+
+        Body matches DD-09 (gpu-exchange) canonical shape: ``agent_version``
+        (semver string the platform stores on the appliance row for the
+        admin UI) and an optional ``host_info`` blob (platform/arch/kernel
+        diagnostics, persisted as jsonb)."""
+        body: dict = {"agent_version": agent_version}
+        if host_info is not None:
+            body["host_info"] = host_info
+        response = self._post("/appliance/register", json=body)
         data = response.json()
         return RegisterResponse(
             appliance_id=data["appliance_id"],
