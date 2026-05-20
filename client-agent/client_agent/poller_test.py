@@ -36,7 +36,14 @@ class FakePlatform:
             return None
         return self.next_tasks.pop(0)
 
-    def update_task_status(self, task_id: str, *, status: str, error: str | None = None) -> None:
+    def update_task_status(
+        self,
+        task_id: str,
+        *,
+        status: str,
+        error: str | None = None,
+        chunk_r2_key: str | None = None,
+    ) -> None:
         self.status_calls.append((task_id, status, error))
 
 

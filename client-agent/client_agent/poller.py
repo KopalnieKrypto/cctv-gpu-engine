@@ -154,7 +154,14 @@ class TaskPoller:
             self._platform.update_task_status(task.id, status="failed", error=error)
             return True
 
-        self._platform.update_task_status(task.id, status="uploaded")
+        # The platform's `uploaded` status variant requires `chunk_r2_key`
+        # (the R2 key the appliance just PUT into). For MVP we trim into a
+        # single concatenated chunk before upload, so results[0].key is the
+        # whole task's payload. When upload_chunks is expanded to multi-
+        # chunk batches the platform's schema also gains a multi-key shape;
+        # for now `results[0].key` is the contract.
+        uploaded_key = getattr(results[0], "key", None) if results else None
+        self._platform.update_task_status(task.id, status="uploaded", chunk_r2_key=uploaded_key)
         return True
 
     def run(self) -> None:

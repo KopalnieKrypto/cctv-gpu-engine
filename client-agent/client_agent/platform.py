@@ -204,15 +204,26 @@ class PlatformClient:
             end_time=_parse_iso(data["end_time"]),
         )
 
-    def update_task_status(self, task_id: str, *, status: str, error: str | None = None) -> None:
+    def update_task_status(
+        self,
+        task_id: str,
+        *,
+        status: str,
+        error: str | None = None,
+        chunk_r2_key: str | None = None,
+    ) -> None:
         """POST ``/appliance/tasks/{task_id}/status`` — status transition.
 
-        ``error`` is only included in the body on the ``failed`` transition
-        so the happy-path payload stays minimal (the platform decides
-        whether ``error`` on a success is a server-side validation error)."""
+        The platform's ``ApplianceTaskStatusRequestSchema`` is a discriminated
+        union: ``uploaded`` requires ``chunk_r2_key`` (the R2 key the
+        appliance just PUT into), ``failed`` accepts an optional ``error``.
+        Missing fields → 400 from the validator, hence the per-status
+        argument list rather than a single opaque dict."""
         body: dict = {"status": status}
         if error is not None:
             body["error"] = error
+        if chunk_r2_key is not None:
+            body["chunk_r2_key"] = chunk_r2_key
         self._post(f"/appliance/tasks/{task_id}/status", json=body)
 
     def get_upload_url(self, task_id: str, chunk_n: int) -> UploadUrl:

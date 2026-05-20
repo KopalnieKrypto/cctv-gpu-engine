@@ -344,6 +344,23 @@ def _real_enrich(
                 "ProfileToken": token,
             }
         )
+        rtsp_uri = str(stream.Uri)
+        # Reject GetStreamUri responses that don't carry a real path. Some
+        # firmwares (and the auth-less probe path on Hikvision-clones) return
+        # bare `rtsp://host:port/` — recording from that 404s. Returning None
+        # lets discover_cameras fall through to the Stage 2 RTSP-scan
+        # vendor-template URL for the same IP, which is the one ffmpeg can
+        # actually open.
+        from urllib.parse import urlparse as _urlparse
+
+        path = _urlparse(rtsp_uri).path
+        if not path or path == "/":
+            logger.info(
+                "ONVIF GetStreamUri at %s bare path (%r); skipping for RTSP scan",
+                match.xaddr,
+                rtsp_uri,
+            )
+            return None
         snapshot_url: str | None = None
         try:
             snap = media.GetSnapshotUri({"ProfileToken": token})
@@ -355,7 +372,7 @@ def _real_enrich(
             port=match.port,
             vendor=str(getattr(info, "Manufacturer", "") or ""),
             model=str(getattr(info, "Model", "") or ""),
-            rtsp_url=str(stream.Uri),
+            rtsp_url=rtsp_uri,
             snapshot_url=snapshot_url,
         )
     except Exception as exc:  # noqa: BLE001 — ONVIF surface is huge

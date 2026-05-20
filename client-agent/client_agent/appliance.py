@@ -283,9 +283,16 @@ def start_poller_thread(
     to exit promptly. A non-daemon thread blocking on
     ``platform.fetch_next_task`` would force a stop-timeout SIGKILL.
     """
+    # segment_seconds must match what the recorder writes (issue #27 buffer
+    # mode emits 60s chunks via build_ffmpeg_cmd(buffer_mode=True)); otherwise
+    # chunks_in_range's chunk_start = mtime - segment_seconds would over- or
+    # under-estimate the chunk's coverage window and miss overlap matches.
+    from client_agent.recorder import BUFFER_SEGMENT_SECONDS
+
     buffer = RollingBuffer(
         base_dir=buffer_dir,
         buffer_hours=parse_buffer_hours(environ),
+        segment_seconds=BUFFER_SEGMENT_SECONDS,
     )
     uploader = PresignedUploader(platform=platform_client)
     poller = TaskPoller(
@@ -372,8 +379,16 @@ def main(argv: Sequence[str] | None = None) -> None:
         env_snapshot = dict(os.environ)
         creds_resolver = lambda ip: resolve_camera_credentials(ip, env_snapshot)  # noqa: E731
 
+        # Discovery timeout bumped to 15s (default is 5s): a /24 RTSP port
+        # scan of 254 IPs × 4 ports = 1016 TCP connects needs more headroom
+        # than 5s, especially on macOS dev machines where mDNS / Tailscale
+        # interference makes ONVIF multicast unreliable so Stage 2 carries
+        # the discovery on its own. On a bare-metal Linux mini-PC at the
+        # customer Stage 1 typically returns all cameras and 15s is upper
+        # bound either way (boot-time call, not hot path).
         def _discover() -> list[DiscoveredCamera]:
             return discover_cameras(
+                timeout=15.0,
                 credentials_resolver=creds_resolver,
                 rtsp_scan_fn=make_real_rtsp_scan(creds_resolver),
             )
@@ -405,6 +420,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         # can re-use the dict across iterations and reconcile correctly.
         active_recorders: dict[str, Any] = {}
 
+        # Boot-time session: register, discover, push, heartbeat-once,
+        # reconcile. Surfaces fatal config errors (bad token, unreachable
+        # platform) early — before waitress binds and systemd treats the
+        # unit as healthy.
         run_platform_session(
             platform_client=platform_client,
             discover_fn=_discover,
@@ -412,6 +431,32 @@ def main(argv: Sequence[str] | None = None) -> None:
             active_recorders=active_recorders,
             environ=os.environ,
         )
+
+        # Heartbeat loop: every 30s re-run the session so cameras the
+        # operator approves via the platform UI get a recorder spawned
+        # without requiring an appliance restart. Daemon thread so process
+        # exit doesn't hang on this loop. Discovery is re-run each tick —
+        # cheap on Linux (multicast WS-Discovery returns quickly), 15s on
+        # macOS dev where ONVIF probe is silent and Stage 2 RTSP scan
+        # carries it; acceptable since heartbeat cadence is 30s.
+        import threading as _threading
+        import time as _time
+
+        def _heartbeat_loop() -> None:
+            while True:
+                try:
+                    _time.sleep(30)
+                    run_platform_session(
+                        platform_client=platform_client,
+                        discover_fn=_discover,
+                        recorder_factory=_recorder_factory,
+                        active_recorders=active_recorders,
+                        environ=os.environ,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("heartbeat iteration failed: %s", exc)
+
+        _threading.Thread(target=_heartbeat_loop, daemon=True, name="heartbeat-loop").start()
 
         # Spawn the task poller (issue #30). Drives claim → trim → upload
         # indefinitely on a daemon thread; main() continues into waitress

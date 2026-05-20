@@ -73,20 +73,34 @@ def build_app(environ: Mapping[str, str], *, recordings_root: Path | None = None
     Docker default (``$TMPDIR/cctv-recordings``) with the XDG state dir.
     When ``None``, the historical Docker behaviour is preserved.
     """
-    # Required env vars — fail loud at startup so a misconfigured deploy
-    # surfaces in `docker logs` immediately instead of as a 500 on first
-    # upload. Bucket has a default because CLAUDE.md pins it project-wide.
-    endpoint = environ["R2_ENDPOINT"]
-    access_key = environ["R2_ACCESS_KEY_ID"]
-    secret_key = environ["R2_SECRET_ACCESS_KEY"]
+    # R2 credentials are required for the Docker container entrypoint (where
+    # the Flask UI is the upload path) but unused in platform-mode bare-metal
+    # appliance (where the platform mints presigned URLs and the recorder
+    # writes to local buffer). All-three-missing → ``client = None`` and the
+    # Flask handlers that need R2 return 503 ("R2 backend disabled in
+    # platform mode"). Partial config (one or two of three) still fails loud
+    # because that's almost certainly a typo in ``.env.client``.
+    endpoint = environ.get("R2_ENDPOINT")
+    access_key = environ.get("R2_ACCESS_KEY_ID")
+    secret_key = environ.get("R2_SECRET_ACCESS_KEY")
     bucket = environ.get("R2_BUCKET", "surveillance-data")
 
-    client = R2Client(
-        endpoint=endpoint,
-        access_key=access_key,
-        secret_key=secret_key,
-        bucket=bucket,
-    )
+    r2_set = [v for v in (endpoint, access_key, secret_key) if v]
+    if r2_set and len(r2_set) < 3:
+        raise ValueError(
+            "R2 credentials misconfigured: R2_ENDPOINT, R2_ACCESS_KEY_ID, "
+            "R2_SECRET_ACCESS_KEY must all be set together (or all absent for "
+            "platform-mode appliance)"
+        )
+
+    client: R2Client | None = None
+    if endpoint and access_key and secret_key:
+        client = R2Client(
+            endpoint=endpoint,
+            access_key=access_key,
+            secret_key=secret_key,
+            bucket=bucket,
+        )
 
     # Build the production recorder (#8). Each recording lands in its
     # own subdir under ``recordings_root`` so the cleanup step in

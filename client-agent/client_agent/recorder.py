@@ -77,17 +77,34 @@ def probe_rtsp(url: str, *, timeout: float, runner) -> ProbeResult:
 
 
 SEGMENT_SECONDS = 3600
-"""Segment boundary for long recordings (SPEC §7.3 — 1h chunks)."""
+"""Segment boundary for legacy long recordings (SPEC §7.3 — 1h chunks)."""
+
+BUFFER_SEGMENT_SECONDS = 60
+"""Segment boundary for buffer-mode recordings. Smaller than ``SEGMENT_SECONDS``
+because the task poller needs *finalized* chunks to trim from (mid-segment
+trim fails — the moov atom is only flushed at segment close). 60s strikes a
+balance: enough time for ffmpeg to amortize segment-open overhead, short
+enough that recent footage (last ~minute) lands in trimmable chunks within
+a heartbeat cycle. Must stay in sync with ``RollingBuffer(segment_seconds=)``
+in :func:`client_agent.appliance.start_poller_thread`."""
 
 
-def build_ffmpeg_cmd(*, url: str, duration_s: int, output_dir: str) -> list[str]:
+def build_ffmpeg_cmd(
+    *, url: str, duration_s: int, output_dir: str, buffer_mode: bool = False
+) -> list[str]:
     """Build the ffmpeg argv for an RTSP stream-copy recording.
 
-    Short recordings (≤1h) land in a single ``recording.mp4``. Recordings
-    longer than ``SEGMENT_SECONDS`` use the segment muxer so each file
-    caps at one hour and is independently uploadable. ``-t`` still bounds
-    the total duration in both branches — without it a stuck camera would
-    record forever.
+    Three branches:
+
+    * **buffer_mode=True** — segment muxer with ``BUFFER_SEGMENT_SECONDS``
+      (default 60s) so the task poller has finalized chunks to trim. Used
+      by the appliance's per-camera recorder (issue #27).
+    * **duration_s > SEGMENT_SECONDS** — segment muxer with 1h chunks, the
+      historical "long one-shot recording" path.
+    * **otherwise** — single ``recording.mp4`` (legacy Docker UI flow).
+
+    ``-t`` still bounds the total duration in all branches — without it a
+    stuck camera would record forever.
 
     ``-an`` drops the audio track: the pipeline only analyses video
     (YOLO-pose), and many IP cameras (Hikvision in particular) emit
@@ -106,6 +123,17 @@ def build_ffmpeg_cmd(*, url: str, duration_s: int, output_dir: str) -> list[str]
         "-t",
         str(duration_s),
     ]
+    if buffer_mode:
+        return [
+            *base,
+            "-f",
+            "segment",
+            "-segment_time",
+            str(BUFFER_SEGMENT_SECONDS),
+            "-reset_timestamps",
+            "1",
+            f"{output_dir}/chunk_%03d.mp4",
+        ]
     if duration_s > SEGMENT_SECONDS:
         return [
             *base,
@@ -221,7 +249,9 @@ class Recorder:
 
         out_dir = Path(self.output_dir_factory(job_id))
         out_dir.mkdir(parents=True, exist_ok=True)
-        cmd = build_ffmpeg_cmd(url=url, duration_s=duration_s, output_dir=str(out_dir))
+        cmd = build_ffmpeg_cmd(
+            url=url, duration_s=duration_s, output_dir=str(out_dir), buffer_mode=buffer_mode
+        )
         # We don't catch subprocess errors here — partial output (the
         # camera-offline-mid-recording case) is reported by ffmpeg as a
         # non-zero exit but still leaves chunks on disk, so we always

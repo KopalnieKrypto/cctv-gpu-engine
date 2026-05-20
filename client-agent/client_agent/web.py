@@ -263,7 +263,7 @@ CredentialsResolverFn = Callable[[str], "tuple[str, str] | None"]
 
 
 def create_app(
-    client: ClientR2Like,
+    client: ClientR2Like | None,
     *,
     job_id_factory=_default_job_id,
     recorder=None,
@@ -316,6 +316,8 @@ def create_app(
         # the 2 GB MP4 acceptance criterion possible.
         # Edge validation — refuse early so a noisy automation client never
         # creates a phantom job that the gpu-service worker has to fail.
+        if client is None:
+            return ("R2 backend disabled in platform mode", 503)
         upload_file = request.files.get("mp4")
         if upload_file is None or not upload_file.filename:
             return ("missing 'mp4' file in upload", 400)
@@ -429,6 +431,8 @@ def create_app(
 
     @app.get("/jobs")
     def jobs() -> tuple[str, int, dict[str, str]]:
+        if client is None:
+            return ("R2 backend disabled in platform mode", 503, {"Content-Type": "text/plain"})
         summaries = _summarize_jobs(client.list_all_job_statuses())
         html = _render_jobs_html(summaries)
         return html, 200, {"Content-Type": "text/html; charset=utf-8"}
@@ -442,6 +446,8 @@ def create_app(
         them all into a single 404 in the routes below so the UI never
         leaks a 500 traceback for a not-yet-finished job.
         """
+        if client is None:
+            return None
         try:
             return client.get_report(job_id)
         except Exception:  # noqa: BLE001 — boto3 errors + KeyError + None case
