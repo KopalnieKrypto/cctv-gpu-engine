@@ -978,6 +978,29 @@ def test_get_root_renders_manual_url_hint_for_unknown_vendor() -> None:
     )
 
 
+# ===== Tuya-local UI badge + hint (issue #38) =====
+
+
+def test_get_root_js_branches_on_tuya_local_discovery_method() -> None:
+    """Issue #38 UI acceptance: the discovery results JS must distinguish
+    Stage-3 Tuya broadcast rows from Stage-1/2 rows. Substring assertions
+    only — the JS may use any rendering shape (badge, label, separate
+    section) as long as it (a) references ``"tuya-local"`` so a branch
+    exists, and (b) surfaces some operator-readable signal that the row
+    came from Tuya so the manual-URL hint mentions enabling RTSP in the
+    Setti+ / Tuya Smart app."""
+    app, _, _ = _make_app_with_recorder()
+    body = app.test_client().get("/").get_data(as_text=True)
+
+    assert "tuya-local" in body, "JS does not branch on discovery_method='tuya-local'"
+    # The hint text on Tuya rows must mention the operator-facing app name(s).
+    # Accept either "Setti+" or "Tuya Smart" since both are common in PL.
+    body_lower = body.lower()
+    assert ("setti" in body_lower) or ("tuya smart" in body_lower), (
+        "Tuya-local hint does not mention the Setti+ / Tuya Smart vendor app"
+    )
+
+
 # ===== needs_manual_url surfaced in JSON (issue #37) =====
 
 
@@ -1038,6 +1061,44 @@ def test_get_cameras_discover_defaults_needs_manual_url_false_for_onvif() -> Non
 
     body = app.test_client().get("/cameras/discover").get_json()
     assert body["cameras"][0]["needs_manual_url"] is False
+
+
+# ===== Stage 3 Tuya rows surfaced in JSON (issue #38) =====
+
+
+def test_get_cameras_discover_includes_tuya_local_rows_with_manual_url_flag() -> None:
+    """Issue #38: Stage 3 (Tuya local broadcast) rows must flow through
+    ``/cameras/discover`` JSON as-is — ``discovery_method='tuya-local'``,
+    ``needs_manual_url=True``, ``rtsp_url=''``, ``vendor`` mentioning Tuya.
+    The SPA's truthiness check on ``cam.rtsp_url`` plus the new
+    ``discovery_method`` branch is what lets the UI render a "open vendor
+    app to enable RTSP" hint instead of a bogus URL."""
+    from client_agent.discovery import DiscoveredCamera
+
+    cams = [
+        DiscoveredCamera(
+            ip="192.168.1.24",
+            port=6668,
+            vendor="Tuya (Setti+/Tapo/Vstarcam/…)",
+            model="2qpika50turuwci4",
+            rtsp_url="",
+            snapshot_url=None,
+            discovery_method="tuya-local",
+            needs_manual_url=True,
+        ),
+    ]
+    fake_r2 = FakeR2()
+    app = create_app(fake_r2, discover_fn=lambda: cams)
+    app.config["TESTING"] = True
+
+    body = app.test_client().get("/cameras/discover").get_json()
+    cam = body["cameras"][0]
+    assert cam["discovery_method"] == "tuya-local"
+    assert cam["needs_manual_url"] is True
+    assert cam["rtsp_url"] == ""
+    assert "Tuya" in cam["vendor"]
+    assert cam["model"] == "2qpika50turuwci4"
+    assert cam["port"] == 6668
 
 
 # ===== /start with camera_ip (issue #22) =====

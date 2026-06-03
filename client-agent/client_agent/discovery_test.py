@@ -615,3 +615,195 @@ def test_discovered_camera_default_needs_manual_url_is_false() -> None:
         ip="10.0.0.1", port=80, vendor="V", model="M", rtsp_url="rtsp://10.0.0.1/"
     )
     assert cam.needs_manual_url is False
+
+
+# ===== Stage 3: Tuya local-broadcast discovery (issue #38) =====
+
+
+def test_discover_cameras_appends_tuya_scan_results_after_onvif_and_rtsp() -> None:
+    """Issue #38 tracer bullet: Stage 3 = Tuya local-broadcast (UDP 6666/6667).
+    Catches cloud-paired Tuya/Setti+/Tapo IPCs that don't expose ONVIF and
+    have RTSP disabled by default — the operator can't see them via Stage 1
+    or Stage 2 even though they're online.
+
+    The merge is order-preserving: ONVIF first (highest-trust), RTSP-scan
+    second, Tuya last (lowest signal — discovery only, no usable stream URL
+    until the operator enables RTSP in the vendor app)."""
+    onvif_cam = DiscoveredCamera(
+        ip="10.0.0.1", port=80, vendor="Hik", model="X", rtsp_url="rtsp://10.0.0.1/s"
+    )
+    rtsp_cam = DiscoveredCamera(
+        ip="10.0.0.2",
+        port=554,
+        vendor="Dahua",
+        model="",
+        rtsp_url="rtsp://10.0.0.2:554/cam/realmonitor",
+        discovery_method="rtsp-scan",
+    )
+    tuya_cam = DiscoveredCamera(
+        ip="10.0.0.3",
+        port=6668,
+        vendor="Tuya (Setti+/Tapo/Vstarcam/…)",
+        model="2qpika50turuwci4",
+        rtsp_url="",
+        discovery_method="tuya-local",
+        needs_manual_url=True,
+    )
+
+    cams = discover_cameras(
+        probe_fn=lambda _: [ProbeMatch(ip="10.0.0.1", port=80, xaddr="http://10.0.0.1/")],
+        enrich_fn=lambda _m, _c: onvif_cam,
+        rtsp_scan_fn=lambda _t: [rtsp_cam],
+        tuya_scan_fn=lambda _t: [tuya_cam],
+    )
+
+    assert cams == [onvif_cam, rtsp_cam, tuya_cam]
+
+
+def test_discover_cameras_runs_stage_3_when_stage_2_disabled() -> None:
+    """Issue #38: Stage 3 (Tuya) and Stage 2 (RTSP scan) are independently
+    optional. Operators on networks where the /24 port scan is too noisy
+    (large LAN, slow links) may still want Tuya broadcast detection — and
+    the appliance's boot path enables both stages together but unit tests
+    must be able to exercise Stage 3 in isolation."""
+    tuya_cam = DiscoveredCamera(
+        ip="10.0.0.3",
+        port=6668,
+        vendor="Tuya (Setti+/Tapo/Vstarcam/…)",
+        model="2qpika50turuwci4",
+        rtsp_url="",
+        discovery_method="tuya-local",
+        needs_manual_url=True,
+    )
+    cams = discover_cameras(
+        probe_fn=lambda _: [],
+        enrich_fn=lambda _m, _c: None,
+        rtsp_scan_fn=None,
+        tuya_scan_fn=lambda _t: [tuya_cam],
+    )
+    assert cams == [tuya_cam]
+
+
+def test_discover_cameras_dedupes_tuya_against_onvif_by_ip() -> None:
+    """Issue #38: when ONVIF (Stage 1) already produced a row for IP X, drop
+    the Stage 3 row for X. ONVIF carries authoritative vendor/model and a
+    working stream URL — keeping both would double-render the same physical
+    camera with conflicting metadata (Tuya's vendor string vs the ONVIF
+    one) and break the click-to-paste flow."""
+    onvif_match = ProbeMatch(ip="10.0.0.1", port=80, xaddr="http://10.0.0.1/onvif")
+    onvif_cam = DiscoveredCamera(
+        ip="10.0.0.1", port=80, vendor="Hik", model="X", rtsp_url="rtsp://10.0.0.1/s"
+    )
+    tuya_dup = DiscoveredCamera(
+        ip="10.0.0.1",  # SAME IP as the ONVIF hit
+        port=6668,
+        vendor="Tuya (Setti+/Tapo/Vstarcam/…)",
+        model="abc",
+        rtsp_url="",
+        discovery_method="tuya-local",
+        needs_manual_url=True,
+    )
+
+    cams = discover_cameras(
+        probe_fn=lambda _: [onvif_match],
+        enrich_fn=lambda _m, _c: onvif_cam,
+        tuya_scan_fn=lambda _t: [tuya_dup],
+    )
+
+    assert cams == [onvif_cam]
+
+
+def test_discover_cameras_dedupes_tuya_against_rtsp_scan_by_ip() -> None:
+    """Issue #38: when Stage 2 (RTSP scan) found a camera at IP X, drop the
+    Stage 3 row for X. Stage 2 already carries a vendor-templated stream
+    URL (or the ``needs_manual_url=True`` flag for the nginx-RTSP /
+    per-device case from issue #37) — either is more useful than a bare
+    Tuya broadcast row."""
+    rtsp_cam = DiscoveredCamera(
+        ip="10.0.0.2",
+        port=554,
+        vendor="Hikvision",
+        model="",
+        rtsp_url="rtsp://10.0.0.2:554/Streaming/Channels/101",
+        discovery_method="rtsp-scan",
+    )
+    tuya_dup = DiscoveredCamera(
+        ip="10.0.0.2",  # SAME IP as the RTSP-scan hit
+        port=6668,
+        vendor="Tuya (Setti+/Tapo/Vstarcam/…)",
+        model="xyz",
+        rtsp_url="",
+        discovery_method="tuya-local",
+        needs_manual_url=True,
+    )
+
+    cams = discover_cameras(
+        probe_fn=lambda _: [],
+        enrich_fn=lambda _m, _c: None,
+        rtsp_scan_fn=lambda _t: [rtsp_cam],
+        tuya_scan_fn=lambda _t: [tuya_dup],
+    )
+
+    assert cams == [rtsp_cam]
+
+
+def test_discover_cameras_keeps_tuya_when_only_stage_3_finds_it() -> None:
+    """Issue #38: the happy-path raison d'être — a Setti+/Tuya camera with
+    RTSP disabled is invisible to Stage 1 (no ONVIF) and Stage 2 (no :554),
+    but Stage 3 picks it up via the local UDP broadcast. The operator must
+    see it in the UI so they can react (enable RTSP in the vendor app)."""
+    onvif_match = ProbeMatch(ip="10.0.0.1", port=80, xaddr="http://10.0.0.1/onvif")
+    onvif_cam = DiscoveredCamera(
+        ip="10.0.0.1", port=80, vendor="Hik", model="X", rtsp_url="rtsp://10.0.0.1/s"
+    )
+    rtsp_cam = DiscoveredCamera(
+        ip="10.0.0.2",
+        port=554,
+        vendor="Dahua",
+        model="",
+        rtsp_url="rtsp://10.0.0.2:554/cam/realmonitor",
+        discovery_method="rtsp-scan",
+    )
+    tuya_unique = DiscoveredCamera(
+        ip="10.0.0.99",  # different IP from both upstream rows
+        port=6668,
+        vendor="Tuya (Setti+/Tapo/Vstarcam/…)",
+        model="2qpika50turuwci4",
+        rtsp_url="",
+        discovery_method="tuya-local",
+        needs_manual_url=True,
+    )
+
+    cams = discover_cameras(
+        probe_fn=lambda _: [onvif_match],
+        enrich_fn=lambda _m, _c: onvif_cam,
+        rtsp_scan_fn=lambda _t: [rtsp_cam],
+        tuya_scan_fn=lambda _t: [tuya_unique],
+    )
+
+    assert cams == [onvif_cam, rtsp_cam, tuya_unique]
+
+
+def test_build_tuya_camera_emits_manual_url_row_with_product_key_as_model() -> None:
+    """Issue #38: every Tuya broadcast row carries the same shape — empty
+    RTSP URL (the per-device URI lives in the vendor app, not in the
+    broadcast payload), ``needs_manual_url=True``, vendor mentions Tuya so
+    the UI can render a hint about Setti+/Tapo/Vstarcam. ``model`` is
+    populated from the broadcast's ``productKey`` so the operator can
+    distinguish two identical-looking devices."""
+    from client_agent.discovery import _build_tuya_camera
+
+    cam = _build_tuya_camera(
+        ip="192.168.1.24",
+        gw_id="bf3b7a0df776190dc3wnnk",
+        product_key="2qpika50turuwci4",
+    )
+
+    assert cam.ip == "192.168.1.24"
+    assert cam.port == 6668
+    assert "Tuya" in cam.vendor
+    assert cam.model == "2qpika50turuwci4"
+    assert cam.rtsp_url == ""
+    assert cam.needs_manual_url is True
+    assert cam.discovery_method == "tuya-local"
+    assert cam.snapshot_url is None

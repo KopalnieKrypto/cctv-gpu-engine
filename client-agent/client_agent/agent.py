@@ -36,6 +36,7 @@ from gpu_service.r2_client import R2Client
 from client_agent.discovery import (
     discover_cameras,
     make_real_rtsp_scan,
+    make_real_tuya_scan,
     resolve_camera_credentials,
 )
 from client_agent.recorder import BackgroundRecorder, Recorder
@@ -132,11 +133,16 @@ def build_app(environ: Mapping[str, str], *, recordings_root: Path | None = None
     env_snapshot = dict(environ)
     creds_resolver = lambda ip: resolve_camera_credentials(ip, env_snapshot)  # noqa: E731
     rtsp_scan = make_real_rtsp_scan(creds_resolver)
+    # Stage 3 (issue #38): Tuya local broadcast — catches Setti+/Tapo/Tuya
+    # IPCs that don't expose ONVIF and ship with RTSP disabled by default.
+    # No creds: purely passive UDP listening.
+    tuya_scan = make_real_tuya_scan()
 
     def _discover():
         return discover_cameras(
             credentials_resolver=creds_resolver,
             rtsp_scan_fn=rtsp_scan,
+            tuya_scan_fn=tuya_scan,
         )
 
     app = create_app(

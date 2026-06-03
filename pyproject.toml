@@ -27,6 +27,12 @@ dependencies = [
     # appliance entrypoint (Phase 3) will reuse the same package.
     "WSDiscovery>=2.0",
     "onvif-zeep>=0.2",
+    # Tuya local-broadcast camera discovery for Stage 3 (issue #38).
+    # Listens on UDP 6666/6667 — purely passive, no cloud creds — to
+    # surface Setti+/Tapo/Vstarcam-style IPCs that ship with RTSP
+    # disabled and are therefore invisible to ONVIF + RTSP port scan.
+    # Pure Python, ~1 MB, MIT-licensed.
+    "tinytuya>=1.13",
     # WSGI server for the standalone appliance entrypoint (issue #23).
     # Multithreaded, pure Python, ~1 MB. Replaces Werkzeug's dev server
     # for bare-metal deployments where concurrent UI requests matter; the

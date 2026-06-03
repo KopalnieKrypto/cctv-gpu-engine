@@ -76,7 +76,8 @@ else
         "numpy>=1.26,<2.0" \
         "opencv-python-headless>=4.8" \
         "WSDiscovery>=2.0" \
-        "onvif-zeep>=0.2"
+        "onvif-zeep>=0.2" \
+        "tinytuya>=1.13"
 fi
 
 # 4. Source modules — mirror the Dockerfile pattern (drop client_agent and

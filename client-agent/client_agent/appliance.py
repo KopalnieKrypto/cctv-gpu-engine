@@ -373,6 +373,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         from client_agent.discovery import (
             discover_cameras,
             make_real_rtsp_scan,
+            make_real_tuya_scan,
             resolve_camera_credentials,
         )
 
@@ -391,6 +392,11 @@ def main(argv: Sequence[str] | None = None) -> None:
                 timeout=15.0,
                 credentials_resolver=creds_resolver,
                 rtsp_scan_fn=make_real_rtsp_scan(creds_resolver),
+                # Stage 3 (issue #38): Tuya local broadcast — catches
+                # Setti+/Tapo/Tuya IPCs that don't expose ONVIF and ship
+                # with RTSP disabled by default. Purely passive listening,
+                # no creds needed.
+                tuya_scan_fn=make_real_tuya_scan(),
             )
 
         # Buffer-mode recorder factory (issue #27): each platform-approved
