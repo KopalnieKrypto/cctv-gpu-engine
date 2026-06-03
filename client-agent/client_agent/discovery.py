@@ -56,6 +56,7 @@ class DiscoveredCamera:
     rtsp_url: str
     snapshot_url: str | None = None
     discovery_method: str = "onvif"
+    needs_manual_url: bool = False
 
 
 ProbeFn = Callable[[float], list[ProbeMatch]]
@@ -483,6 +484,49 @@ def _rtsp_options_server(ip: str, port: int, timeout: float) -> str | None:
     return None
 
 
+def _build_rtsp_scan_camera(
+    ip: str,
+    port: int,
+    vendor: str,
+    credentials: tuple[str, str] | None,
+) -> DiscoveredCamera:
+    """Build a Stage-2 :class:`DiscoveredCamera` from a vendor fingerprint.
+
+    Issue #37: when ``vendor == "Unknown"`` (both the RTSP Server header and
+    the proprietary-port fingerprint failed), the camera's RTSP path is
+    almost certainly per-device — Tuya/Setti+/AnyKa cloud-paired IPCs
+    generate an opaque token URL surfaced only in the vendor app. Returning
+    ``rtsp://...:554/`` here makes ffmpeg silently 404 and gives the
+    operator no signal that the URL is wrong, so we instead emit an empty
+    ``rtsp_url`` + ``needs_manual_url=True`` and a verbose vendor string
+    that the UI can render alongside a "paste the URL from the vendor app"
+    hint.
+
+    Known vendors (Hikvision/Dahua/Axis/Reolink/Foscam) keep the previous
+    behavior: a vendor-specific URL pre-filled via
+    :func:`rtsp_template_for_vendor`, ``needs_manual_url=False``."""
+    if vendor == "Unknown":
+        return DiscoveredCamera(
+            ip=ip,
+            port=port,
+            vendor="Unknown (nginx-RTSP / per-device URI)",
+            model="",
+            rtsp_url="",
+            snapshot_url=None,
+            discovery_method="rtsp-scan",
+            needs_manual_url=True,
+        )
+    return DiscoveredCamera(
+        ip=ip,
+        port=port,
+        vendor=vendor,
+        model="",
+        rtsp_url=rtsp_template_for_vendor(vendor, ip, port, credentials),
+        snapshot_url=None,
+        discovery_method="rtsp-scan",
+    )
+
+
 def make_real_rtsp_scan(
     credentials_resolver: CredentialsResolver,
     *,
@@ -519,17 +563,7 @@ def make_real_rtsp_scan(
             if vendor == "Unknown":
                 vendor = guess_vendor_from_open_ports(open_ports)
             creds = credentials_resolver(ip)
-            cams.append(
-                DiscoveredCamera(
-                    ip=ip,
-                    port=554,
-                    vendor=vendor,
-                    model="",
-                    rtsp_url=rtsp_template_for_vendor(vendor, ip, 554, creds),
-                    snapshot_url=None,
-                    discovery_method="rtsp-scan",
-                )
-            )
+            cams.append(_build_rtsp_scan_camera(ip, 554, vendor, creds))
         return cams
 
     return _scan

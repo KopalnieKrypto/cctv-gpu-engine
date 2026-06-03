@@ -753,6 +753,7 @@ def test_get_cameras_discover_returns_json_with_cameras_and_scanned_at() -> None
             "rtsp_url": "rtsp://192.168.1.10:554/Streaming/Channels/101",
             "snapshot_url": "http://192.168.1.10/Streaming/Channels/101/picture",
             "discovery_method": "onvif",
+            "needs_manual_url": False,
         },
         {
             "ip": "192.168.1.11",
@@ -762,6 +763,7 @@ def test_get_cameras_discover_returns_json_with_cameras_and_scanned_at() -> None
             "rtsp_url": "rtsp://192.168.1.11:554/cam/realmonitor",
             "snapshot_url": None,
             "discovery_method": "onvif",
+            "needs_manual_url": False,
         },
     ]
 
@@ -949,6 +951,93 @@ def test_get_cameras_discover_passes_through_credless_urls_unchanged() -> None:
 
     body = app.test_client().get("/cameras/discover").get_json()
     assert body["cameras"][0]["rtsp_url"] == "rtsp://192.168.1.10:554/Streaming/Channels/101"
+
+
+# ===== needs_manual_url UI hint (issue #37) =====
+
+
+def test_get_root_renders_manual_url_hint_for_unknown_vendor() -> None:
+    """Issue #37 UI acceptance: the discovery results JS must branch on
+    ``needs_manual_url`` and render a hint pointing the operator at the
+    vendor app instead of the bogus ``rtsp://...:554/`` URL.
+
+    Substring assertions only — the exact JS shape is free to evolve as long
+    as (a) the JS references ``needs_manual_url`` so it can branch, and
+    (b) the hint text mentions the vendor app so the operator knows where
+    to find the real URL."""
+    app, _, _ = _make_app_with_recorder()
+    body = app.test_client().get("/").get_data(as_text=True)
+
+    assert "needs_manual_url" in body, "JS does not branch on needs_manual_url"
+    # Hint must point the operator at the vendor app — that's where the
+    # per-device URI actually lives. Accept Polish or English wording so a
+    # future i18n pass doesn't break the test.
+    body_lower = body.lower()
+    assert ("vendor app" in body_lower) or ("aplikacj" in body_lower), (
+        "manual-URL hint does not mention the vendor app"
+    )
+
+
+# ===== needs_manual_url surfaced in JSON (issue #37) =====
+
+
+def test_get_cameras_discover_includes_needs_manual_url_for_unknown_vendor() -> None:
+    """Issue #37: when Stage-2 emits a camera with ``needs_manual_url=True``
+    (Unknown-vendor host like AnyKa/Tuya/Setti+), the discovery JSON must
+    carry the flag so the SPA can branch — render an editable input + hint
+    instead of the bogus ``rtsp://...:554/`` URL.
+
+    The cred-less ``rtsp_url=""`` must also flow through untouched —
+    ``strip_credentials_from_url`` on an empty string mustn't accidentally
+    rewrite it into something the SPA's truthiness check would mistake for
+    a real URL."""
+    from client_agent.discovery import DiscoveredCamera
+
+    cams = [
+        DiscoveredCamera(
+            ip="192.168.1.198",
+            port=554,
+            vendor="Unknown (nginx-RTSP / per-device URI)",
+            model="",
+            rtsp_url="",
+            snapshot_url=None,
+            discovery_method="rtsp-scan",
+            needs_manual_url=True,
+        ),
+    ]
+    fake_r2 = FakeR2()
+    app = create_app(fake_r2, discover_fn=lambda: cams)
+    app.config["TESTING"] = True
+
+    body = app.test_client().get("/cameras/discover").get_json()
+    cam = body["cameras"][0]
+    assert cam["needs_manual_url"] is True
+    assert cam["rtsp_url"] == ""
+    assert "Unknown" in cam["vendor"]
+
+
+def test_get_cameras_discover_defaults_needs_manual_url_false_for_onvif() -> None:
+    """Backward-compat: ONVIF-enriched rows (default ``needs_manual_url=False``)
+    keep flowing through as ``false`` so the SPA's existing branches don't
+    have to special-case the field being absent."""
+    from client_agent.discovery import DiscoveredCamera
+
+    cams = [
+        DiscoveredCamera(
+            ip="192.168.1.10",
+            port=80,
+            vendor="Hikvision",
+            model="DS-2CD2042",
+            rtsp_url="rtsp://192.168.1.10:554/Streaming/Channels/101",
+            snapshot_url=None,
+        ),
+    ]
+    fake_r2 = FakeR2()
+    app = create_app(fake_r2, discover_fn=lambda: cams)
+    app.config["TESTING"] = True
+
+    body = app.test_client().get("/cameras/discover").get_json()
+    assert body["cameras"][0]["needs_manual_url"] is False
 
 
 # ===== /start with camera_ip (issue #22) =====
