@@ -61,6 +61,18 @@ jobs:
           push: ${{ github.event_name == 'push' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Disable provenance + SBOM attestations: every main-branch push of
+          # this image (the 15 GB gpu-service one) since 2026-06-10 #43 has
+          # been failing the *push* step against GHCR with
+          # `ERROR: failed to build: unknown blob`. The pattern matches a
+          # known buildx + GHCR interaction where attestation manifests
+          # reference blobs by digest that GHCR has not yet committed when
+          # the attestation tries to land. Disabling provenance is the
+          # documented fix in the docker/build-push-action issue tracker.
+          # PR-event builds (push=false) were unaffected because they never
+          # reached the push step.
+          provenance: false
+          sbom: false
 
   client-agent:
     runs-on: ubuntu-latest
