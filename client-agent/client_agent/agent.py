@@ -40,7 +40,8 @@ from client_agent.discovery import (
 )
 from client_agent.r2_client import R2Client
 from client_agent.recorder import BackgroundRecorder, Recorder
-from client_agent.web import create_app
+from client_agent.snapshot import build_snapshot_grabber
+from client_agent.web import CameraResolverFn, create_app
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,12 @@ class BuiltApp:
     recorder: BackgroundRecorder
 
 
-def build_app(environ: Mapping[str, str], *, recordings_root: Path | None = None) -> BuiltApp:
+def build_app(
+    environ: Mapping[str, str],
+    *,
+    recordings_root: Path | None = None,
+    camera_resolver: CameraResolverFn | None = None,
+) -> BuiltApp:
     """Construct the full client-agent Flask app from the given environment.
 
     Shared between the Docker entrypoint (:func:`main`, runs Werkzeug dev
@@ -145,11 +151,19 @@ def build_app(environ: Mapping[str, str], *, recordings_root: Path | None = None
             tuya_scan_fn=tuya_scan,
         )
 
+    # Issue #41: per-camera snapshot endpoint. The production grabber
+    # dispatches HTTP (vendor ONVIF GetSnapshotUri) vs RTSP (cv2 frame
+    # grab) on URL scheme. ``camera_resolver`` is None in Docker mode —
+    # last_discovery (keyed by IP) carries every camera the operator
+    # could ask for. The appliance entrypoint overrides this with a
+    # closure over the platform-supplied camera registry.
     app = create_app(
         client,
         recorder=recorder,
         discover_fn=_discover,
         credentials_resolver=creds_resolver,
+        camera_resolver=camera_resolver,
+        snapshot_grabber=build_snapshot_grabber(),
     )
 
     return BuiltApp(app=app, bucket=bucket, recordings_root=recordings_root, recorder=recorder)

@@ -1321,6 +1321,379 @@ def test_post_start_with_camera_ip_does_not_log_password(caplog) -> None:
         )
 
 
+# ===== Per-camera snapshot endpoint (issue #41) =====
+
+
+def test_get_camera_snapshot_returns_jpeg_bytes_with_image_content_type() -> None:
+    """Issue #41 tracer-bullet: ``GET /cameras/<camera_id>/snapshot`` runs
+    the injected snapshot grabber against the camera's RTSP URL and returns
+    the resulting JPEG bytes verbatim with ``image/jpeg`` Content-Type.
+
+    The grabber is injected so unit tests never open a real socket; the
+    production grabber (OpenCV's ``cv2.VideoCapture`` + ``cv2.imencode``)
+    is wired in ``agent.py`` / ``appliance.py``. The resolver is also
+    injected so the route's camera_id → RTSP URL lookup is testable in
+    isolation."""
+    from client_agent.web import CameraSnapshotSource
+
+    fake_jpeg = b"\xff\xd8\xff\xe0FAKE-JPEG-PAYLOAD\xff\xd9"
+    grab_calls: list[tuple[str, float]] = []
+
+    def fake_grabber(url: str, timeout_s: float) -> bytes:
+        grab_calls.append((url, timeout_s))
+        return fake_jpeg
+
+    def resolver(camera_id: str) -> CameraSnapshotSource | None:
+        if camera_id == "cam-abc":
+            return CameraSnapshotSource(rtsp_url="rtsp://camera.local/stream")
+        return None
+
+    fake_r2 = FakeR2()
+    fake_recorder = FakeRecorder()
+    app = create_app(
+        fake_r2,
+        recorder=fake_recorder,
+        camera_resolver=resolver,
+        snapshot_grabber=fake_grabber,
+    )
+    app.config["TESTING"] = True
+
+    resp = app.test_client().get("/cameras/cam-abc/snapshot")
+
+    assert resp.status_code == 200
+    assert resp.mimetype == "image/jpeg"
+    assert resp.data == fake_jpeg
+    assert grab_calls == [("rtsp://camera.local/stream", 5.0)]
+
+
+def test_get_camera_snapshot_without_recorder_returns_404() -> None:
+    """Issue #41 AC: ``Route registered when recorder is not None
+    (consistent with /start / /stop gating)``. We register the route
+    unconditionally for simplicity but return 404 when ``recorder=None``
+    so the operator sees the same "not configured" shape as the other
+    recorder-dependent endpoints."""
+    fake_r2 = FakeR2()
+    # recorder intentionally omitted — the upload-only surface.
+    app = create_app(fake_r2, snapshot_grabber=lambda _u, _t: b"\xff\xd8\xff\xd9")
+    app.config["TESTING"] = True
+
+    resp = app.test_client().get("/cameras/cam-abc/snapshot")
+
+    assert resp.status_code == 404
+
+
+def test_get_camera_snapshot_returns_404_when_camera_id_unknown() -> None:
+    """Issue #41 AC: ``Returns 404 for unknown camera_id``. Resolver
+    returns ``None`` and last_discovery is empty → the route refuses
+    instead of fabricating a URL ffmpeg would fail to open. The body
+    names the camera_id so the operator can correlate with their
+    discovery scan."""
+    from client_agent.web import CameraSnapshotSource
+
+    def resolver(_camera_id: str) -> CameraSnapshotSource | None:
+        return None
+
+    fake_r2 = FakeR2()
+    fake_recorder = FakeRecorder()
+    grabber_calls: list[str] = []
+    app = create_app(
+        fake_r2,
+        recorder=fake_recorder,
+        camera_resolver=resolver,
+        snapshot_grabber=lambda url, _t: grabber_calls.append(url) or b"\xff\xd8",
+    )
+    app.config["TESTING"] = True
+
+    resp = app.test_client().get("/cameras/cam-never-seen/snapshot")
+
+    assert resp.status_code == 404
+    assert b"cam-never-seen" in resp.data
+    # The grabber must NOT be touched for an unknown camera — otherwise
+    # an attacker could probe arbitrary URLs by guessing camera_ids.
+    assert grabber_calls == []
+
+
+def test_get_camera_snapshot_returns_503_with_camera_id_when_grabber_fails(caplog) -> None:
+    """Issue #41 AC: ``Returns 503 if the camera RTSP connection fails /
+    times out (with reason in body)``. 503 (Service Unavailable) is the
+    right shape: the route itself is fine — it's the camera that's
+    offline. 500 would imply a server bug and confuse the operator.
+
+    The body names the ``camera_id`` so the operator can correlate
+    failures without scanning logs; the *reason* (e.g. ``cv2.VideoCapture
+    failed to open``) is logged server-side at WARNING — keeping it out
+    of the body protects against credentials embedded in the RTSP URL
+    leaking via ``str(exc)`` (see
+    ``test_get_camera_snapshot_503_body_does_not_leak_creds_from_rtsp_url``)."""
+    import logging
+
+    from client_agent.web import CameraSnapshotSource
+
+    def resolver(camera_id: str) -> CameraSnapshotSource | None:
+        return CameraSnapshotSource(rtsp_url="rtsp://offline.local/stream")
+
+    def exploding_grabber(_url: str, _t: float) -> bytes:
+        raise RuntimeError("cv2.VideoCapture failed to open: timed out after 5s")
+
+    fake_r2 = FakeR2()
+    fake_recorder = FakeRecorder()
+    app = create_app(
+        fake_r2,
+        recorder=fake_recorder,
+        camera_resolver=resolver,
+        snapshot_grabber=exploding_grabber,
+    )
+    app.config["TESTING"] = True
+    # Without this Flask re-raises the RuntimeError instead of letting
+    # our try/except convert it to a 503.
+    app.config["PROPAGATE_EXCEPTIONS"] = False
+
+    with caplog.at_level(logging.WARNING, logger="client_agent.web"):
+        resp = app.test_client().get("/cameras/cam-abc/snapshot")
+
+    assert resp.status_code == 503
+    body = resp.get_data(as_text=True)
+    assert "cam-abc" in body
+    # Reason is logged, not echoed — operator finds it in journald.
+    assert any("cv2.VideoCapture failed" in r.getMessage() for r in caplog.records), (
+        "503 reason should be logged server-side"
+    )
+
+
+def test_get_camera_snapshot_resolves_from_last_discovery_by_ip() -> None:
+    """Issue #41 implementation note: ``Reuse last_discovery cache keyed
+    by camera_id``. In Docker standalone mode, the operator addresses
+    cameras by IP (there is no platform UUID), so the route must accept
+    the camera's IP as the ``camera_id`` URL fragment and look it up in
+    the in-memory cache populated by ``GET /cameras/discover``.
+
+    No ``camera_resolver`` is injected here — proves last_discovery
+    alone is sufficient for the Docker flow."""
+    from client_agent.discovery import DiscoveredCamera
+
+    cams = [
+        DiscoveredCamera(
+            ip="192.168.50.2",
+            port=554,
+            vendor="Hikvision",
+            model="DS-2CD2042",
+            rtsp_url="rtsp://192.168.50.2:554/Streaming/Channels/101",
+            snapshot_url=None,
+        ),
+    ]
+    fake_r2 = FakeR2()
+    fake_recorder = FakeRecorder()
+    grab_calls: list[str] = []
+
+    def fake_grabber(url: str, _t: float) -> bytes:
+        grab_calls.append(url)
+        return b"\xff\xd8FAKE\xff\xd9"
+
+    app = create_app(
+        fake_r2,
+        recorder=fake_recorder,
+        discover_fn=lambda: cams,
+        snapshot_grabber=fake_grabber,
+    )
+    app.config["TESTING"] = True
+    test_client = app.test_client()
+    # Populate last_discovery.
+    test_client.get("/cameras/discover")
+
+    resp = test_client.get("/cameras/192.168.50.2/snapshot")
+
+    assert resp.status_code == 200
+    assert resp.mimetype == "image/jpeg"
+    assert resp.data == b"\xff\xd8FAKE\xff\xd9"
+    # Grabber received the RTSP URL from last_discovery — no resolver
+    # involved, no URL fabrication.
+    assert grab_calls == ["rtsp://192.168.50.2:554/Streaming/Channels/101"]
+
+
+def test_get_camera_snapshot_serves_cached_jpeg_within_ttl() -> None:
+    """Issue #41 AC: ``Returns the same encoded image for two requests
+    within 30s (TTL cache)``. Two GETs hit the route while the injected
+    clock advances by less than the TTL → the grabber is called exactly
+    once and both responses carry identical bytes."""
+    from client_agent.web import CameraSnapshotSource
+
+    def resolver(_camera_id: str) -> CameraSnapshotSource | None:
+        return CameraSnapshotSource(rtsp_url="rtsp://camera.local/stream")
+
+    grab_count = [0]
+
+    def fake_grabber(_url: str, _t: float) -> bytes:
+        grab_count[0] += 1
+        # Returning a distinct payload per call lets the test prove that
+        # the cached value (not a fresh one) is what came back on call 2.
+        return f"jpeg-{grab_count[0]}".encode()
+
+    now = [1000.0]
+    fake_r2 = FakeR2()
+    fake_recorder = FakeRecorder()
+    app = create_app(
+        fake_r2,
+        recorder=fake_recorder,
+        camera_resolver=resolver,
+        snapshot_grabber=fake_grabber,
+        clock=lambda: now[0],
+    )
+    app.config["TESTING"] = True
+    test_client = app.test_client()
+
+    first = test_client.get("/cameras/cam-abc/snapshot")
+    # Advance by 29 s — still within the 30 s TTL window.
+    now[0] += 29.0
+    second = test_client.get("/cameras/cam-abc/snapshot")
+
+    assert first.status_code == 200 and second.status_code == 200
+    assert first.data == b"jpeg-1"
+    assert second.data == b"jpeg-1"  # cached, not regenerated
+    assert grab_count[0] == 1
+
+
+def test_get_camera_snapshot_refreshes_after_ttl_expiry() -> None:
+    """Issue #41 AC: ``Returns a fresh image after 30s``. Clock advances
+    past the TTL → grabber called again, second response carries the
+    fresh payload."""
+    from client_agent.web import CameraSnapshotSource
+
+    def resolver(_camera_id: str) -> CameraSnapshotSource | None:
+        return CameraSnapshotSource(rtsp_url="rtsp://camera.local/stream")
+
+    grab_count = [0]
+
+    def fake_grabber(_url: str, _t: float) -> bytes:
+        grab_count[0] += 1
+        return f"jpeg-{grab_count[0]}".encode()
+
+    now = [1000.0]
+    fake_r2 = FakeR2()
+    fake_recorder = FakeRecorder()
+    app = create_app(
+        fake_r2,
+        recorder=fake_recorder,
+        camera_resolver=resolver,
+        snapshot_grabber=fake_grabber,
+        clock=lambda: now[0],
+    )
+    app.config["TESTING"] = True
+    test_client = app.test_client()
+
+    first = test_client.get("/cameras/cam-abc/snapshot")
+    # Past the 30 s TTL — cache entry is stale, grabber must re-run.
+    now[0] += 31.0
+    second = test_client.get("/cameras/cam-abc/snapshot")
+
+    assert first.data == b"jpeg-1"
+    assert second.data == b"jpeg-2"
+    assert grab_count[0] == 2
+
+
+def test_get_camera_snapshot_prefers_vendor_snapshot_url_over_rtsp() -> None:
+    """Issue #41 implementation note: ``If ONVIF discovery already
+    surfaced a snapshot_url (vendor's native HTTP snapshot endpoint),
+    prefer that — fall back to opencv frame grab only when not available.``
+
+    Cheaper for the camera (one HTTP GET vs. an RTSP session
+    handshake) and avoids spinning up the heavy ffmpeg pipeline for a
+    thumbnail. The grabber receives the HTTP URL, not the RTSP one."""
+    from client_agent.discovery import DiscoveredCamera
+
+    cams = [
+        DiscoveredCamera(
+            ip="192.168.50.10",
+            port=80,
+            vendor="Hikvision",
+            model="DS-2CD2042",
+            rtsp_url="rtsp://192.168.50.10:554/Streaming/Channels/101",
+            snapshot_url="http://192.168.50.10/Streaming/Channels/101/picture",
+        ),
+    ]
+    fake_r2 = FakeR2()
+    fake_recorder = FakeRecorder()
+    grab_calls: list[str] = []
+
+    def fake_grabber(url: str, _t: float) -> bytes:
+        grab_calls.append(url)
+        return b"\xff\xd8VENDOR-HTTP\xff\xd9"
+
+    app = create_app(
+        fake_r2,
+        recorder=fake_recorder,
+        discover_fn=lambda: cams,
+        snapshot_grabber=fake_grabber,
+    )
+    app.config["TESTING"] = True
+    test_client = app.test_client()
+    test_client.get("/cameras/discover")  # populate last_discovery
+
+    resp = test_client.get("/cameras/192.168.50.10/snapshot")
+
+    assert resp.status_code == 200
+    assert resp.data == b"\xff\xd8VENDOR-HTTP\xff\xd9"
+    # Critically: the HTTP snapshot URL is what reached the grabber, not
+    # the rtsp_url. A regression here means the cheap path was skipped.
+    assert grab_calls == ["http://192.168.50.10/Streaming/Channels/101/picture"]
+
+
+def test_get_camera_snapshot_503_body_does_not_leak_creds_from_rtsp_url() -> None:
+    """Security: a Stage-2 RTSP-scan ``DiscoveredCamera`` carries the
+    operator's credentials inline by design (``rtsp://user:pass@host/…``)
+    and ``last_discovery`` stores the *raw* row, not the cred-stripped
+    version that ships out via ``/cameras/discover``. If the snapshot
+    grabber raises with the URL in its message, the 503 body would echo
+    those creds back to whoever called the endpoint. The route must log
+    the URL server-side and return a generic body that names only the
+    camera_id."""
+    from client_agent.discovery import DiscoveredCamera
+    from client_agent.web import CameraSnapshotSource  # noqa: F401
+
+    secret = "Hunter2!"
+    cams = [
+        DiscoveredCamera(
+            ip="192.168.50.2",
+            port=554,
+            vendor="Hikvision",
+            model="",
+            rtsp_url=f"rtsp://admin:{secret}@192.168.50.2:554/Streaming/Channels/101",
+            snapshot_url=None,
+            discovery_method="rtsp-scan",
+        ),
+    ]
+    fake_r2 = FakeR2()
+    fake_recorder = FakeRecorder()
+
+    def exploding_grabber(url: str, _t: float) -> bytes:
+        # Mimic the production helpers (snapshot.py) which interpolate
+        # the URL into the exception message — the very leak path the
+        # route must defang.
+        raise RuntimeError(f"cv2.VideoCapture failed to open {url!r}")
+
+    app = create_app(
+        fake_r2,
+        recorder=fake_recorder,
+        discover_fn=lambda: cams,
+        snapshot_grabber=exploding_grabber,
+    )
+    app.config["TESTING"] = True
+    app.config["PROPAGATE_EXCEPTIONS"] = False
+    test_client = app.test_client()
+    test_client.get("/cameras/discover")  # populate last_discovery
+
+    resp = test_client.get("/cameras/192.168.50.2/snapshot")
+
+    assert resp.status_code == 503
+    body = resp.get_data(as_text=True)
+    # The secret password (and the userinfo prefix that pairs it with the
+    # username) must NOT leak into the response body.
+    assert secret not in body
+    assert "admin:" not in body
+    # And the body must still carry *something useful* — the camera_id —
+    # so the operator sees which camera failed without scanning logs.
+    assert "192.168.50.2" in body
+
+
 def test_post_start_with_camera_ip_and_no_resolver_configured_returns_400() -> None:
     """``credentials_resolver=None`` is a misconfigured deploy (operator
     forgot to wire it in agent.py). Treat it the same as "no creds":

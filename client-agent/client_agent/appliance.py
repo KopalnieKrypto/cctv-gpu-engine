@@ -34,6 +34,7 @@ from client_agent.ffmpeg_trim import trim_and_concat
 from client_agent.platform import HeartbeatResponse, PlatformClient
 from client_agent.poller import TaskPoller
 from client_agent.uploader import PresignedUploader
+from client_agent.web import CameraSnapshotSource
 
 logger = logging.getLogger(__name__)
 
@@ -399,7 +400,34 @@ def main(argv: Sequence[str] | None = None) -> None:
     parse_buffer_hours(os.environ)
 
     recordings_root = default_recordings_dir(os.environ)
-    built = build_app(os.environ, recordings_root=recordings_root)
+    # Issue #41: platform-supplied camera registry. The map is mutated by
+    # ``run_platform_session`` after each heartbeat (see ``_refresh_camera_registry``
+    # below) so the Flask snapshot endpoint can resolve platform-UUID
+    # camera_ids to RTSP URLs without going through last_discovery
+    # (which is keyed by IP and lives behind a /cameras/discover call
+    # the appliance never makes in platform mode).
+    platform_camera_registry: dict[str, CameraSnapshotSource] = {}
+    built = build_app(
+        os.environ,
+        recordings_root=recordings_root,
+        camera_resolver=platform_camera_registry.get,
+    )
+
+    def _refresh_camera_registry(response: HeartbeatResponse) -> None:
+        """Replace the registry with the camera set from the latest
+        heartbeat config. ``clear() + update()`` (not assignment) so the
+        resolver closure keeps pointing at the same dict instance."""
+        new_map: dict[str, CameraSnapshotSource] = {}
+        for cam in response.config.get("cameras", []):
+            cam_id = cam.get("id")
+            rtsp_url = cam.get("rtsp_url")
+            if not cam_id or not rtsp_url:
+                continue
+            new_map[cam_id] = CameraSnapshotSource(
+                rtsp_url=rtsp_url, snapshot_url=cam.get("snapshot_url")
+            )
+        platform_camera_registry.clear()
+        platform_camera_registry.update(new_map)
 
     if _is_platform_mode(os.environ):
         # Run one platform session up-front so a bad token / unreachable
@@ -472,13 +500,17 @@ def main(argv: Sequence[str] | None = None) -> None:
         # reconcile. Surfaces fatal config errors (bad token, unreachable
         # platform) early — before waitress binds and systemd treats the
         # unit as healthy.
-        run_platform_session(
+        boot_response = run_platform_session(
             platform_client=platform_client,
             discover_fn=_discover,
             recorder_factory=_recorder_factory,
             active_recorders=active_recorders,
             environ=os.environ,
         )
+        # Issue #41: seed the snapshot resolver registry from the boot
+        # heartbeat config so a curl right after appliance start (before
+        # the 30-s loop ticks) can resolve camera_ids.
+        _refresh_camera_registry(boot_response)
 
         # Heartbeat loop: every 30s re-run the session so cameras the
         # operator approves via the platform UI get a recorder spawned
@@ -494,13 +526,18 @@ def main(argv: Sequence[str] | None = None) -> None:
             while True:
                 try:
                     _time.sleep(30)
-                    run_platform_session(
+                    response = run_platform_session(
                         platform_client=platform_client,
                         discover_fn=_discover,
                         recorder_factory=_recorder_factory,
                         active_recorders=active_recorders,
                         environ=os.environ,
                     )
+                    # Keep the snapshot resolver registry in lockstep with
+                    # the heartbeat config — a camera the operator just
+                    # enabled in the platform UI starts answering snapshot
+                    # requests on the very next tick (issue #41).
+                    _refresh_camera_registry(response)
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("heartbeat iteration failed: %s", exc)
 

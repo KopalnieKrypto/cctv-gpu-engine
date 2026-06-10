@@ -20,15 +20,33 @@ that touches Flask.
 
 from __future__ import annotations
 
+import logging
+import time
 import uuid
 from collections.abc import Callable
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from flask import Flask, jsonify, redirect, request, url_for
 
 from client_agent.discovery import DiscoveredCamera, strip_credentials_from_url
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class CameraSnapshotSource:
+    """Where to fetch a thumbnail JPEG for a given camera_id (issue #41).
+
+    ``rtsp_url`` is the always-present fallback — the snapshot endpoint
+    opens it via OpenCV and grabs a frame. ``snapshot_url`` is the
+    vendor's native HTTP snapshot path (ONVIF ``GetSnapshotUri``) which
+    is much cheaper than an RTSP handshake; the route prefers it when
+    present and falls back to RTSP otherwise."""
+
+    rtsp_url: str
+    snapshot_url: str | None = None
 
 
 class ClientR2Like(Protocol):
@@ -303,6 +321,19 @@ function discoverCameras() {
 
 DiscoverFn = Callable[[], list[DiscoveredCamera]]
 CredentialsResolverFn = Callable[[str], "tuple[str, str] | None"]
+CameraResolverFn = Callable[[str], "CameraSnapshotSource | None"]
+SnapshotGrabberFn = Callable[[str, float], bytes]
+ClockFn = Callable[[], float]
+
+# 30 s matches the polling cadence the gpu-exchange "My cameras" view is
+# expected to use — short enough that the operator sees a near-current
+# thumbnail, long enough that one tab open in the UI doesn't hammer the
+# camera's HTTP snapshot endpoint.
+_SNAPSHOT_CACHE_TTL_S = 30.0
+# 5 s ffmpeg/cv2 open timeout. Matches the issue's "5s timeout" — long
+# enough for a TCP handshake + a few RTP packets, short enough that the
+# UI thread doesn't hang on a dead camera.
+_SNAPSHOT_GRAB_TIMEOUT_S = 5.0
 
 
 def create_app(
@@ -312,6 +343,10 @@ def create_app(
     recorder=None,
     discover_fn: DiscoverFn | None = None,
     credentials_resolver: CredentialsResolverFn | None = None,
+    camera_resolver: CameraResolverFn | None = None,
+    snapshot_grabber: SnapshotGrabberFn | None = None,
+    snapshot_cache_ttl_s: float = _SNAPSHOT_CACHE_TTL_S,
+    clock: ClockFn = time.monotonic,
 ) -> Flask:
     """Build a Flask app bound to the given R2 client and job_id factory.
 
@@ -553,6 +588,54 @@ def create_app(
             row["rtsp_url"] = strip_credentials_from_url(row["rtsp_url"])
             rows.append(row)
         return jsonify({"cameras": rows, "scanned_at": scanned_at, "error": None})
+
+    # Issue #41: per-camera snapshot endpoint. Two-tier cache: an in-memory
+    # JPEG cache keyed by camera_id with a 30 s TTL absorbs UI polling so a
+    # tab open in gpu-exchange's "My cameras" view doesn't hammer the camera.
+    # Source resolution checks last_discovery first (Docker mode: operator
+    # uses the camera's IP as the id), then falls back to ``camera_resolver``
+    # (appliance mode: platform-supplied UUID resolves against heartbeat
+    # config). JPEGs are never written to disk — privacy invariant.
+    snapshot_cache: dict[str, tuple[float, bytes]] = {}
+
+    def _resolve_snapshot_source(camera_id: str) -> CameraSnapshotSource | None:
+        cam = last_discovery.get(camera_id)
+        if cam is not None:
+            return CameraSnapshotSource(rtsp_url=cam.rtsp_url, snapshot_url=cam.snapshot_url)
+        if camera_resolver is not None:
+            return camera_resolver(camera_id)
+        return None
+
+    @app.get("/cameras/<camera_id>/snapshot")
+    def camera_snapshot(camera_id: str):
+        if recorder is None or snapshot_grabber is None:
+            return ("camera snapshot not configured", 404)
+        now = clock()
+        cached = snapshot_cache.get(camera_id)
+        if cached is not None and (now - cached[0]) < snapshot_cache_ttl_s:
+            return (cached[1], 200, {"Content-Type": "image/jpeg"})
+        source = _resolve_snapshot_source(camera_id)
+        if source is None:
+            return (f"camera not found: {camera_id}", 404)
+        # Prefer the vendor's native HTTP snapshot when discovery surfaced
+        # it (ONVIF GetSnapshotUri) — single HTTP GET vs. opening an RTSP
+        # session. Falls back to RTSP frame-grab when absent.
+        url = source.snapshot_url or source.rtsp_url
+        try:
+            jpeg = snapshot_grabber(url, _SNAPSHOT_GRAB_TIMEOUT_S)
+        except Exception as exc:  # noqa: BLE001 — cv2/ffmpeg/network failures
+            # ``last_discovery`` stores the *raw* DiscoveredCamera, which on
+            # the Stage-2 RTSP-scan path embeds ``user:pass@`` in
+            # ``rtsp_url`` by design. The grabber's exception message
+            # typically interpolates that URL — echoing ``exc`` verbatim
+            # into the 503 body would leak the operator's creds to whoever
+            # called the endpoint. Log server-side (where the platform
+            # mode's journald is the appropriate audience), return only
+            # the camera_id in the body.
+            logger.warning("snapshot grab failed for camera_id=%s: %s", camera_id, exc)
+            return (f"snapshot grab failed for {camera_id}", 503)
+        snapshot_cache[camera_id] = (now, jpeg)
+        return (jpeg, 200, {"Content-Type": "image/jpeg"})
 
     return app
 
