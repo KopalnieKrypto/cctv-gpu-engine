@@ -1177,3 +1177,135 @@ def test_main_skips_platform_mode_when_env_unset(
 
     fake_serve.assert_called_once()
     fake_session.assert_not_called()
+
+
+# ----- Issue #44: managed cameras lister (registry × active_recorders) -----
+
+
+def test_list_managed_cameras_joins_registry_with_active_recorders() -> None:
+    """Issue #44: the appliance owns the join between
+    ``platform_camera_registry`` (heartbeat-supplied id/name/vendor/model)
+    and ``active_recorders`` (live recording state). The pure function is
+    a module-level helper so the wiring is testable without spinning up
+    waitress or the heartbeat loop.
+
+    Order of the returned list mirrors registry insertion order — the
+    operator sees the same row order across heartbeats unless the
+    platform reshuffles the config."""
+    from client_agent.appliance import list_managed_cameras
+    from client_agent.recorder import RecorderStatus
+    from client_agent.web import CameraSnapshotSource
+
+    registry = {
+        "cam-uuid-1": CameraSnapshotSource(
+            rtsp_url="rtsp://192.168.1.10/stream",
+            name="Front door",
+            vendor="Hikvision",
+            model="DS-2CD2042",
+        ),
+        "cam-uuid-2": CameraSnapshotSource(
+            rtsp_url="rtsp://192.168.1.11/stream",
+            name="Backyard",
+            vendor="Dahua",
+            model="IPC-HFW",
+        ),
+        "cam-uuid-3": CameraSnapshotSource(
+            rtsp_url="rtsp://192.168.1.12/stream",
+            name="Garage",
+            vendor="",
+            model="",
+        ),
+    }
+
+    class _FakeRec:
+        def __init__(self, state: str) -> None:
+            self._s = RecorderStatus(state=state)
+
+        def status(self) -> RecorderStatus:
+            return self._s
+
+    active = {
+        "cam-uuid-1": _FakeRec("recording"),
+        "cam-uuid-2": _FakeRec("failed"),
+        # cam-uuid-3: not in active_recorders → recording_state == "idle"
+    }
+
+    rows = list_managed_cameras(registry, active)
+
+    assert rows == [
+        {
+            "id": "cam-uuid-1",
+            "name": "Front door",
+            "vendor": "Hikvision",
+            "model": "DS-2CD2042",
+            "recording_state": "recording",
+        },
+        {
+            "id": "cam-uuid-2",
+            "name": "Backyard",
+            "vendor": "Dahua",
+            "model": "IPC-HFW",
+            "recording_state": "failed",
+        },
+        {
+            "id": "cam-uuid-3",
+            "name": "Garage",
+            "vendor": "",
+            "model": "",
+            "recording_state": "idle",
+        },
+    ]
+
+
+def test_build_camera_registry_extracts_name_vendor_model_from_heartbeat() -> None:
+    """Issue #44: ``_refresh_camera_registry`` now also pulls the
+    operator-facing metadata (name, vendor, model) from the heartbeat
+    config so the Managed cameras panel can label each row without a
+    second platform round-trip.
+
+    The platform stores ``name`` at the top level (from
+    ``_camera_to_push_dict`` — ``"{vendor} {model}".strip()``) and the
+    vendor/model under ``model_info.{manufacturer,model}``; the registry
+    builder must accept both shapes (top-level vendor/model too, so a
+    schema-bump on the platform side doesn't silently empty the panel)."""
+    from client_agent.appliance import build_camera_registry
+    from client_agent.platform import HeartbeatResponse
+
+    response = HeartbeatResponse(
+        config={
+            "cameras": [
+                {
+                    "id": "cam-uuid-1",
+                    "rtsp_url": "rtsp://192.168.1.10/stream",
+                    "snapshot_url": "http://192.168.1.10/snap.jpg",
+                    "name": "Front door",
+                    "model_info": {
+                        "manufacturer": "Hikvision",
+                        "model": "DS-2CD2042",
+                    },
+                },
+                {
+                    "id": "cam-uuid-2",
+                    "rtsp_url": "rtsp://192.168.1.11/stream",
+                    # Top-level vendor/model (defensive against schema drift).
+                    "vendor": "Dahua",
+                    "model": "IPC-HFW",
+                },
+                # Rejected: missing rtsp_url (matches existing skip logic).
+                {"id": "cam-uuid-3"},
+                # Rejected: missing id.
+                {"rtsp_url": "rtsp://x/y"},
+            ]
+        }
+    )
+
+    registry = build_camera_registry(response)
+
+    assert set(registry.keys()) == {"cam-uuid-1", "cam-uuid-2"}
+    assert registry["cam-uuid-1"].rtsp_url == "rtsp://192.168.1.10/stream"
+    assert registry["cam-uuid-1"].snapshot_url == "http://192.168.1.10/snap.jpg"
+    assert registry["cam-uuid-1"].name == "Front door"
+    assert registry["cam-uuid-1"].vendor == "Hikvision"
+    assert registry["cam-uuid-1"].model == "DS-2CD2042"
+    assert registry["cam-uuid-2"].vendor == "Dahua"
+    assert registry["cam-uuid-2"].model == "IPC-HFW"

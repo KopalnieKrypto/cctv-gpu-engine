@@ -43,10 +43,19 @@ class CameraSnapshotSource:
     opens it via OpenCV and grabs a frame. ``snapshot_url`` is the
     vendor's native HTTP snapshot path (ONVIF ``GetSnapshotUri``) which
     is much cheaper than an RTSP handshake; the route prefers it when
-    present and falls back to RTSP otherwise."""
+    present and falls back to RTSP otherwise.
+
+    Issue #44: ``name``/``vendor``/``model`` carry the operator-facing
+    labels from the platform heartbeat. The snapshot route ignores them;
+    the Managed cameras panel's lister reads them. Optional so the
+    Docker-mode last_discovery → CameraSnapshotSource path stays
+    construction-compatible without naming a vendor."""
 
     rtsp_url: str
     snapshot_url: str | None = None
+    name: str | None = None
+    vendor: str | None = None
+    model: str | None = None
 
 
 class ClientR2Like(Protocol):
@@ -130,12 +139,42 @@ _UPLOAD_FORM_HTML = """<!doctype html>
  fieldset { border: 1px solid #ccc; padding: 1rem; }
  legend { font-weight: 600; }
  .recording { background: #fff5d6; padding: .5rem 1rem; border-left: 3px solid #d49a00; }
+ .managed-cam { display: flex; gap: .8rem; align-items: center;
+   border: 1px solid #ccc; padding: .5rem; margin: .4rem 0; }
+ .managed-cam img { width: 160px; height: 90px; object-fit: cover;
+   background: #eee; border: 1px solid #aaa; }
+ .badge { padding: .1rem .4rem; border-radius: .2rem; font-size: .75em;
+   color: #fff; margin-right: .4rem; }
+ .badge-recording { background: #0a7; }
+ .badge-idle      { background: #888; }
+ .badge-failed    { background: #c33; }
 </style>
 </head>
 <body>
 <h1>cctv client-agent</h1>
 {% if recording_state in ('recording', 'uploading') %}
 <p class="recording">recording in progress (state: {{ recording_state }})</p>
+{% endif %}
+
+{% if managed_cameras %}
+<fieldset>
+<legend>Managed cameras</legend>
+<ul style="list-style: none; padding: 0; margin: 0;">
+{% for cam in managed_cameras %}
+<li class="managed-cam">
+  <img src="/cameras/{{ cam.id }}/snapshot" alt="{{ cam.name }}" loading="lazy">
+  <div>
+    {% set state = cam.recording_state or 'idle' %}
+    {% set badge = state if state in ('recording', 'idle', 'failed') else 'idle' %}
+    <span class="badge badge-{{ badge }}">{{ state }}</span>
+    <strong>{{ cam.name }}</strong><br>
+    <small>{{ cam.vendor }} {{ cam.model }}</small><br>
+    <a href="/cameras/{{ cam.id }}/snapshot" target="_blank">Pokaż większy podgląd</a>
+  </div>
+</li>
+{% endfor %}
+</ul>
+</fieldset>
 {% endif %}
 
 <fieldset>
@@ -324,6 +363,13 @@ CredentialsResolverFn = Callable[[str], "tuple[str, str] | None"]
 CameraResolverFn = Callable[[str], "CameraSnapshotSource | None"]
 SnapshotGrabberFn = Callable[[str, float], bytes]
 ClockFn = Callable[[], float]
+# Issue #44: appliance-supplied snapshot of currently-managed cameras (the
+# join of the platform's heartbeat registry and the live ``active_recorders``
+# map). Each row carries the bits the Managed cameras panel needs
+# (``id``, ``name``, ``vendor``, ``model``, ``recording_state``); the web
+# layer is dumb and just relays the payload. ``None`` disables the route
+# and the panel — Docker mode.
+ManagedCamerasFn = Callable[[], list[dict[str, Any]]]
 
 # 30 s matches the polling cadence the gpu-exchange "My cameras" view is
 # expected to use — short enough that the operator sees a near-current
@@ -345,6 +391,7 @@ def create_app(
     credentials_resolver: CredentialsResolverFn | None = None,
     camera_resolver: CameraResolverFn | None = None,
     snapshot_grabber: SnapshotGrabberFn | None = None,
+    managed_cameras_lister: ManagedCamerasFn | None = None,
     snapshot_cache_ttl_s: float = _SNAPSHOT_CACHE_TTL_S,
     clock: ClockFn = time.monotonic,
 ) -> Flask:
@@ -380,9 +427,17 @@ def create_app(
         from jinja2 import Environment, select_autoescape
 
         recording_state = recorder.status().state if recorder is not None else "idle"
+        # Issue #44: render the Managed cameras panel only when the appliance
+        # is wired (platform mode) AND the lister returns a non-empty list.
+        # Docker mode → lister None → []; the {% if managed_cameras %} guard
+        # in the template skips the panel entirely.
+        managed_cameras = managed_cameras_lister() if managed_cameras_lister else []
         env = Environment(autoescape=select_autoescape(["html", "xml"]))
         template = env.from_string(_UPLOAD_FORM_HTML)
-        html = template.render(recording_state=recording_state)
+        html = template.render(
+            recording_state=recording_state,
+            managed_cameras=managed_cameras,
+        )
         return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
     @app.post("/upload")
@@ -588,6 +643,16 @@ def create_app(
             row["rtsp_url"] = strip_credentials_from_url(row["rtsp_url"])
             rows.append(row)
         return jsonify({"cameras": rows, "scanned_at": scanned_at, "error": None})
+
+    @app.get("/cameras/managed")
+    def cameras_managed():
+        # Issue #44: list of platform-approved cameras + their live recording
+        # state. Docker mode never wires the lister (no platform registry to
+        # join), so a 404 mirrors the discover_fn=None pattern: the operator
+        # sees "not configured" rather than an empty 200 they have to debug.
+        if managed_cameras_lister is None:
+            return ("managed cameras not configured", 404)
+        return jsonify({"cameras": managed_cameras_lister()})
 
     # Issue #41: per-camera snapshot endpoint. Two-tier cache: an in-memory
     # JPEG cache keyed by camera_id with a 30 s TTL absorbs UI polling so a

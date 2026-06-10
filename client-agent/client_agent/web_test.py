@@ -1730,3 +1730,150 @@ def test_post_start_with_camera_ip_and_no_resolver_configured_returns_400() -> N
 
     assert resp.status_code == 400
     assert fake_recorder.starts == []
+
+
+# ----- Issue #44: Managed cameras panel -----
+
+
+def test_get_cameras_managed_returns_json_list_when_lister_wired() -> None:
+    """Issue #44 tracer-bullet: ``GET /cameras/managed`` runs the injected
+    lister and returns its output as JSON under the ``cameras`` key.
+
+    The lister is the appliance's join of ``platform_camera_registry``
+    (heartbeat-supplied id/name/vendor/model) and ``active_recorders``
+    (live recording_state). create_app stays dumb — it just exposes the
+    payload — so the appliance owns the joining logic and the web layer
+    stays unit-testable in isolation."""
+    fake_r2 = FakeR2()
+    fake_recorder = FakeRecorder()
+    listed = [
+        {
+            "id": "cam-uuid-1",
+            "name": "Front door",
+            "vendor": "Hikvision",
+            "model": "DS-2CD2042",
+            "recording_state": "recording",
+        },
+        {
+            "id": "cam-uuid-2",
+            "name": "Backyard",
+            "vendor": "Dahua",
+            "model": "IPC-HFW",
+            "recording_state": "idle",
+        },
+    ]
+
+    app = create_app(
+        fake_r2,
+        recorder=fake_recorder,
+        managed_cameras_lister=lambda: listed,
+    )
+    app.config["TESTING"] = True
+
+    resp = app.test_client().get("/cameras/managed")
+
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body == {"cameras": listed}
+
+
+def test_get_root_renders_managed_cameras_panel_when_non_empty() -> None:
+    """Issue #44 AC: ``GET / renders a "Managed cameras" panel iff
+    /cameras/managed returned a non-empty list``. The panel renders one
+    row per camera with the snapshot URL pointing at the appliance's own
+    ``/cameras/<id>/snapshot`` route (no vendor URL in the DOM — keeps
+    the appliance the only thing on the LAN talking to the camera),
+    the camera's display name, and a recording-state badge.
+
+    Assertions on substrings so future style tweaks don't break the test.
+    """
+    fake_r2 = FakeR2()
+    fake_recorder = FakeRecorder()
+    listed = [
+        {
+            "id": "cam-uuid-1",
+            "name": "Front door",
+            "vendor": "Hikvision",
+            "model": "DS-2CD2042",
+            "recording_state": "recording",
+        },
+        {
+            "id": "cam-uuid-2",
+            "name": "Backyard",
+            "vendor": "Dahua",
+            "model": "IPC-HFW",
+            "recording_state": "idle",
+        },
+    ]
+    app = create_app(
+        fake_r2,
+        recorder=fake_recorder,
+        managed_cameras_lister=lambda: listed,
+    )
+    app.config["TESTING"] = True
+
+    body = app.test_client().get("/").get_data(as_text=True)
+
+    # The panel exists.
+    assert "Managed cameras" in body
+    # Each camera renders an <img> that points at the appliance's own
+    # snapshot route — never the vendor URL. Substring keeps the test
+    # tolerant of the surrounding markup.
+    assert 'src="/cameras/cam-uuid-1/snapshot"' in body
+    assert 'src="/cameras/cam-uuid-2/snapshot"' in body
+    # Display names render so the operator can tell the rows apart.
+    assert "Front door" in body
+    assert "Backyard" in body
+    # Recording-state badge text is visible per row.
+    assert "recording" in body
+    assert "idle" in body
+
+
+def test_get_root_omits_managed_panel_when_lister_returns_empty_list() -> None:
+    """Issue #44 AC: ``GET / renders the panel iff the list is non-empty``.
+    Lister wired but returning ``[]`` (platform-mode appliance with no
+    cameras yet approved) → no fieldset, no empty box for the operator
+    to wonder about."""
+    fake_r2 = FakeR2()
+    fake_recorder = FakeRecorder()
+    app = create_app(
+        fake_r2,
+        recorder=fake_recorder,
+        managed_cameras_lister=lambda: [],
+    )
+    app.config["TESTING"] = True
+
+    body = app.test_client().get("/").get_data(as_text=True)
+
+    assert "Managed cameras" not in body
+
+
+def test_get_root_omits_managed_panel_when_lister_none() -> None:
+    """Issue #44 AC: Docker mode (lister=None) → no panel. Mirrors the
+    pattern that ``discover_fn=None`` makes ``/cameras/discover`` return
+    404 — the operator-facing surface goes quiet rather than half-broken."""
+    fake_r2 = FakeR2()
+    fake_recorder = FakeRecorder()
+    app = create_app(fake_r2, recorder=fake_recorder)
+    app.config["TESTING"] = True
+
+    body = app.test_client().get("/").get_data(as_text=True)
+
+    assert "Managed cameras" not in body
+
+
+def test_get_cameras_managed_without_lister_returns_404() -> None:
+    """Issue #44 AC: ``404 if no camera_resolver / no registry wired
+    (Docker mode)``. The lister is the appliance's join of the
+    heartbeat registry with active_recorders; Docker mode has neither,
+    so the route must refuse instead of returning ``{cameras: []}``
+    (which would render an empty panel and look broken)."""
+    fake_r2 = FakeR2()
+    fake_recorder = FakeRecorder()
+    # managed_cameras_lister intentionally omitted.
+    app = create_app(fake_r2, recorder=fake_recorder)
+    app.config["TESTING"] = True
+
+    resp = app.test_client().get("/cameras/managed")
+
+    assert resp.status_code == 404

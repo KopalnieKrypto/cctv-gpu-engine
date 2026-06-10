@@ -78,6 +78,65 @@ def _camera_to_push_dict(cam: DiscoveredCamera) -> dict[str, Any]:
     return body
 
 
+def build_camera_registry(
+    response: HeartbeatResponse,
+) -> dict[str, CameraSnapshotSource]:
+    """Project the heartbeat's camera config into the snapshot resolver
+    registry (issue #44, refactored out of #41).
+
+    Skips rows missing ``id`` or ``rtsp_url`` — same defensive guard the
+    closure version had. Pulls operator-facing labels from both shapes
+    the platform might send: top-level ``name``/``vendor``/``model`` and
+    nested ``model_info.{manufacturer,model}`` (the appliance-pushed
+    shape via :func:`_camera_to_push_dict`). Either way the panel gets a
+    label without a second platform round-trip."""
+    out: dict[str, CameraSnapshotSource] = {}
+    for cam in response.config.get("cameras", []):
+        cam_id = cam.get("id")
+        rtsp_url = cam.get("rtsp_url")
+        if not cam_id or not rtsp_url:
+            continue
+        model_info = cam.get("model_info") or {}
+        out[cam_id] = CameraSnapshotSource(
+            rtsp_url=rtsp_url,
+            snapshot_url=cam.get("snapshot_url"),
+            name=cam.get("name"),
+            vendor=cam.get("vendor") or model_info.get("manufacturer"),
+            model=cam.get("model") or model_info.get("model"),
+        )
+    return out
+
+
+def list_managed_cameras(
+    registry: Mapping[str, CameraSnapshotSource],
+    active_recorders: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Join the platform-supplied camera registry with the live recorder
+    handles to produce the payload for ``GET /cameras/managed`` (issue #44).
+
+    Cameras in the registry but with no active recorder report
+    ``recording_state="idle"`` — registry membership means "platform
+    knows about this camera", not "we're actively recording it". The
+    active map is the source of truth for ``recording``/``failed``."""
+    rows: list[dict[str, Any]] = []
+    for cam_id, src in registry.items():
+        handle = active_recorders.get(cam_id)
+        if handle is not None:
+            state = handle.status().state
+        else:
+            state = "idle"
+        rows.append(
+            {
+                "id": cam_id,
+                "name": src.name or "",
+                "vendor": src.vendor or "",
+                "model": src.model or "",
+                "recording_state": state,
+            }
+        )
+    return rows
+
+
 def reconcile_recorders(
     config_cameras: list[dict],
     *,
@@ -407,27 +466,29 @@ def main(argv: Sequence[str] | None = None) -> None:
     # (which is keyed by IP and lives behind a /cameras/discover call
     # the appliance never makes in platform mode).
     platform_camera_registry: dict[str, CameraSnapshotSource] = {}
+    # Issue #44: active recorder handles, joined against the registry by
+    # the Managed cameras panel's lister. Created here (above ``build_app``)
+    # so the lister closure captures the same dict instance the heartbeat
+    # loop mutates via ``reconcile_recorders``. Empty in legacy / Docker
+    # mode — the lister returns [] and the panel stays hidden.
+    active_recorders: dict[str, Any] = {}
     built = build_app(
         os.environ,
         recordings_root=recordings_root,
         camera_resolver=platform_camera_registry.get,
+        managed_cameras_lister=(
+            lambda: list_managed_cameras(platform_camera_registry, active_recorders)
+        )
+        if _is_platform_mode(os.environ)
+        else None,
     )
 
     def _refresh_camera_registry(response: HeartbeatResponse) -> None:
         """Replace the registry with the camera set from the latest
         heartbeat config. ``clear() + update()`` (not assignment) so the
         resolver closure keeps pointing at the same dict instance."""
-        new_map: dict[str, CameraSnapshotSource] = {}
-        for cam in response.config.get("cameras", []):
-            cam_id = cam.get("id")
-            rtsp_url = cam.get("rtsp_url")
-            if not cam_id or not rtsp_url:
-                continue
-            new_map[cam_id] = CameraSnapshotSource(
-                rtsp_url=rtsp_url, snapshot_url=cam.get("snapshot_url")
-            )
         platform_camera_registry.clear()
-        platform_camera_registry.update(new_map)
+        platform_camera_registry.update(build_camera_registry(response))
 
     if _is_platform_mode(os.environ):
         # Run one platform session up-front so a bad token / unreachable
@@ -491,10 +552,9 @@ def main(argv: Sequence[str] | None = None) -> None:
                 )
             )
 
-        # Active map lives in main()'s scope so a future heartbeat loop
-        # wrapping run_platform_session in ``while True: sleep(30); ...``
-        # can re-use the dict across iterations and reconcile correctly.
-        active_recorders: dict[str, Any] = {}
+        # Active map already created above ``build_app`` (issue #44) so the
+        # Managed cameras lister closure can read it. Heartbeat iterations
+        # mutate this same dict via ``reconcile_recorders``.
 
         # Boot-time session: register, discover, push, heartbeat-once,
         # reconcile. Surfaces fatal config errors (bad token, unreachable

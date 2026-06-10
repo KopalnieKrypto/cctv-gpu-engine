@@ -41,7 +41,7 @@ from client_agent.discovery import (
 from client_agent.r2_client import R2Client
 from client_agent.recorder import BackgroundRecorder, Recorder
 from client_agent.snapshot import build_snapshot_grabber
-from client_agent.web import CameraResolverFn, create_app
+from client_agent.web import CameraResolverFn, ManagedCamerasFn, create_app
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +68,7 @@ def build_app(
     *,
     recordings_root: Path | None = None,
     camera_resolver: CameraResolverFn | None = None,
+    managed_cameras_lister: ManagedCamerasFn | None = None,
 ) -> BuiltApp:
     """Construct the full client-agent Flask app from the given environment.
 
@@ -164,6 +165,7 @@ def build_app(
         credentials_resolver=creds_resolver,
         camera_resolver=camera_resolver,
         snapshot_grabber=build_snapshot_grabber(),
+        managed_cameras_lister=managed_cameras_lister,
     )
 
     return BuiltApp(app=app, bucket=bucket, recordings_root=recordings_root, recorder=recorder)
