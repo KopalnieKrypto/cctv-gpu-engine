@@ -5,9 +5,9 @@ upload form, a job list with status badges, and a viewer/download for the
 generated report. These tests pin behaviour through the public Flask
 ``test_client`` only — no real sockets, no real R2.
 
-The R2 client is faked with an in-memory stand-in (same pattern as
-``gpu_service/dashboard_test.py``). Mocks live only at system boundaries;
-boto3 itself is exercised in ``gpu_service/r2_client_test.py``.
+The R2 client is faked with an in-memory stand-in (same pattern as the
+gpu-side dashboard tests). Mocks live only at system boundaries; boto3
+itself is exercised in ``client_agent/r2_client_test.py``.
 """
 
 from __future__ import annotations

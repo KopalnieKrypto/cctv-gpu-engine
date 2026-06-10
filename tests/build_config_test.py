@@ -269,6 +269,27 @@ class TestClientAgentDockerfile:
             f"issue #7), got EXPOSE directives: {directives}"
         )
 
+    def test_client_agent_dockerfile_does_not_ship_gpu_service(self):
+        """Issue #40: the client-agent container must not ship the
+        ``gpu_service`` package. Since #40 carved an R2 client copy into
+        ``client_agent`` itself, the historical
+        ``COPY gpu-service/gpu_service /app/gpu_service`` step is dead
+        weight — it bloats the image and reintroduces a coupling between
+        two packages that are meant to evolve independently. A surviving
+        reference (COPY directive, comment that names the module) is a
+        likely sign someone reverted the carve-out."""
+        text = CLIENT_AGENT_DOCKERFILE.read_text()
+        hits = [
+            (i, line)
+            for i, line in enumerate(text.splitlines(), 1)
+            if "gpu_service" in line or "gpu-service" in line
+        ]
+        assert not hits, (
+            "client-agent Dockerfile must not reference gpu_service or "
+            "gpu-service (issue #40 — packages are independent). Found:\n"
+            + "\n".join(f"  line {i}: {line}" for i, line in hits)
+        )
+
     def test_client_agent_dockerfile_entrypoint_runs_real_module(self):
         """The ENTRYPOINT must invoke ``client_agent.agent`` — not a shell
         sleep, not a SIGTERM blocker. If anyone reverts to a placeholder,

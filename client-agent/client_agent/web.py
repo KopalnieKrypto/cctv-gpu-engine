@@ -10,13 +10,12 @@ Operator-facing surface that lives on the client's LAN:
 
 The R2 client is duck-typed via :class:`ClientR2Like` so the app stays
 testable against an in-memory fake — boto3 is only mocked at the network
-boundary in ``gpu_service/r2_client_test.py``. The job_id factory is
+boundary in ``client_agent/r2_client_test.py``. The job_id factory is
 injectable for the same reason: deterministic in tests, ``uuid4`` in prod.
 
-This module deliberately mirrors the design of ``gpu_service/dashboard.py``:
-narrow Protocol, pure helpers, the HTTP layer is the only thing that touches
-Flask. Anything reusable between the two services should eventually move into
-a shared module — out of scope for #7.
+This module deliberately mirrors the design of the gpu-side dashboard
+module: narrow Protocol, pure helpers, the HTTP layer is the only thing
+that touches Flask.
 """
 
 from __future__ import annotations

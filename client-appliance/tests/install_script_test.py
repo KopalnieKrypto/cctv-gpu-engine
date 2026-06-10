@@ -156,6 +156,30 @@ def test_must_run_as_root() -> None:
     assert re.search(r"\$EUID|\$\(id\s+-u\)", text), "no root-check guard"
 
 
+# --- Independence from gpu_service (issue #40) -----------------------------
+
+
+def test_install_script_does_not_reference_gpu_service() -> None:
+    """Issue #40 AC #1: install.sh must not reference ``gpu_service``.
+
+    The appliance only runs ``client_agent.*``; copying gpu-service's
+    inference module (YOLO + Qwen2.5-VL-3B wrapper) into the venv was dead
+    weight and, after #40's r2_client split, also no longer importable from
+    the agent code path. A surviving reference would either reintroduce the
+    bloat or crash the install on a slim repo checkout.
+    """
+    text = INSTALL.read_text()
+    assert "gpu_service" not in text, (
+        "install.sh must not reference gpu_service (issue #40 AC #1); "
+        "found:\n"
+        + "\n".join(
+            f"  line {i}: {line}"
+            for i, line in enumerate(text.splitlines(), 1)
+            if "gpu_service" in line
+        )
+    )
+
+
 # --- Path resolution -------------------------------------------------------
 
 

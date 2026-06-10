@@ -31,7 +31,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from flask import Flask
-from gpu_service.r2_client import R2Client
 
 from client_agent.discovery import (
     discover_cameras,
@@ -39,6 +38,7 @@ from client_agent.discovery import (
     make_real_tuya_scan,
     resolve_camera_credentials,
 )
+from client_agent.r2_client import R2Client
 from client_agent.recorder import BackgroundRecorder, Recorder
 from client_agent.web import create_app
 

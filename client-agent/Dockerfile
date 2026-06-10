@@ -29,7 +29,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Match the gpu-service Dockerfile pin so both images use the same uv build.
+# Pin uv to the same version the GPU image uses so both build with the
+# same resolver behaviour.
 COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /usr/local/bin/uv
 
 WORKDIR /app
@@ -42,13 +43,11 @@ COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-dev \
     && uv cache clean
 
-# Source last so a code change only invalidates the final layer. The
-# client-agent imports ``gpu_service.r2_client.R2Client`` (single boto3
-# wrapper shared with the worker — see CLAUDE.md "R2 client" rule), so
-# we ship that module too. WORKDIR /app + ``python -m client_agent.agent``
-# puts /app on sys.path, making both packages importable without a real
-# install step.
-COPY gpu-service/gpu_service /app/gpu_service
+# Source last so a code change only invalidates the final layer. WORKDIR
+# /app + ``python -m client_agent.agent`` puts /app on sys.path, making
+# the package importable without a real install step. The client-agent
+# is fully self-contained (issue #40 gave it its own R2 client copy),
+# so only this single package needs to land in the image.
 COPY client-agent/client_agent /app/client_agent
 
 ENV PATH="/app/.venv/bin:${PATH}"

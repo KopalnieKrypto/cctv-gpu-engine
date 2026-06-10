@@ -80,15 +80,15 @@ else
         "tinytuya>=1.13"
 fi
 
-# 4. Source modules — mirror the Dockerfile pattern (drop client_agent and
-#    gpu_service into the venv site-packages so plain
-#    `python -m client_agent.appliance` finds them without setting
-#    PYTHONPATH in the unit).
+# 4. Source modules — drop client_agent into the venv site-packages so
+#    plain `python -m client_agent.appliance` finds it without setting
+#    PYTHONPATH in the unit. The appliance is fully self-contained in the
+#    client_agent package (issue #40 made it independent of the gpu-side
+#    inference module by giving client_agent its own R2 client copy).
 SITE_PACKAGES="$("$VENV/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
-log "installing client_agent + gpu_service into $SITE_PACKAGES"
-rm -rf "$SITE_PACKAGES/client_agent" "$SITE_PACKAGES/gpu_service"
+log "installing client_agent into $SITE_PACKAGES"
+rm -rf "$SITE_PACKAGES/client_agent"
 cp -R "$REPO_ROOT/client-agent/client_agent" "$SITE_PACKAGES/client_agent"
-cp -R "$REPO_ROOT/gpu-service/gpu_service" "$SITE_PACKAGES/gpu_service"
 
 # 5. Ownership — root owns config, cctv owns the venv (so logs / cache
 #    writes by the runtime user succeed).

@@ -1,0 +1,217 @@
+"""Cloudflare R2 client (boto3 S3-compatible) for the client-agent.
+
+Thin translation layer over ``boto3.client("s3")``. Same surface as
+``gpu_service.r2_client.R2Client``; the two packages own independent
+copies so client-agent can be carved out of this repo (or shipped to an
+appliance) without dragging gpu-service along (issue #40).
+
+The shared surface (each package may add methods only its callers need):
+
+* :meth:`R2Client.list_pending_job_ids`
+* :meth:`R2Client.list_all_job_statuses`
+* :meth:`R2Client.get_status`
+* :meth:`R2Client.put_status`
+* :meth:`R2Client.download_chunks`
+* :meth:`R2Client.upload_input_chunk`
+* :meth:`R2Client.get_report`
+* :meth:`R2Client.upload_report`
+
+The R2 key conventions follow SPEC §6.2:
+
+::
+
+    surveillance-jobs/{job_id}/status.json
+    surveillance-jobs/{job_id}/input/chunk_001.mp4
+    surveillance-jobs/{job_id}/output/report.html
+
+There is no retry logic in this layer — issue #5 deferred upload retry to a
+follow-up (see ``CLAUDE.md`` TODO). Network errors propagate to the caller.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+import boto3
+
+JOBS_PREFIX = "surveillance-jobs"
+
+
+class R2Client:
+    """boto3 S3-compatible client wired for Cloudflare R2."""
+
+    def __init__(
+        self,
+        endpoint: str,
+        access_key: str,
+        secret_key: str,
+        bucket: str,
+        region: str = "auto",
+    ) -> None:
+        self._bucket = bucket
+        # R2 ignores region but boto3 needs *something*; "auto" is the
+        # convention in Cloudflare's own docs and SDK examples.
+        self._s3 = boto3.client(
+            "s3",
+            endpoint_url=endpoint,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            region_name=region,
+        )
+
+    # ----- key helpers -----
+
+    @staticmethod
+    def _status_key(job_id: str) -> str:
+        return f"{JOBS_PREFIX}/{job_id}/status.json"
+
+    @staticmethod
+    def _input_prefix(job_id: str) -> str:
+        return f"{JOBS_PREFIX}/{job_id}/input/"
+
+    @staticmethod
+    def _report_key(job_id: str) -> str:
+        return f"{JOBS_PREFIX}/{job_id}/output/report.html"
+
+    # ----- API -----
+
+    def list_pending_job_ids(self) -> list[str]:
+        """List every status.json under the jobs prefix and keep `pending` ones.
+
+        Uses the ``list_objects_v2`` paginator so it works correctly above the
+        1000-key default page size — production buckets will accumulate
+        completed jobs and we don't want them silently truncated.
+        """
+        paginator = self._s3.get_paginator("list_objects_v2")
+        pages = paginator.paginate(Bucket=self._bucket, Prefix=f"{JOBS_PREFIX}/")
+        pending: list[str] = []
+        for page in pages:
+            for obj in page.get("Contents", []) or []:
+                key = obj["Key"]
+                if not key.endswith("/status.json"):
+                    continue
+                status = self._read_status_key(key)
+                if status is None:
+                    continue
+                if status.get("status") != "pending":
+                    continue
+                # surveillance-jobs/{job_id}/status.json
+                parts = key.split("/")
+                if len(parts) >= 3:
+                    pending.append(parts[1])
+        return pending
+
+    def list_all_job_statuses(self) -> list[tuple[str, dict[str, Any]]]:
+        """Return ``(job_id, status_dict)`` for every status.json in the bucket.
+
+        Used by the dashboard (issue #6) which needs the full job history,
+        not just `pending` jobs. Same paginator walk as
+        :meth:`list_pending_job_ids` but without the status filter — keys
+        whose status.json is missing or unparseable are silently skipped so
+        a single corrupt entry never blanks out the dashboard.
+        """
+        paginator = self._s3.get_paginator("list_objects_v2")
+        pages = paginator.paginate(Bucket=self._bucket, Prefix=f"{JOBS_PREFIX}/")
+        out: list[tuple[str, dict[str, Any]]] = []
+        for page in pages:
+            for obj in page.get("Contents", []) or []:
+                key = obj["Key"]
+                if not key.endswith("/status.json"):
+                    continue
+                status = self._read_status_key(key)
+                if status is None:
+                    continue
+                parts = key.split("/")
+                if len(parts) >= 3:
+                    out.append((parts[1], status))
+        return out
+
+    def get_status(self, job_id: str) -> dict[str, Any] | None:
+        return self._read_status_key(self._status_key(job_id))
+
+    def put_status(self, job_id: str, status: dict[str, Any]) -> None:
+        body = json.dumps(status).encode("utf-8")
+        self._s3.put_object(
+            Bucket=self._bucket,
+            Key=self._status_key(job_id),
+            Body=body,
+            ContentType="application/json",
+        )
+
+    def download_chunks(self, job_id: str, dest: Path) -> list[Path]:
+        dest.mkdir(parents=True, exist_ok=True)
+        prefix = self._input_prefix(job_id)
+        paginator = self._s3.get_paginator("list_objects_v2")
+        pages = paginator.paginate(Bucket=self._bucket, Prefix=prefix)
+        downloaded: list[Path] = []
+        for page in pages:
+            for obj in page.get("Contents", []) or []:
+                key = obj["Key"]
+                name = key[len(prefix) :]
+                if not name:  # the prefix itself, skip
+                    continue
+                local = dest / name
+                local.parent.mkdir(parents=True, exist_ok=True)
+                self._s3.download_file(Bucket=self._bucket, Key=key, Filename=str(local))
+                downloaded.append(local)
+        return sorted(downloaded)
+
+    def upload_input_chunk(self, job_id: str, fileobj: Any) -> str:
+        """Stream an input MP4 chunk to R2 via boto3 multipart upload.
+
+        Used by the client-agent web UI (issue #7). MUST go through
+        ``upload_fileobj`` (not ``put_object``) so the request body is
+        drained chunk-by-chunk — a 2 GB MP4 would otherwise be loaded into
+        the agent process's RAM and OOM the container.
+
+        SPEC §6.2 key convention:
+        ``surveillance-jobs/{job_id}/input/chunk_001.mp4``. Single-chunk for
+        now; multi-chunk recordings (issue #8 / RTSP segmented capture) can
+        pass a different chunk name later.
+        """
+        key = f"{self._input_prefix(job_id)}chunk_001.mp4"
+        self._s3.upload_fileobj(fileobj, self._bucket, key)
+        return key
+
+    def get_report(self, job_id: str) -> bytes:
+        """Read the report.html the worker wrote for ``job_id`` from R2.
+
+        Returns the raw bytes for the client-agent to proxy back to the
+        operator's browser. Reports are small (a few MB — vendored Chart.js
+        + base64 frames) so the whole-buffer read is fine; multipart
+        streaming is reserved for the *upload* path where files are 100x
+        larger. Errors propagate so the caller (web UI) can translate to 404.
+        """
+        obj = self._s3.get_object(Bucket=self._bucket, Key=self._report_key(job_id))
+        return obj["Body"].read()
+
+    def upload_report(self, job_id: str, html: bytes) -> str:
+        key = self._report_key(job_id)
+        self._s3.put_object(
+            Bucket=self._bucket,
+            Key=key,
+            Body=html,
+            ContentType="text/html; charset=utf-8",
+        )
+        return key
+
+    # ----- internals -----
+
+    def _read_status_key(self, key: str) -> dict[str, Any] | None:
+        """Read a single status.json key, returning None on any read error.
+
+        We swallow boto3 errors here (NoSuchKey, transient network) because
+        the worker treats "no status" identically to "stale status" — it just
+        moves on to the next job. Logging is the caller's responsibility.
+        """
+        try:
+            obj = self._s3.get_object(Bucket=self._bucket, Key=key)
+        except Exception:  # noqa: BLE001 — see docstring
+            return None
+        try:
+            body = obj["Body"].read()
+            return json.loads(body)
+        except (json.JSONDecodeError, ValueError, KeyError):
+            return None
