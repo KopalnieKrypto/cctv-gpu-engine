@@ -356,3 +356,58 @@ def test_run_once_upload_failure_marks_task_failed_with_chunk_errors(tmp_path: P
     assert failed_call[2] is not None
     assert "chunk 0" in failed_call[2]
     assert "500" in failed_call[2]
+
+
+# ----- 6. run() loop is resilient to transient exceptions (Wi-Fi blip) -----
+
+
+def test_run_loop_survives_transient_exception_in_run_once(tmp_path: Path) -> None:
+    """``run_once`` can raise on a Wi-Fi blip (httpx ConnectError) or a
+    platform 5xx hiccup — but the daemon thread MUST NOT die, or the
+    appliance silently stops claiming tasks until the operator restarts
+    the python process. Mirrors the heartbeat loop's try/except in
+    appliance.py. Before the fix, the bare ``while True`` propagated the
+    first exception out of the thread and the queue went unserved.
+
+    Hits the loop in-process by replacing the thread's sleep with one that
+    stops the loop after enough iterations to prove the loop did NOT die
+    after the first throw."""
+    from client_agent.poller import TaskPoller
+
+    iterations: list[int] = []
+
+    class Stop(Exception):
+        pass
+
+    def fake_sleep(_seconds: float) -> None:
+        iterations.append(len(iterations))
+        if len(iterations) >= 3:
+            raise Stop()
+
+    fetches = [0]
+
+    class FlakyPlatform(FakePlatform):
+        def fetch_next_task(self) -> Task | None:
+            fetches[0] += 1
+            if fetches[0] == 1:
+                raise ConnectionError("[Errno 65] No route to host")
+            return None
+
+    poller = TaskPoller(
+        platform=FlakyPlatform(),
+        buffer=FakeBuffer(),
+        trim_fn=lambda **kw: None,
+        output_dir=tmp_path / "out",
+        uploader=FakeUploader(),
+        sleep=fake_sleep,
+    )
+    try:
+        poller.run()
+    except Stop:
+        pass
+
+    # The transient ConnectionError on iteration 1 must NOT have killed the
+    # loop — iterations 2 and 3 must have happened (proven by fake_sleep
+    # being called ≥ 3 times before we tripped the Stop sentinel).
+    assert len(iterations) >= 3
+    assert fetches[0] >= 3

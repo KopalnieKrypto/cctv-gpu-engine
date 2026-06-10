@@ -172,8 +172,20 @@ class TaskPoller:
         appliance can trim). Kept out of unit tests because verifying a
         ``while True`` would require a fake clock + interrupt protocol
         that exists nowhere else in the codebase; the smoke test against
-        mediamtx exercises this loop end-to-end."""
+        mediamtx exercises this loop end-to-end.
+
+        Wraps ``run_once`` in a broad ``except`` so transient network errors
+        (httpx ``ConnectError`` / ``ReadError`` from a Wi-Fi blip, DNS hiccups,
+        platform 5xx) don't kill the daemon thread. Mirrors the heartbeat
+        loop's ``except`` block in ``appliance.py``. Before this guard, a
+        single transient failure would leave the appliance heartbeating
+        normally but never polling tasks again until the operator
+        restarted the python process."""
         while True:
-            handled = self.run_once()
+            try:
+                handled = self.run_once()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("task poller iteration failed: %s", exc)
+                handled = False
             if not handled:
                 self._sleep(self._poll_interval_s)

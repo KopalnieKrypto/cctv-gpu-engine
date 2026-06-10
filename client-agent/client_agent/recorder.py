@@ -18,6 +18,7 @@ The subprocess and R2 surfaces are both injectable so the unit tests in
 
 from __future__ import annotations
 
+import logging
 import shutil
 import threading
 import uuid
@@ -26,6 +27,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -355,6 +358,7 @@ class BackgroundRecorder:
 
     def __init__(self, inner: Recorder) -> None:
         self._inner = inner
+        self._thread: threading.Thread | None = None
 
     def start(self, *, url: str, duration_s: int, camera_id: str | None = None) -> str:
         # Pre-flight the busy check on the main thread so /start can
@@ -364,12 +368,32 @@ class BackgroundRecorder:
         if snapshot.state in ("recording", "uploading"):
             raise RecorderBusy(f"recorder already busy in state {snapshot.state!r}")
 
+        def _target() -> None:
+            # Wrap the synchronous Recorder.start so an exception inside
+            # ffmpeg / upload / status-handshake does NOT silently kill the
+            # daemon thread with no trace. Source incident: Wi-Fi blip on a
+            # macOS dev box dropped the RTSP TCP, ffmpeg exited with an
+            # error, the exception propagated out of the thread and
+            # ``reconcile_recorders`` then refused to respawn because the
+            # dead handle was still in ``active`` (#66-shaped silent fail
+            # for the recorder lane). The warning + downstream is_running()
+            # check together make this self-healing on the next heartbeat.
+            try:
+                self._inner.start(url=url, duration_s=duration_s, camera_id=camera_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "recorder thread for camera_id=%s url=%s exited with exception: %s",
+                    camera_id,
+                    url[:64],
+                    exc,
+                )
+
         thread = threading.Thread(
-            target=self._inner.start,
-            kwargs={"url": url, "duration_s": duration_s, "camera_id": camera_id},
+            target=_target,
             daemon=True,
             name=f"recorder-{url[:32]}",
         )
+        self._thread = thread
         thread.start()
         return "scheduled"
 
@@ -381,3 +405,17 @@ class BackgroundRecorder:
 
     def probe(self, url: str, *, timeout: float = 10.0) -> ProbeResult:
         return self._inner.probe(url, timeout=timeout)
+
+    def is_running(self) -> bool:
+        """``True`` iff the recorder is actively producing footage.
+
+        ``reconcile_recorders`` calls this each 30s heartbeat: a ``False``
+        return triggers a respawn so a recorder that exited (ffmpeg crash,
+        RTSP drop, duration_s elapsed) doesn't leave the camera silently
+        offline forever. Returns ``False`` when the thread is dead OR the
+        inner state machine has fallen back to ``idle`` even if the thread
+        is technically alive — both shapes mean "stop producing chunks"."""
+        thread = self._thread
+        if thread is None or not thread.is_alive():
+            return False
+        return self._inner.status().state in ("recording", "uploading")

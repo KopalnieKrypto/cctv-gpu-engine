@@ -89,21 +89,46 @@ def reconcile_recorders(
     Camera approval lock semantics:
 
     * ``enabled=True`` and not active → ``spawn``; record the handle.
+    * ``enabled=True`` and active but DEAD (thread exited / state=idle) →
+      ``spawn`` a replacement and overwrite the stale handle. This is the
+      self-healing path: if ffmpeg crashes (RTSP drop, Wi-Fi blip on a
+      macOS dev box, codec hiccup), the recorder thread can exit without
+      crashing the appliance — the very next heartbeat respawns it
+      instead of leaving the camera silently offline forever.
     * ``enabled=False`` (or absent from config) and active → ``stop``;
       drop the handle.
-    * ``enabled=True`` and already active → no-op (steady state must be
-      idempotent across heartbeats).
+    * ``enabled=True`` and already active AND alive → no-op (steady
+      state must be idempotent across heartbeats).
 
     The ``active`` dict is mutated in place; the appliance loop reuses
     the same dict across iterations so handle lifetime is bounded by
     the appliance process, not by a per-heartbeat scope.
+
+    Liveness is detected via ``handle.is_running()`` when present
+    (BackgroundRecorder exposes it). Handles without the method are
+    treated as always-alive — preserves backwards compatibility with
+    test fakes that don't model thread lifecycle.
     """
     desired_ids: set[str] = set()
     for cam in config_cameras:
         cam_id = cam["id"]
         if cam.get("enabled"):
             desired_ids.add(cam_id)
-            if cam_id not in active:
+            existing = active.get(cam_id)
+            if existing is None:
+                active[cam_id] = spawn(cam)
+                continue
+            is_running = getattr(existing, "is_running", None)
+            if callable(is_running) and not is_running():
+                # Stale handle — respawn. We don't ``stop`` here because the
+                # thread is already dead; stopping again would be a no-op at
+                # best and an error at worst, and stop()/spawn() in the same
+                # cycle would race the new ffmpeg process against the dead
+                # one's status.json.
+                logger.warning(
+                    "reconcile_recorders: recorder for camera_id=%s exited; respawning",
+                    cam_id,
+                )
                 active[cam_id] = spawn(cam)
 
     # Anything currently active that the heartbeat doesn't list as
@@ -176,7 +201,24 @@ def run_platform_session(
                 )
             ]
 
-    payload = [_camera_to_push_dict(cam) for cam in cameras]
+    # Stage 2 Unknown-vendor (#37) and Stage 3 Tuya (#38) discovery can emit a
+    # DiscoveredCamera with rtsp_url="" + needs_manual_url=True — the device
+    # exists on the LAN but the streaming URI is per-device and only obtainable
+    # via the vendor app. The platform schema requires rtsp_url to be non-empty
+    # (z.string().min(1)) and rejects the whole batch on the first empty row,
+    # which previously caused every heartbeat cycle after a Tuya broadcast
+    # landed to fail with 400 Bad Request. Filter those rows out here; the
+    # devices stay in local discovery state and can surface in a future UI flow
+    # that lets the operator paste the manual URL.
+    skipped = [c for c in cameras if not c.rtsp_url]
+    if skipped:
+        logger.info(
+            "push_cameras: skipping %d camera(s) with empty rtsp_url (needs_manual_url): %s",
+            len(skipped),
+            ", ".join(f"{c.ip}:{c.port} ({c.vendor})" for c in skipped),
+        )
+    publishable = [c for c in cameras if c.rtsp_url]
+    payload = [_camera_to_push_dict(cam) for cam in publishable]
     platform_client.push_cameras(payload)
 
     if active_recorders is None:

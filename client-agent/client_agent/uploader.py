@@ -37,6 +37,11 @@ from client_agent.platform import PlatformClient, PlatformRequestError
 # parallel symmetry with the platform client is itself documentation.
 _PUT_BACKOFFS: tuple[int, ...] = (1, 2)
 _PUT_ATTEMPTS = 3
+# Generous per-phase timeout for R2 PUT — chunks are tens of MB and the
+# appliance often sits on a residential/asymmetric uplink. httpx default
+# is 5s which is essentially "always times out". Write=300s lets a
+# ~200MB chunk land on a 6Mbps uplink (the slowest realistic case).
+_PUT_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=300.0, pool=10.0)
 
 
 @dataclass(frozen=True)
@@ -120,7 +125,7 @@ class PresignedUploader:
         while True:
             last: httpx.Response | None = None
             for i in range(_PUT_ATTEMPTS):
-                last = httpx.put(upload_url.url, content=body)
+                last = httpx.put(upload_url.url, content=body, timeout=_PUT_TIMEOUT)
                 if last.status_code < 500:
                     break
                 if i + 1 >= _PUT_ATTEMPTS:

@@ -370,6 +370,72 @@ def test_run_platform_session_falls_back_to_rtsp_default_url_when_discovery_empt
     assert cameras[0]["rtsp_url"] == fallback_url
 
 
+def test_run_platform_session_filters_cameras_with_empty_rtsp_url() -> None:
+    """Stage 2 Unknown-vendor (#37) and Stage 3 Tuya (#38) discovery emit
+    ``DiscoveredCamera(rtsp_url="", needs_manual_url=True)`` when the device
+    exists on the LAN but its streaming URI is per-device. The platform
+    validator rejects empty rtsp_url (``z.string().min(1)``) and 400s the
+    whole batch on the first invalid item, so heartbeat cycles after a Tuya
+    broadcast landed previously failed end-to-end. The appliance must filter
+    those rows out before the push and surface the count via the logger."""
+    import json as _json
+
+    import httpx
+    import respx
+
+    from client_agent.appliance import run_platform_session
+    from client_agent.discovery import DiscoveredCamera
+    from client_agent.platform import PlatformClient
+
+    real_cam = _make_camera()
+    tuya_cam = DiscoveredCamera(
+        ip="192.168.50.99",
+        port=6668,
+        vendor="Tuya (Setti+/Tapo/Vstarcam/…)",
+        model="abcd1234",
+        rtsp_url="",
+        discovery_method="tuya-local",
+        needs_manual_url=True,
+    )
+    unknown_cam = DiscoveredCamera(
+        ip="192.168.50.42",
+        port=554,
+        vendor="Unknown (nginx-RTSP / per-device URI)",
+        model="",
+        rtsp_url="",
+        discovery_method="rtsp-scan",
+        needs_manual_url=True,
+    )
+    discover_fn = lambda: [real_cam, tuya_cam, unknown_cam]  # noqa: E731
+    recorder_factory = lambda: MagicMock()  # noqa: E731
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/register").mock(
+            return_value=httpx.Response(
+                200, json={"appliance_id": "app-1", "tenant_id": "tenant-1"}
+            )
+        )
+        push_route = mock.post("/appliance/cameras").mock(return_value=httpx.Response(204))
+        mock.post("/appliance/heartbeat").mock(
+            return_value=httpx.Response(200, json={"config": {"cameras": []}})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        run_platform_session(
+            platform_client=client,
+            discover_fn=discover_fn,
+            recorder_factory=recorder_factory,
+            environ={"HOSTNAME": "cctv-mini-01"},
+        )
+
+    body = _json.loads(push_route.calls.last.request.read())
+    cameras = body["cameras"]
+    assert len(cameras) == 1
+    assert cameras[0]["rtsp_url"] == real_cam.rtsp_url
+    # Belt-and-braces: no row in the payload should ever have empty rtsp_url.
+    assert all(c["rtsp_url"] for c in cameras)
+
+
 def test_run_platform_session_starts_recorder_for_each_enabled_camera() -> None:
     """The platform's heartbeat response is the source of truth for which
     cameras should be recording. The appliance reconciles by spawning a
@@ -656,7 +722,11 @@ def test_reconcile_recorders_does_not_respawn_already_active() -> None:
     case is a no-op."""
     from client_agent.appliance import reconcile_recorders
 
-    active: dict[str, object] = {"cam-1": "handle-cam-1"}
+    class AliveHandle:
+        def is_running(self) -> bool:
+            return True
+
+    active: dict[str, object] = {"cam-1": AliveHandle()}
     spawn_calls: list[dict] = []
     stop_calls: list[object] = []
 
@@ -669,7 +739,68 @@ def test_reconcile_recorders_does_not_respawn_already_active() -> None:
 
     assert spawn_calls == []
     assert stop_calls == []
-    assert active == {"cam-1": "handle-cam-1"}
+
+
+def test_reconcile_recorders_respawns_dead_recorder() -> None:
+    """If a recorder thread silently exited (ffmpeg crash, RTSP drop on a
+    Wi-Fi blip), the dead handle stays in ``active``. Without this branch
+    every subsequent heartbeat would see ``cam_id in active`` and skip
+    respawn — the camera would be silently offline until appliance
+    restart. ``is_running()`` is the contract: ``False`` means respawn,
+    ``True`` means leave alone.
+
+    Mirrors the same self-healing pattern as the heartbeat loop's
+    try/except in ``appliance.py`` and the task poller's exception guard
+    in ``poller.run``. Three threads, three independent guards — none
+    can take the appliance offline silently."""
+    from client_agent.appliance import reconcile_recorders
+
+    class DeadHandle:
+        def is_running(self) -> bool:
+            return False
+
+    active: dict[str, object] = {"cam-1": DeadHandle()}
+    spawn_calls: list[dict] = []
+    stop_calls: list[object] = []
+
+    fresh_handle = object()
+    reconcile_recorders(
+        [{"id": "cam-1", "enabled": True, "rtsp_url": "rtsp://x/1"}],
+        active=active,
+        spawn=lambda cam: spawn_calls.append(cam) or fresh_handle,  # type: ignore[arg-type,return-value]
+        stop=stop_calls.append,
+    )
+
+    # The dead handle was replaced by the freshly-spawned one. We do NOT
+    # call stop() on the dead handle — the thread is already gone, and
+    # stop()/spawn() racing the new ffmpeg against the dead one's
+    # status.json would corrupt the state machine.
+    assert len(spawn_calls) == 1
+    assert spawn_calls[0]["id"] == "cam-1"
+    assert stop_calls == []
+    assert active["cam-1"] is fresh_handle
+
+
+def test_reconcile_recorders_treats_handle_without_is_running_as_alive() -> None:
+    """Backwards compat: handles that don't expose ``is_running`` (test
+    fakes, future variants) must be treated as alive — silent respawn
+    would double-spawn ffmpeg per heartbeat against fakes."""
+    from client_agent.appliance import reconcile_recorders
+
+    active: dict[str, object] = {"cam-1": "opaque-handle"}
+    spawn_calls: list[dict] = []
+    stop_calls: list[object] = []
+
+    reconcile_recorders(
+        [{"id": "cam-1", "enabled": True, "rtsp_url": "rtsp://x/1"}],
+        active=active,
+        spawn=spawn_calls.append,  # type: ignore[arg-type]
+        stop=stop_calls.append,
+    )
+
+    assert spawn_calls == []
+    assert stop_calls == []
+    assert active == {"cam-1": "opaque-handle"}
 
 
 # ----- 5c. TaskPoller wired into appliance boot (issue #30) -----

@@ -509,3 +509,63 @@ def test_recorder_buffer_mode_routes_to_camera_id_and_leaves_chunks(tmp_path) ->
     ]
     # State machine back to idle so the next start (or per-camera respawn) works.
     assert rec.status().state == "idle"
+
+
+# ----- BackgroundRecorder thread survival + is_running contract -----
+
+
+def test_background_recorder_is_running_false_when_thread_exits_via_exception(
+    tmp_path,
+) -> None:
+    """An exception inside the inner ``Recorder.start`` (ffmpeg crash, RTSP
+    drop, codec error) must NOT silently kill the daemon thread with no
+    trace. The wrapper logs a warning AND ``is_running()`` reports False so
+    the next ``reconcile_recorders`` cycle respawns. Source incident:
+    Wi-Fi blip dropped RTSP and the recorder vanished; buffer chunks stopped
+    growing; appliance kept heartbeating happily; tasks failed with
+    ``time range outside buffer`` until the operator restarted the
+    appliance. Bullet-proof postcondition: ``is_running()`` must reflect
+    reality so reconcile self-heals."""
+
+    from client_agent.recorder import BackgroundRecorder, Recorder
+
+    class _Boom(Recorder):
+        def start(  # type: ignore[override]
+            self, *, url: str, duration_s: int, camera_id: str | None = None
+        ) -> str:
+            raise RuntimeError("simulated ffmpeg crash on RTSP drop")
+
+    inner = _Boom(
+        uploader=None,  # type: ignore[arg-type]
+        runner=lambda *a, **kw: None,  # type: ignore[arg-type,return-value]
+        output_dir_factory=lambda _id: str(tmp_path / "buf" / _id),
+    )
+    bg = BackgroundRecorder(inner)
+
+    bg.start(url="rtsp://camera.local/1", duration_s=3600, camera_id="cam-1")
+
+    # Give the daemon thread a moment to exit.
+    deadline = 2.0
+    step = 0.02
+    elapsed = 0.0
+    while bg.is_running() and elapsed < deadline:
+        import time as _t
+
+        _t.sleep(step)
+        elapsed += step
+
+    assert bg.is_running() is False, "dead recorder thread must report is_running()=False"
+
+
+def test_background_recorder_is_running_false_before_start() -> None:
+    """A never-started BackgroundRecorder reports ``is_running()=False`` so
+    reconcile spawns on first visit instead of treating None as alive."""
+    from client_agent.recorder import BackgroundRecorder, Recorder
+
+    inner = Recorder(
+        uploader=None,  # type: ignore[arg-type]
+        runner=lambda *a, **kw: None,  # type: ignore[arg-type,return-value]
+        output_dir_factory=lambda _id: "/tmp/never-used",
+    )
+    bg = BackgroundRecorder(inner)
+    assert bg.is_running() is False
