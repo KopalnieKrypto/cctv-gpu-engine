@@ -641,3 +641,86 @@ def test_get_passes_default_30s_timeout_to_httpx() -> None:
 
     timeout_ext = route.calls.last.request.extensions["timeout"]
     assert timeout_ext == {"connect": 30.0, "read": 30.0, "write": 30.0, "pool": 30.0}
+
+
+# ----- 18. claim_next_snapshot: 204 idle path -----
+
+
+def test_claim_next_snapshot_returns_none_on_204() -> None:
+    """No pending snapshot request → 204 No Content. The poller treats
+    this as "queue is empty, sleep and retry" just like ``fetch_next_task``.
+    Steady-state path — must not allocate or log noisily."""
+    from client_agent.platform import PlatformClient
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        route = mock.get("/appliance/snapshot/next").mock(return_value=httpx.Response(204))
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        result = client.claim_next_snapshot()
+
+    assert result is None
+    assert route.called
+    assert route.calls.last.request.headers["authorization"] == "Bearer tok"
+
+
+# ----- 19. claim_next_snapshot: 200 parses SnapshotClaim -----
+
+
+def test_claim_next_snapshot_returns_claim_on_200() -> None:
+    """Successful claim: platform returns ``{request_id, camera_id,
+    upload_url, key, expires_in, content_type}``. The appliance PUTs the
+    JPEG to ``upload_url`` and then POSTs status with ``request_id`` —
+    those two fields are load-bearing, the rest are diagnostic."""
+    from client_agent.platform import PlatformClient
+
+    body = {
+        "request_id": "req-xyz",
+        "camera_id": "cam-1",
+        "upload_url": "https://r2.example/signed?X-Amz-Signature=abc",
+        "key": "tenants/t/snapshots/c/latest.jpg",
+        "expires_in": 300,
+        "content_type": "image/jpeg",
+    }
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.get("/appliance/snapshot/next").mock(return_value=httpx.Response(200, json=body))
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        claim = client.claim_next_snapshot()
+
+    assert claim is not None
+    assert claim.request_id == "req-xyz"
+    assert claim.camera_id == "cam-1"
+    assert claim.upload_url == "https://r2.example/signed?X-Amz-Signature=abc"
+    assert claim.content_type == "image/jpeg"
+
+
+# ----- 20. report_snapshot_status: uploaded vs failed body shapes -----
+
+
+def test_report_snapshot_status_posts_uploaded_and_failed_bodies() -> None:
+    """The platform's ``ApplianceSnapshotStatusRequestSchema`` is a
+    discriminated union: ``uploaded`` carries no extra fields (the
+    server already knows the r2_key from the row), ``failed`` accepts
+    an optional ``error``. Missing required shape → 400 from validator."""
+    from client_agent.platform import PlatformClient
+
+    seen: list[dict] = []
+
+    def _capture(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        seen.append(_json.loads(request.read()))
+        return httpx.Response(200, json={"ok": True})
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/snapshot/req-1/status").mock(side_effect=_capture)
+        mock.post("/appliance/snapshot/req-2/status").mock(side_effect=_capture)
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        client.report_snapshot_status("req-1", status="uploaded")
+        client.report_snapshot_status("req-2", status="failed", error="rtsp grab failed")
+
+    assert seen == [
+        {"status": "uploaded"},
+        {"status": "failed", "error": "rtsp grab failed"},
+    ]

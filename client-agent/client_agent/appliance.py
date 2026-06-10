@@ -33,6 +33,8 @@ from client_agent.discovery import DiscoveredCamera
 from client_agent.ffmpeg_trim import trim_and_concat
 from client_agent.platform import HeartbeatResponse, PlatformClient
 from client_agent.poller import TaskPoller
+from client_agent.snapshot import build_snapshot_grabber
+from client_agent.snapshot_poller import SnapshotPoller
 from client_agent.uploader import PresignedUploader
 from client_agent.web import CameraSnapshotSource
 
@@ -615,6 +617,20 @@ def main(argv: Sequence[str] | None = None) -> None:
             trim_output_dir=trim_output_dir,
             environ=os.environ,
         )
+
+        # Spawn the snapshot poller (gpu-exchange #91). Drives
+        # /appliance/snapshot/next claims → JPEG grab → PUT to presigned
+        # R2 URL. Shares the same camera registry the on-site Flask
+        # snapshot route uses, so platform-side thumbnails come from the
+        # same source the on-site managed-cameras panel does. Daemon
+        # thread so process exit doesn't hang on the poll loop.
+        snapshot_poller = SnapshotPoller(
+            platform=platform_client,
+            camera_resolver=platform_camera_registry.get,
+            snapshot_grabber=build_snapshot_grabber(),
+            http_put=SnapshotPoller.default_http_put,
+        )
+        _threading.Thread(target=snapshot_poller.run, daemon=True, name="snapshot-poller").start()
 
     logger.info(
         "client-agent appliance starting on http://0.0.0.0:8080 "

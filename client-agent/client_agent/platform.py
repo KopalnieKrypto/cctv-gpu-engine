@@ -276,6 +276,47 @@ class PlatformClient:
         data = response.json()
         return UploadUrl(url=data["url"], key=data["key"], expires_in=int(data["expires_in"]))
 
+    def claim_next_snapshot(self) -> SnapshotClaim | None:
+        """GET ``/appliance/snapshot/next`` — claim the oldest pending
+        snapshot request for this appliance (gpu-exchange #91).
+
+        Returns a :class:`SnapshotClaim` on 200 (the platform has work,
+        URL is ready to PUT into) or ``None`` on 204 (idle steady state).
+        Atomic claim is platform-side: the same GET reserves the row and
+        hands back the presigned URL in one round-trip."""
+        response = self._get("/appliance/snapshot/next")
+        if response.status_code == 204:
+            return None
+        data = response.json()
+        return SnapshotClaim(
+            request_id=data["request_id"],
+            camera_id=data["camera_id"],
+            upload_url=data["upload_url"],
+            key=data["key"],
+            expires_in=int(data["expires_in"]),
+            content_type=data["content_type"],
+        )
+
+    def report_snapshot_status(
+        self,
+        request_id: str,
+        *,
+        status: str,
+        error: str | None = None,
+    ) -> None:
+        """POST ``/appliance/snapshot/{request_id}/status`` — terminal
+        transition for one snapshot request (gpu-exchange #91).
+
+        Discriminated-union body matching the platform's
+        ``ApplianceSnapshotStatusRequestSchema``: ``uploaded`` carries
+        no extra fields (the server derives the R2 key from the row),
+        ``failed`` accepts an optional ``error`` string capped at 500
+        chars server-side."""
+        body: dict = {"status": status}
+        if error is not None:
+            body["error"] = error
+        self._post(f"/appliance/snapshot/{request_id}/status", json=body)
+
     def _get(self, path: str, *, params: dict | None = None) -> httpx.Response:
         """GET ``path`` with Bearer auth, 5xx retry, and typed errors.
 
@@ -306,6 +347,27 @@ class PlatformClient:
         if last is None:
             raise PlatformUnavailableError("platform timed out after retries")
         raise PlatformUnavailableError(f"platform returned {last.status_code} after retries")
+
+
+@dataclass(frozen=True)
+class SnapshotClaim:
+    """One claimed snapshot request (gpu-exchange #91).
+
+    The appliance PUTs the JPEG to ``upload_url`` (presigned, no Bearer
+    needed) and then POSTs status with ``request_id`` so the platform
+    can flip the row from ``claimed`` to ``uploaded`` / ``failed``.
+
+    ``key`` and ``expires_in`` are diagnostics only — the URL carries
+    its own signature, the R2 edge enforces expiry. ``content_type`` is
+    always ``"image/jpeg"`` per the platform contract but surfaced so
+    the PUT can attach the same header the URL was signed with."""
+
+    request_id: str
+    camera_id: str
+    upload_url: str
+    key: str
+    expires_in: int
+    content_type: str
 
 
 @dataclass(frozen=True)
