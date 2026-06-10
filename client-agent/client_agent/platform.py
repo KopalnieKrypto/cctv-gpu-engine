@@ -20,6 +20,7 @@ from the platform side, so a NAT'd home network needs no port forwarding.
 
 from __future__ import annotations
 
+import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -33,6 +34,22 @@ import httpx
 # single platform — no thundering-herd jitter needed.
 _DEFAULT_BACKOFFS: tuple[int, ...] = (1, 2)
 _DEFAULT_ATTEMPTS = 3
+
+# httpx's library default is 5 s read — too tight for a CF-Worker + Neon
+# round-trip under occasional cold-start latency (issue #42). 30 s gives
+# enough headroom that a single cold start does not cascade into a
+# crashed poll thread, while still failing fast on genuine outages.
+# Operator override via env var (no code change, no rebuild).
+_DEFAULT_TIMEOUT_S = 30.0
+
+
+def _resolve_timeout() -> float:
+    """Read the per-request timeout from the env each call.
+
+    Lets the operator dial the timeout up (slow customer ISP) or down
+    (tight dev loop) by editing ``/etc/cctv-client/platform.env`` and
+    restarting systemd — no rebuild needed."""
+    return float(os.environ.get("PLATFORM_HTTP_TIMEOUT_S", _DEFAULT_TIMEOUT_S))
 
 
 class PlatformAuthError(RuntimeError):
@@ -122,21 +139,27 @@ class PlatformClient:
         caller can branch on the response."""
         last: httpx.Response | None = None
         for i in range(_DEFAULT_ATTEMPTS):
-            last = httpx.post(
-                f"{self._base_url}{path}",
-                headers={"Authorization": f"Bearer {self._token}"},
-                json=json,
-            )
-            if last.status_code == 401:
-                raise PlatformAuthError("platform rejected APPLIANCE_TOKEN (401)")
-            if last.status_code < 500:
-                return last
+            try:
+                last = httpx.post(
+                    f"{self._base_url}{path}",
+                    headers={"Authorization": f"Bearer {self._token}"},
+                    json=json,
+                    timeout=_resolve_timeout(),
+                )
+            except httpx.TimeoutException:
+                last = None
+            if last is not None:
+                if last.status_code == 401:
+                    raise PlatformAuthError("platform rejected APPLIANCE_TOKEN (401)")
+                if last.status_code < 500:
+                    return last
             if i + 1 >= _DEFAULT_ATTEMPTS:
                 break
             self._sleep(
                 _DEFAULT_BACKOFFS[i] if i < len(_DEFAULT_BACKOFFS) else _DEFAULT_BACKOFFS[-1]
             )
-        assert last is not None
+        if last is None:
+            raise PlatformUnavailableError("platform timed out after retries")
         raise PlatformUnavailableError(f"platform returned {last.status_code} after retries")
 
     def register(
@@ -261,21 +284,27 @@ class PlatformClient:
         them through a method dispatch would obscure the call site."""
         last: httpx.Response | None = None
         for i in range(_DEFAULT_ATTEMPTS):
-            last = httpx.get(
-                f"{self._base_url}{path}",
-                headers={"Authorization": f"Bearer {self._token}"},
-                params=params,
-            )
-            if last.status_code == 401:
-                raise PlatformAuthError("platform rejected APPLIANCE_TOKEN (401)")
-            if last.status_code < 500:
-                return last
+            try:
+                last = httpx.get(
+                    f"{self._base_url}{path}",
+                    headers={"Authorization": f"Bearer {self._token}"},
+                    params=params,
+                    timeout=_resolve_timeout(),
+                )
+            except httpx.TimeoutException:
+                last = None
+            if last is not None:
+                if last.status_code == 401:
+                    raise PlatformAuthError("platform rejected APPLIANCE_TOKEN (401)")
+                if last.status_code < 500:
+                    return last
             if i + 1 >= _DEFAULT_ATTEMPTS:
                 break
             self._sleep(
                 _DEFAULT_BACKOFFS[i] if i < len(_DEFAULT_BACKOFFS) else _DEFAULT_BACKOFFS[-1]
             )
-        assert last is not None
+        if last is None:
+            raise PlatformUnavailableError("platform timed out after retries")
         raise PlatformUnavailableError(f"platform returned {last.status_code} after retries")
 
 

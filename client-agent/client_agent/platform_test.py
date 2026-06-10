@@ -398,6 +398,78 @@ def test_get_upload_url_sends_query_params_and_parses_response() -> None:
     assert route.calls.last.request.headers["authorization"] == "Bearer tok-z"
 
 
+# ----- 12.5. _post: retry on httpx.ReadTimeout (issue #42 tracer) -----
+
+
+def test_post_retries_on_read_timeout_and_succeeds_on_second_attempt() -> None:
+    """Transport-level read timeouts must be retried with the same backoff
+    schedule as 5xx. Source incident (issue #42): a Cloudflare Worker cold
+    start exceeded the httpx default 5 s read window during an
+    ``update_task_status`` POST; the DB UPDATE succeeded server-side but
+    the client saw ``httpx.ReadTimeout``, the existing retry loop only
+    handled 5xx status codes, and the poller thread crashed mid-state-
+    transition — leaving the task wedged at ``status=uploading`` with no
+    upload ever attempted. Catching the timeout and retrying is what keeps
+    a single transit blip from killing a task."""
+    from client_agent.platform import PlatformClient
+
+    sleeps: list[float] = []
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/register").mock(
+            side_effect=[
+                httpx.ReadTimeout("simulated CF Worker cold start"),
+                httpx.Response(200, json={"appliance_id": "a", "tenant_id": "t"}),
+            ]
+        )
+        client = PlatformClient(
+            base_url="https://platform.example",
+            token="tok",
+            sleep=sleeps.append,
+        )
+
+        response = client.register(agent_version="v")
+
+    assert response.appliance_id == "a"
+    # One retry → one sleep at backoff[0] (1 s).
+    assert sleeps == [1]
+
+
+# ----- 12.6. _post: ReadTimeout on every attempt → PlatformUnavailableError -----
+
+
+def test_post_raises_unavailable_after_read_timeout_exhausts_retries() -> None:
+    """If every attempt hits a transport-level timeout, the appliance must
+    raise :class:`PlatformUnavailableError` — distinct from
+    :class:`PlatformAuthError` so monitoring can branch on the cause. This
+    is the persistent-outage twin of the single-blip happy path: 5xx and
+    timeouts share one retry budget; exhausting it yields one error type
+    either way."""
+    from client_agent.platform import PlatformClient, PlatformUnavailableError
+
+    sleeps: list[float] = []
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        route = mock.post("/appliance/register").mock(
+            side_effect=[
+                httpx.ReadTimeout("blip 1"),
+                httpx.ReadTimeout("blip 2"),
+                httpx.ReadTimeout("blip 3"),
+            ]
+        )
+        client = PlatformClient(
+            base_url="https://platform.example",
+            token="tok",
+            sleep=sleeps.append,
+        )
+
+        with pytest.raises(PlatformUnavailableError):
+            client.register(agent_version="v")
+
+    assert route.call_count == 3
+    assert sleeps == [1, 2]
+
+
 # ----- 12. get_upload_url: 5xx → retry budget shared with other GETs -----
 
 
@@ -433,3 +505,139 @@ def test_get_upload_url_retries_on_5xx_and_succeeds_on_third_attempt() -> None:
 
     assert result.key == "k"
     assert sleeps == [1, 2]
+
+
+# ----- 13. _get: retry on httpx.ReadTimeout (issue #42 symmetry) -----
+
+
+def test_get_retries_on_read_timeout_and_succeeds_on_second_attempt() -> None:
+    """``fetch_next_task`` is hit on every poll tick — a single transit
+    blip there would skip a poll cycle silently. Same fix as ``_post``:
+    transport-level timeouts join the retry budget shared with 5xx."""
+    from client_agent.platform import PlatformClient
+
+    sleeps: list[float] = []
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.get("/appliance/tasks/next").mock(
+            side_effect=[
+                httpx.ReadTimeout("simulated blip"),
+                httpx.Response(204),
+            ]
+        )
+        client = PlatformClient(
+            base_url="https://platform.example",
+            token="tok",
+            sleep=sleeps.append,
+        )
+
+        result = client.fetch_next_task()
+
+    assert result is None
+    assert sleeps == [1]
+
+
+# ----- 14. _get: ReadTimeout on every attempt → PlatformUnavailableError -----
+
+
+def test_get_raises_unavailable_after_read_timeout_exhausts_retries() -> None:
+    """Persistent transport-level timeouts on a GET path (poll-tick or
+    upload-url fetch) surface as :class:`PlatformUnavailableError` —
+    distinct from :class:`PlatformAuthError` so monitoring / restart
+    policy can branch on cause."""
+    from client_agent.platform import PlatformClient, PlatformUnavailableError
+
+    sleeps: list[float] = []
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        route = mock.get("/appliance/tasks/next").mock(
+            side_effect=[
+                httpx.ReadTimeout("blip 1"),
+                httpx.ReadTimeout("blip 2"),
+                httpx.ReadTimeout("blip 3"),
+            ]
+        )
+        client = PlatformClient(
+            base_url="https://platform.example",
+            token="tok",
+            sleep=sleeps.append,
+        )
+
+        with pytest.raises(PlatformUnavailableError):
+            client.fetch_next_task()
+
+    assert route.call_count == 3
+    assert sleeps == [1, 2]
+
+
+# ----- 15. _post: explicit default 30s timeout passed to httpx -----
+
+
+def test_post_passes_default_30s_timeout_to_httpx() -> None:
+    """httpx's library default is 5 s read — too tight for a CF-Worker +
+    Neon round-trip under occasional cold-start latency (source incident,
+    issue #42). Without an explicit timeout, a single 6-second cold start
+    crashes a poll cycle. The appliance must pass an explicit 30 s timeout
+    by default; the value lands in ``Request.extensions['timeout']``,
+    which httpx populates from the ``timeout`` kwarg."""
+    from client_agent.platform import PlatformClient
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        route = mock.post("/appliance/register").mock(
+            return_value=httpx.Response(200, json={"appliance_id": "a", "tenant_id": "t"})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        client.register(agent_version="v")
+
+    timeout_ext = route.calls.last.request.extensions["timeout"]
+    # httpx normalizes a scalar timeout into a per-phase dict; every phase
+    # should reflect the 30 s default so a slow Neon HTTP cold connection
+    # gets the same headroom as a slow CF Worker cold start.
+    assert timeout_ext == {"connect": 30.0, "read": 30.0, "write": 30.0, "pool": 30.0}
+
+
+# ----- 16. PLATFORM_HTTP_TIMEOUT_S env overrides the default -----
+
+
+def test_platform_http_timeout_s_env_overrides_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Operator override knob: a customer LAN with a known-slow ISP can
+    dial the timeout up via env var without a code change; a tight
+    development loop can dial it down. Value is sourced per-call from
+    ``PLATFORM_HTTP_TIMEOUT_S`` so an operator can tweak the env file
+    and restart systemd without rebuilding."""
+    from client_agent.platform import PlatformClient
+
+    monkeypatch.setenv("PLATFORM_HTTP_TIMEOUT_S", "8.5")
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        route = mock.post("/appliance/register").mock(
+            return_value=httpx.Response(200, json={"appliance_id": "a", "tenant_id": "t"})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        client.register(agent_version="v")
+
+    timeout_ext = route.calls.last.request.extensions["timeout"]
+    assert timeout_ext == {"connect": 8.5, "read": 8.5, "write": 8.5, "pool": 8.5}
+
+
+# ----- 17. _get: explicit timeout passed (AC #1 symmetry) -----
+
+
+def test_get_passes_default_30s_timeout_to_httpx() -> None:
+    """``_get`` must mirror ``_post`` — same env-sourced timeout. Without
+    this the upload-url fetch and the poll-tick still fall back to
+    httpx's 5 s default."""
+    from client_agent.platform import PlatformClient
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        route = mock.get("/appliance/tasks/next").mock(return_value=httpx.Response(204))
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        client.fetch_next_task()
+
+    timeout_ext = route.calls.last.request.extensions["timeout"]
+    assert timeout_ext == {"connect": 30.0, "read": 30.0, "write": 30.0, "pool": 30.0}
