@@ -19,10 +19,16 @@ venv/
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
 
 # Environment
 .env
 .env.client
+# The appliance's runtime env files live next to their .example templates —
+# never commit the real ones; they carry R2 / camera creds.
+client-appliance/*.env
 
 # OS
 .DS_Store
@@ -35,3 +41,7 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Agent / IDE-assistant local context — varies per developer, do not share
+.codex/
+AGENTS.md
