@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from gpu_service.metrics import MetricsAggregator, MetricsCollector
+from gpu_service.vram_preflight import preflight_or_exit
 
 logger = logging.getLogger(__name__)
 
@@ -273,6 +274,16 @@ def main(argv: list[str] | None = None) -> int:
     workdir = Path(os.environ.get("WORKDIR", "/tmp/cctv-jobs"))
     poll_interval_s = float(os.environ.get("POLL_INTERVAL_S", "10"))
 
+    classifier = os.environ.get("CLASSIFIER", "heuristic")
+    # Issue #43 — fail-fast on insufficient VRAM before constructing the R2
+    # client / dashboard / pipeline. Exits 2 with a single VRAM_PREFLIGHT_FAIL
+    # line so the operator sees the real cause instead of a mid-load OOM
+    # traceback when another CUDA process is holding the GPU.
+    preflight_or_exit(
+        classifier=classifier,
+        env_override=os.environ.get("VRAM_BUDGET_MB"),
+    )
+
     client = R2Client(
         endpoint=os.environ["R2_ENDPOINT"],
         access_key=os.environ["R2_ACCESS_KEY_ID"],
@@ -280,7 +291,6 @@ def main(argv: list[str] | None = None) -> int:
         bucket=bucket,
     )
 
-    classifier = os.environ.get("CLASSIFIER", "heuristic")
     model_path = os.environ.get("MODEL_PATH", "models/yolo11s-pose.onnx")
 
     def pipeline(chunks: list[Path], progress: ProgressCallback) -> bytes:

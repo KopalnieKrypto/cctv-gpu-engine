@@ -36,6 +36,7 @@ from gpu_service.rest_api import (
     terminate_running_tasks,
 )
 from gpu_service.task_runner import ConcatFn, HttpClientLike, PipelineFn, run_task
+from gpu_service.vram_preflight import preflight_or_exit
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +113,14 @@ def main() -> int:
     classifier = os.environ.get("CLASSIFIER", "vlm")
     workdir_root = Path(os.environ.get("WORKDIR", "/tmp/cctv-jobs"))
     workdir_root.mkdir(parents=True, exist_ok=True)
+
+    # Issue #43 — fail-fast on insufficient VRAM before warming any model.
+    # Without this, a busy GPU produces a mid-load PyTorch OOM trace that
+    # masks the real cause (another CUDA process holding the card).
+    preflight_or_exit(
+        classifier=classifier,
+        env_override=os.environ.get("VRAM_BUDGET_MB"),
+    )
 
     readiness = Readiness()
     registry = TaskRegistry()

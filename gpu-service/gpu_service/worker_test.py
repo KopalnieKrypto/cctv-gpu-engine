@@ -18,6 +18,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from gpu_service.metrics import MetricsSample
 from gpu_service.worker import ProgressCallback, process_job, worker_loop
 
@@ -567,6 +569,9 @@ class TestMainCli:
         # Issue #6: dashboard runs in a daemon thread alongside the worker.
         # Stub it so the test doesn't try to bind a real socket.
         mocker.patch("gpu_service.dashboard.serve")
+        # Issue #43: preflight calls torch.cuda by default — stub it for the
+        # CPU dev box. The dedicated wiring tests above verify it's invoked.
+        mocker.patch("gpu_service.worker.preflight_or_exit")
 
         exit_code = main([])
 
@@ -584,6 +589,84 @@ class TestMainCli:
         assert kwargs["workdir"] == Path("/tmp/test-jobs")
         assert kwargs["poll_interval_s"] == 3.0
         assert callable(kwargs["pipeline"])
+
+    def test_main_runs_vram_preflight_with_classifier_and_env_override(self, mocker, monkeypatch):
+        # Issue #43 AC: container entrypoint queries free VRAM with the right
+        # budget *before* loading any model. We assert the preflight is
+        # invoked and the worker actually proceeds past it on success.
+        from gpu_service.worker import main
+
+        for k in (
+            "R2_ENDPOINT",
+            "R2_ACCESS_KEY_ID",
+            "R2_SECRET_ACCESS_KEY",
+            "R2_BUCKET",
+            "WORKER_ID",
+            "WORKDIR",
+            "POLL_INTERVAL_S",
+            "CLASSIFIER",
+            "VRAM_BUDGET_MB",
+        ):
+            monkeypatch.delenv(k, raising=False)
+        for k, v in self._full_env().items():
+            monkeypatch.setenv(k, v)
+        monkeypatch.setenv("CLASSIFIER", "vlm")
+        monkeypatch.setenv("VRAM_BUDGET_MB", "512")
+
+        preflight_mock = mocker.patch("gpu_service.worker.preflight_or_exit")
+        mocker.patch("gpu_service.r2_client.R2Client")
+        mocker.patch("gpu_service.worker.worker_loop")
+        mocker.patch("gpu_service.dashboard.serve")
+
+        exit_code = main([])
+
+        assert exit_code == 0
+        preflight_mock.assert_called_once()
+        kwargs = preflight_mock.call_args.kwargs
+        assert kwargs["classifier"] == "vlm"
+        assert kwargs["env_override"] == "512"
+
+    def test_main_aborts_before_constructing_r2_client_when_preflight_fails(
+        self, mocker, monkeypatch
+    ):
+        # Source incident: PyTorch OOM trace mid-load. After this fix, the
+        # operator should see the preflight line and the worker must never
+        # reach R2Client / worker_loop / dashboard.
+        import sys as _sys
+
+        from gpu_service.worker import main
+
+        for k in (
+            "R2_ENDPOINT",
+            "R2_ACCESS_KEY_ID",
+            "R2_SECRET_ACCESS_KEY",
+            "R2_BUCKET",
+            "WORKER_ID",
+            "WORKDIR",
+            "POLL_INTERVAL_S",
+            "CLASSIFIER",
+            "VRAM_BUDGET_MB",
+        ):
+            monkeypatch.delenv(k, raising=False)
+        for k, v in self._full_env().items():
+            monkeypatch.setenv(k, v)
+
+        def fake_preflight(**kwargs):
+            print("VRAM_PREFLIGHT_FAIL test-injected-failure", file=_sys.stderr, flush=True)
+            _sys.exit(2)
+
+        mocker.patch("gpu_service.worker.preflight_or_exit", side_effect=fake_preflight)
+        r2_ctor = mocker.patch("gpu_service.r2_client.R2Client")
+        loop_mock = mocker.patch("gpu_service.worker.worker_loop")
+        dashboard_mock = mocker.patch("gpu_service.dashboard.serve")
+
+        with pytest.raises(SystemExit) as exc_info:
+            main([])
+
+        assert exc_info.value.code == 2
+        r2_ctor.assert_not_called()
+        loop_mock.assert_not_called()
+        dashboard_mock.assert_not_called()
 
     def test_main_fails_fast_when_required_env_var_missing(self, mocker, monkeypatch, capsys):
         from gpu_service.worker import main
