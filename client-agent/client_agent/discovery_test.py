@@ -784,6 +784,180 @@ def test_discover_cameras_keeps_tuya_when_only_stage_3_finds_it() -> None:
     assert cams == [onvif_cam, rtsp_cam, tuya_unique]
 
 
+# ===== ONVIF enrich transport timeout (issue #39) =====
+
+
+def test_real_enrich_passes_zeep_transport_with_bounded_timeout(monkeypatch) -> None:
+    """Issue #39: without a bounded transport timeout, ``ONVIFCamera(...)``
+    blocks forever when the device's SOAP endpoint stalls (TCP-SYN succeeds
+    but the body never arrives). The cctv-vps-camera appliance hit this on
+    a Setti+ at ``192.168.1.198:10000`` and the startup loop hung in
+    ``client_agent.discovery._real_enrich`` indefinitely → no heartbeat →
+    no recorder.
+
+    Fix: construct a ``zeep.transports.Transport`` with both ``timeout``
+    (load_timeout, WSDL fetches) and ``operation_timeout`` (SOAP POSTs)
+    bounded to a small N, and hand it to ``ONVIFCamera`` as a kwarg. The
+    issue's stack trace shows the hang on a SOAP POST so the
+    ``operation_timeout`` is the load-bearing one — ``load_timeout`` alone
+    wouldn't actually unblock the hang. Default = 5 s (issue AC).
+
+    Spy strategy: monkeypatch ``onvif.ONVIFCamera`` with a recorder that
+    captures the kwargs and then raises to short-circuit the rest of the
+    enrich flow (we're only asserting the transport wiring here)."""
+    import onvif as _onvif_pkg
+    from zeep.transports import Transport
+
+    captured: dict = {}
+
+    def spy(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        raise RuntimeError("short-circuit after capture")
+
+    monkeypatch.setattr(_onvif_pkg, "ONVIFCamera", spy)
+
+    from client_agent.discovery import ProbeMatch, _real_enrich
+
+    _real_enrich(
+        ProbeMatch(ip="192.168.1.198", port=10000, xaddr="http://192.168.1.198:10000/onvif"),
+        credentials=("admin", "x"),
+    )
+
+    transport = captured["kwargs"].get("transport")
+    assert isinstance(transport, Transport), (
+        "ONVIFCamera must receive a zeep Transport so the underlying requests "
+        "session can't block forever on a stalled SOAP endpoint"
+    )
+    # Default = 5 s for both WSDL fetch (load_timeout) and SOAP POST
+    # (operation_timeout). The hang in the issue's trace is on a SOAP POST,
+    # so operation_timeout is the one that actually bounds it.
+    assert transport.load_timeout == 5
+    assert transport.operation_timeout == 5
+
+
+def test_real_enrich_honors_onvif_enrich_timeout_env_var(monkeypatch) -> None:
+    """Issue #39 AC #2: the timeout value is operator-tunable via the
+    ``ONVIF_ENRICH_TIMEOUT_S`` env var. Default 5 s is a safe ceiling for
+    LAN SOAP roundtrips but a quieter / faster network can drop to 2 s, and
+    a slow PoE switch sometimes needs 10 s. The env var keeps the choice
+    out of the code so operators don't fork.
+
+    The value is read at enrich-call time (not module import) so the
+    appliance can pick up a config bump without a Python restart."""
+    import onvif as _onvif_pkg
+    from zeep.transports import Transport
+
+    monkeypatch.setenv("ONVIF_ENRICH_TIMEOUT_S", "2")
+    captured: dict = {}
+
+    def spy(*args, **kwargs):
+        captured["kwargs"] = kwargs
+        raise RuntimeError("short-circuit")
+
+    monkeypatch.setattr(_onvif_pkg, "ONVIFCamera", spy)
+
+    from client_agent.discovery import ProbeMatch, _real_enrich
+
+    _real_enrich(ProbeMatch(ip="1.2.3.4", port=80, xaddr="http://1.2.3.4/onvif"))
+
+    transport = captured["kwargs"]["transport"]
+    assert isinstance(transport, Transport)
+    assert transport.load_timeout == 2
+    assert transport.operation_timeout == 2
+
+
+def test_real_enrich_returns_none_when_transport_raises_read_timeout(monkeypatch) -> None:
+    """Issue #39 AC #3: when the bounded transport hits its limit on a
+    stalled SOAP endpoint, ``requests.exceptions.ReadTimeout`` propagates
+    up through ``ONVIFCamera.__init__`` / ``GetCapabilities``. The existing
+    broad ``except Exception`` swallows it and ``_real_enrich`` returns
+    ``None`` — the row is skipped, ``discover_cameras`` moves on, the
+    appliance startup loop keeps progressing instead of hanging.
+
+    Regression guard: a future refactor that narrows the except clause to
+    ``ONVIFError`` would let ReadTimeout escape and re-introduce the bug."""
+    import onvif as _onvif_pkg
+    from requests.exceptions import ReadTimeout
+
+    def fake_camera(*args, **kwargs):
+        raise ReadTimeout("simulated stalled ONVIF endpoint")
+
+    monkeypatch.setattr(_onvif_pkg, "ONVIFCamera", fake_camera)
+
+    from client_agent.discovery import ProbeMatch, _real_enrich
+
+    result = _real_enrich(
+        ProbeMatch(ip="192.168.1.198", port=10000, xaddr="http://192.168.1.198:10000/onvif"),
+        credentials=("admin", "x"),
+    )
+    assert result is None
+
+
+def test_real_enrich_returns_populated_camera_on_valid_soap_envelope(monkeypatch) -> None:
+    """Issue #39 AC #4: no-regression — when the SOAP roundtrip succeeds,
+    ``_real_enrich`` still builds the same :class:`DiscoveredCamera` it did
+    before the timeout wiring was added. Vendor/model come from
+    ``GetDeviceInformation``, the RTSP URL from ``GetStreamUri`` against the
+    first profile, the snapshot URL from ``GetSnapshotUri``.
+
+    Done as an opaque ``ONVIFCamera`` stub so the test never hits the
+    network and stays insensitive to onvif-zeep internals — we test the
+    contract (what fields populate the returned row) not the call shape."""
+    import onvif as _onvif_pkg
+
+    class _StreamUri:
+        Uri = "rtsp://192.168.50.2:554/Streaming/Channels/101"
+
+    class _SnapUri:
+        Uri = "http://192.168.50.2/Streaming/Channels/101/picture"
+
+    class _Profile:
+        token = "Profile_1"
+
+    class _Info:
+        Manufacturer = "Hikvision"
+        Model = "DS-2CD2042"
+
+    class _MediaSvc:
+        def GetProfiles(self):
+            return [_Profile()]
+
+        def GetStreamUri(self, _req):
+            return _StreamUri()
+
+        def GetSnapshotUri(self, _req):
+            return _SnapUri()
+
+    class _DevMgmt:
+        def GetDeviceInformation(self):
+            return _Info()
+
+    class _FakeCam:
+        def __init__(self, *args, **kwargs):
+            self.devicemgmt = _DevMgmt()
+
+        def create_media_service(self):
+            return _MediaSvc()
+
+    monkeypatch.setattr(_onvif_pkg, "ONVIFCamera", _FakeCam)
+
+    from client_agent.discovery import ProbeMatch, _real_enrich
+
+    cam = _real_enrich(
+        ProbeMatch(ip="192.168.50.2", port=80, xaddr="http://192.168.50.2/onvif"),
+        credentials=("admin", "Secret1!"),
+    )
+
+    assert cam is not None
+    assert cam.ip == "192.168.50.2"
+    assert cam.port == 80
+    assert cam.vendor == "Hikvision"
+    assert cam.model == "DS-2CD2042"
+    assert cam.rtsp_url == "rtsp://192.168.50.2:554/Streaming/Channels/101"
+    assert cam.snapshot_url == "http://192.168.50.2/Streaming/Channels/101/picture"
+
+
 def test_build_tuya_camera_emits_manual_url_row_with_product_key_as_model() -> None:
     """Issue #38: every Tuya broadcast row carries the same shape — empty
     RTSP URL (the per-device URI lives in the vendor app, not in the

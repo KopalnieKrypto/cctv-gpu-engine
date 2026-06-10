@@ -332,19 +332,30 @@ def _real_enrich(
     populates ``.env.client``. Failed auth → SOAP fault → ``None``, and
     :func:`discover_cameras` skips the row.
 
-    No unit test exercises this — covered only by the manual test on a real
-    camera (issue #21 #7).
+    Unit tests cover the transport-timeout wiring + happy path + ReadTimeout
+    swallow (issue #39) by monkeypatching ``onvif.ONVIFCamera``; the original
+    network roundtrip stays covered by the manual test on a real camera in
+    the operator's LAN (issue #21 #7).
     """
+    import os
+
     try:
         from onvif import ONVIFCamera
     except ImportError as exc:
         raise RuntimeError(
             "onvif-zeep not installed — run `uv sync` to pull discovery deps"
         ) from exc
+    from zeep.transports import Transport
 
     user, password = credentials if credentials is not None else ("", "")
+    # Issue #39: bound the SOAP transport so a stalled endpoint can't hang the
+    # appliance startup loop. ``operation_timeout`` is the load-bearing one —
+    # zeep's POST path (the SOAP-call codepath) uses it, not ``load_timeout``.
+    # Tunable via ``ONVIF_ENRICH_TIMEOUT_S`` for slow PoE switches / quiet LANs.
+    timeout_s = int(os.environ.get("ONVIF_ENRICH_TIMEOUT_S", "5"))
+    transport = Transport(timeout=timeout_s, operation_timeout=timeout_s)
     try:
-        cam = ONVIFCamera(match.ip, match.port, user, password)
+        cam = ONVIFCamera(match.ip, match.port, user, password, transport=transport)
         info = cam.devicemgmt.GetDeviceInformation()
         media = cam.create_media_service()
         profiles = media.GetProfiles()
