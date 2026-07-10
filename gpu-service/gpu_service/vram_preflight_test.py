@@ -1,11 +1,17 @@
-"""Tests for the VRAM pre-flight check (issue #43).
+"""Tests for the VRAM pre-flight check + GPU selection.
 
-Goal: replace the multi-line PyTorch OOM trace operators currently see when
-another CUDA process holds VRAM with a single, structured ``VRAM_PREFLIGHT_FAIL``
-line and a hard ``exit(2)`` before any model load is attempted.
+Two behaviours under test:
 
-Tests inject ``mem_get_info`` (the only system boundary) so they run on the
-macOS CPU dev box without onnxruntime / torch.cuda.
+* **Selection** — of the visible GPUs, the one with the most free VRAM wins,
+  and its UUID is pinned into ``CUDA_VISIBLE_DEVICES`` so the pipeline's default
+  ``cuda:0`` lands there. This is what lets a warm SGLang LLM on GPU 0 coexist
+  with CCTV inference on GPU 1.
+* **Fail-fast** (issue #43) — when *no* GPU clears the budget (or none exists),
+  one structured ``VRAM_PREFLIGHT_FAIL`` line + ``exit(2)`` instead of a
+  multi-line PyTorch OOM trace.
+
+The system boundary (``nvidia-smi``) is injected as ``query_gpus`` so tests run
+on the macOS CPU dev box with no torch / driver.
 """
 
 from __future__ import annotations
@@ -15,52 +21,17 @@ import io
 import pytest
 
 from gpu_service.vram_preflight import (
-    InsufficientVRAMError,
-    check_vram_budget,
+    GpuInfo,
+    NoGpuError,
+    parse_nvidia_smi,
     preflight_or_exit,
     resolve_required_mb,
+    select_best_gpu,
 )
-
-MIB = 1024 * 1024
-
-
-class TestCheckVramBudget:
-    def test_raises_when_free_below_required(self) -> None:
-        # The exact numbers from the source incident: 139 MiB free of 12 GiB,
-        # required budget for VLM = 7168 MiB.
-        free_bytes = 139 * MIB
-        total_bytes = 12 * 1024 * MIB
-
-        with pytest.raises(InsufficientVRAMError) as exc_info:
-            check_vram_budget(
-                required_mb=7168,
-                mem_get_info=lambda: (free_bytes, total_bytes),
-            )
-
-        msg = str(exc_info.value)
-        assert "required=7168" in msg
-        assert "free=139" in msg
-        assert "total=12288" in msg
-
-    def test_passes_silently_when_free_above_required(self) -> None:
-        # 8 GiB free, 12 GiB total, required=7168 — typical clean-GPU case.
-        result = check_vram_budget(
-            required_mb=7168,
-            mem_get_info=lambda: (8 * 1024 * MIB, 12 * 1024 * MIB),
-        )
-        assert result is None
-
-    def test_passes_when_free_equals_required(self) -> None:
-        # Exact-equal is acceptable — the budget already includes headroom.
-        check_vram_budget(
-            required_mb=1024,
-            mem_get_info=lambda: (1024 * MIB, 12 * 1024 * MIB),
-        )
 
 
 class TestResolveRequiredMb:
     def test_env_override_wins_over_classifier_default(self) -> None:
-        # Operator override path: VRAM_BUDGET_MB beats the per-classifier default.
         assert resolve_required_mb(classifier="vlm", env_override="2048") == 2048
         assert resolve_required_mb(classifier="heuristic", env_override="9999") == 9999
 
@@ -71,72 +42,171 @@ class TestResolveRequiredMb:
         assert resolve_required_mb(classifier="vlm", env_override=None) == 7168
 
     def test_empty_string_env_override_falls_back_to_classifier_default(self) -> None:
-        # Docker's missing-env vs empty-env distinction: os.environ.get returns
-        # "" for `-e VRAM_BUDGET_MB=`. Treat empty as "not set" — otherwise
-        # int("") raises and a forgotten empty flag would crash boot.
+        # Docker's missing-env vs empty-env distinction: `-e VRAM_BUDGET_MB=`
+        # gives "". Treat as "not set" — otherwise int("") crashes boot.
         assert resolve_required_mb(classifier="vlm", env_override="") == 7168
 
 
+class TestParseNvidiaSmi:
+    def test_parses_multiple_gpus(self) -> None:
+        # Real shape of `--query-gpu=index,uuid,memory.free,memory.total
+        # --format=csv,noheader,nounits` on a 2-GPU box.
+        csv = "0, GPU-aaaa, 2447, 11774\n1, GPU-bbbb, 11772, 11774\n"
+        gpus = parse_nvidia_smi(csv)
+        assert gpus == [
+            GpuInfo(index=0, uuid="GPU-aaaa", free_mb=2447, total_mb=11774),
+            GpuInfo(index=1, uuid="GPU-bbbb", free_mb=11772, total_mb=11774),
+        ]
+
+    def test_skips_blank_and_garbled_rows(self) -> None:
+        csv = "\n0, GPU-aaaa, 8000, 12000\ngarbage-line\n1, GPU-bbbb, notanint, 12000\n"
+        gpus = parse_nvidia_smi(csv)
+        assert gpus == [GpuInfo(index=0, uuid="GPU-aaaa", free_mb=8000, total_mb=12000)]
+
+    def test_empty_output_yields_no_gpus(self) -> None:
+        assert parse_nvidia_smi("") == []
+
+
+class TestSelectBestGpu:
+    def test_picks_gpu_with_most_free_vram(self) -> None:
+        gpus = [
+            GpuInfo(index=0, uuid="GPU-aaaa", free_mb=2447, total_mb=11774),
+            GpuInfo(index=1, uuid="GPU-bbbb", free_mb=11772, total_mb=11774),
+        ]
+        assert select_best_gpu(gpus).index == 1
+
+    def test_ties_break_to_lowest_index(self) -> None:
+        gpus = [
+            GpuInfo(index=1, uuid="GPU-bbbb", free_mb=8000, total_mb=12000),
+            GpuInfo(index=0, uuid="GPU-aaaa", free_mb=8000, total_mb=12000),
+        ]
+        assert select_best_gpu(gpus).index == 0
+
+    def test_no_gpu_raises(self) -> None:
+        with pytest.raises(NoGpuError):
+            select_best_gpu([])
+
+
+def _fixed(gpus: list[GpuInfo]):
+    return lambda: gpus
+
+
 class TestPreflightOrExit:
-    def test_insufficient_vram_exits_2_with_structured_stderr_line(self) -> None:
-        # Faithful reproduction of the source incident: 139 MiB free of 12 GiB,
-        # VLM budget 7168 MiB. Operator should see one line, then exit(2).
+    def test_selects_free_gpu_and_pins_cuda_visible_devices(self) -> None:
+        # Source incident layout: SGLang on GPU 0 (2447 MiB free), GPU 1 empty.
+        # vlm needs 7168 — must pick GPU 1 and pin its UUID.
+        gpus = [
+            GpuInfo(index=0, uuid="GPU-sglang", free_mb=2447, total_mb=11774),
+            GpuInfo(index=1, uuid="GPU-free", free_mb=11772, total_mb=11774),
+        ]
+        environ: dict[str, str] = {}
         stderr = io.StringIO()
         exit_calls: list[int] = []
-
-        def fake_exit(code: int) -> None:
-            exit_calls.append(code)
 
         preflight_or_exit(
             classifier="vlm",
             env_override=None,
-            mem_get_info=lambda: (139 * MIB, 12 * 1024 * MIB),
+            query_gpus=_fixed(gpus),
+            environ=environ,
             stderr=stderr,
-            exit_fn=fake_exit,
+            exit_fn=exit_calls.append,
+        )
+
+        assert exit_calls == []
+        assert stderr.getvalue() == ""
+        assert environ["CUDA_VISIBLE_DEVICES"] == "GPU-free"
+
+    def test_single_free_gpu_is_pinned(self) -> None:
+        gpus = [GpuInfo(index=0, uuid="GPU-only", free_mb=11772, total_mb=11774)]
+        environ: dict[str, str] = {}
+        preflight_or_exit(
+            classifier="vlm",
+            env_override=None,
+            query_gpus=_fixed(gpus),
+            environ=environ,
+            stderr=io.StringIO(),
+            exit_fn=lambda _c: None,
+        )
+        assert environ["CUDA_VISIBLE_DEVICES"] == "GPU-only"
+
+    def test_all_gpus_busy_exits_2_with_structured_line(self) -> None:
+        # Both GPUs occupied below the vlm budget → fail fast, no CUDA pin.
+        gpus = [
+            GpuInfo(index=0, uuid="GPU-aaaa", free_mb=2447, total_mb=11774),
+            GpuInfo(index=1, uuid="GPU-bbbb", free_mb=139, total_mb=11774),
+        ]
+        environ: dict[str, str] = {}
+        stderr = io.StringIO()
+        exit_calls: list[int] = []
+
+        preflight_or_exit(
+            classifier="vlm",
+            env_override=None,
+            query_gpus=_fixed(gpus),
+            environ=environ,
+            stderr=stderr,
+            exit_fn=exit_calls.append,
         )
 
         assert exit_calls == [2]
         line = stderr.getvalue()
         assert line.startswith("VRAM_PREFLIGHT_FAIL ")
         assert "required=7168" in line
-        assert "free=139" in line
-        assert "total=12288" in line
-        # nvidia-smi hint must be in the line so operator has a one-glance
-        # next step rather than searching docs for what to run.
+        # Reports the *freest* GPU (the best candidate that still failed).
+        assert "free=2447" in line
         assert "nvidia-smi" in line
-        # One line only — no PyTorch traceback bleeding through.
-        assert line.count("\n") == 1
+        assert line.count("\n") == 1  # one line only — no torch traceback
+        assert "CUDA_VISIBLE_DEVICES" not in environ
 
-    def test_sufficient_vram_proceeds_silently(self) -> None:
-        # Healthy GPU: 8 GiB free of 12 GiB, vlm needs 7168. Caller must reach
-        # the next instruction with no stderr noise and no exit.
+    def test_no_gpu_visible_exits_2(self) -> None:
+        environ: dict[str, str] = {}
         stderr = io.StringIO()
         exit_calls: list[int] = []
 
         preflight_or_exit(
             classifier="vlm",
             env_override=None,
-            mem_get_info=lambda: (8 * 1024 * MIB, 12 * 1024 * MIB),
+            query_gpus=_fixed([]),
+            environ=environ,
             stderr=stderr,
             exit_fn=exit_calls.append,
         )
 
-        assert exit_calls == []
-        assert stderr.getvalue() == ""
+        assert exit_calls == [2]
+        assert stderr.getvalue().startswith("VRAM_PREFLIGHT_FAIL ")
+        assert "CUDA_VISIBLE_DEVICES" not in environ
 
-    def test_env_override_drives_the_check(self) -> None:
-        # Operator sets VRAM_BUDGET_MB=200 to force-allow a tight box; 256 MiB
-        # free should now PASS even though it's far below the vlm default.
+    def test_query_raising_no_gpu_error_exits_2(self) -> None:
+        # nvidia-smi unavailable (raises NoGpuError) must fail fast, not crash.
+        def boom() -> list[GpuInfo]:
+            raise NoGpuError("nvidia-smi unavailable: [Errno 2] No such file")
+
         stderr = io.StringIO()
         exit_calls: list[int] = []
+        preflight_or_exit(
+            classifier="vlm",
+            env_override=None,
+            query_gpus=boom,
+            environ={},
+            stderr=stderr,
+            exit_fn=exit_calls.append,
+        )
+        assert exit_calls == [2]
+        assert stderr.getvalue().startswith("VRAM_PREFLIGHT_FAIL ")
 
+    def test_env_override_relaxes_budget(self) -> None:
+        # Operator forces a tight box: VRAM_BUDGET_MB=200 → a 256-MiB-free GPU
+        # now passes and gets pinned.
+        gpus = [GpuInfo(index=0, uuid="GPU-tight", free_mb=256, total_mb=12000)]
+        environ: dict[str, str] = {}
+        exit_calls: list[int] = []
         preflight_or_exit(
             classifier="vlm",
             env_override="200",
-            mem_get_info=lambda: (256 * MIB, 12 * 1024 * MIB),
-            stderr=stderr,
+            query_gpus=_fixed(gpus),
+            environ=environ,
+            stderr=io.StringIO(),
             exit_fn=exit_calls.append,
         )
-
         assert exit_calls == []
-        assert stderr.getvalue() == ""
+        assert environ["CUDA_VISIBLE_DEVICES"] == "GPU-tight"
