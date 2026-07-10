@@ -31,6 +31,7 @@ from typing import Protocol
 
 import httpx
 
+from client_agent.discovery import scrub_url_credentials
 from client_agent.platform import SnapshotClaim
 from client_agent.snapshot import SnapshotGrabberFn
 from client_agent.web import CameraSnapshotSource
@@ -140,7 +141,13 @@ class SnapshotPoller:
             # platform might be displayed to admins of a different
             # tenant. Keep the platform-facing message scrubbed.
             logger.warning("snapshot grab failed for camera_id=%s: %s", claim.camera_id, exc)
-            self._report_failed(claim.request_id, f"grab failed: {exc}")
+            # Scrub before the message crosses to the platform's error column
+            # (issue #53): the grabber's exception embeds the url, which now
+            # carries injected RTSP userinfo. The local log above stays full.
+            self._report_failed(
+                claim.request_id,
+                scrub_url_credentials(f"grab failed for camera {claim.camera_id}: {exc}"),
+            )
             return True
 
         # 3. PUT to presigned URL. The URL carries its own SigV4
@@ -154,7 +161,9 @@ class SnapshotPoller:
                 claim.camera_id,
                 error,
             )
-            self._report_failed(claim.request_id, error)
+            # A transport-error PUT failure can embed the presigned R2 url
+            # (SigV4 query secrets) — scrub before it reaches the platform (#53).
+            self._report_failed(claim.request_id, scrub_url_credentials(error))
             return True
 
         # 4. Success — flip the row to uploaded so the next browser

@@ -108,6 +108,7 @@ def _camera_to_push_dict(cam: DiscoveredCamera) -> dict[str, Any]:
 
 def build_camera_registry(
     response: HeartbeatResponse,
+    environ: Mapping[str, str] | None = None,
 ) -> dict[str, CameraSnapshotSource]:
     """Project the heartbeat's camera config into the snapshot resolver
     registry (issue #44, refactored out of #41).
@@ -117,13 +118,22 @@ def build_camera_registry(
     the platform might send: top-level ``name``/``vendor``/``model`` and
     nested ``model_info.{manufacturer,model}`` (the appliance-pushed
     shape via :func:`_camera_to_push_dict`). Either way the panel gets a
-    label without a second platform round-trip."""
+    label without a second platform round-trip.
+
+    When ``environ`` is supplied, each RTSP url is re-credentialed from
+    ``cameras.env`` (the same resolver the buffer recorder uses): the platform
+    stores stream urls credential-free (#22), so a bare ``rtsp://host/path``
+    makes the snapshot poller's cv2/ffmpeg open 401 — leaving the /cameras
+    preview a placeholder. HTTP snapshot urls are left untouched (their auth is
+    the vendor endpoint's concern)."""
     out: dict[str, CameraSnapshotSource] = {}
     for cam in response.config.get("cameras", []):
         cam_id = cam.get("id")
         rtsp_url = cam.get("rtsp_url")
         if not cam_id or not rtsp_url:
             continue
+        if environ is not None:
+            rtsp_url = authenticated_rtsp_url(rtsp_url, environ)
         model_info = cam.get("model_info") or {}
         out[cam_id] = CameraSnapshotSource(
             rtsp_url=rtsp_url,
@@ -587,7 +597,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         heartbeat config. ``clear() + update()`` (not assignment) so the
         resolver closure keeps pointing at the same dict instance."""
         platform_camera_registry.clear()
-        platform_camera_registry.update(build_camera_registry(response))
+        platform_camera_registry.update(build_camera_registry(response, os.environ))
 
     if _is_platform_mode(os.environ):
         # Run one platform session up-front so a bad token / unreachable

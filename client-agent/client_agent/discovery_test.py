@@ -1033,3 +1033,39 @@ def test_build_tuya_camera_emits_manual_url_row_with_product_key_as_model() -> N
     assert cam.needs_manual_url is True
     assert cam.discovery_method == "tuya-local"
     assert cam.snapshot_url is None
+
+
+def test_scrub_url_credentials_strips_rtsp_userinfo() -> None:
+    """Issue #53: RTSP camera creds embedded in an error string are removed
+    before the string can cross to the platform; host/path stay for triage."""
+    from client_agent.discovery import scrub_url_credentials
+
+    text = "cv2.VideoCapture failed to open 'rtsp://admin:s3cret@10.0.0.5:554/h264'"
+    scrubbed = scrub_url_credentials(text)
+
+    assert "s3cret" not in scrubbed
+    assert "admin:" not in scrubbed
+    assert "rtsp://10.0.0.5:554/h264" in scrubbed
+
+
+def test_scrub_url_credentials_redacts_presigned_sigv4_secrets() -> None:
+    """A leaked presigned R2 PUT url is writable until it expires — redact the
+    SigV4 query secrets from any transport-error message (issue #53 item 3)."""
+    from client_agent.discovery import scrub_url_credentials
+
+    text = (
+        "transport error: PUT https://acct.r2.cloudflarestorage.com/b/k"
+        "?X-Amz-Signature=deadbeef&X-Amz-Credential=AKIAEXAMPLE%2F20260710 failed"
+    )
+    scrubbed = scrub_url_credentials(text)
+
+    assert "deadbeef" not in scrubbed
+    assert "AKIAEXAMPLE" not in scrubbed
+    assert "REDACTED" in scrubbed
+
+
+def test_scrub_url_credentials_is_noop_without_secrets() -> None:
+    from client_agent.discovery import scrub_url_credentials
+
+    text = "grab failed for camera cam-1: RuntimeError no frame"
+    assert scrub_url_credentials(text) == text
