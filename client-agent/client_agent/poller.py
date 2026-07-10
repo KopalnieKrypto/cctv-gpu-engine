@@ -164,6 +164,18 @@ class TaskPoller:
             uploaded_key = getattr(results[0], "key", None) if results else None
             self._platform.update_task_status(task.id, status="uploaded", chunk_r2_key=uploaded_key)
             return True
+        except Exception as exc:  # noqa: BLE001
+            # Any exception between status=recording and a terminal status
+            # (ffmpeg crash in trim_fn, an uploader that raises instead of
+            # returning a failed result) must flip the platform-side task to
+            # ``failed`` — otherwise it wedges in recording/uploading forever
+            # and only a human can unstick it (issue #54). Same wedge family
+            # as the #42 timeout fix, one layer up. The task is still
+            # "handled" (it reached a terminal state), so return True.
+            self._platform.update_task_status(
+                task.id, status="failed", error=f"task processing failed: {exc}"
+            )
+            return True
         finally:
             # Whatever the outcome, the trimmed mp4 has no second local use:
             # on success it is already in R2, on failure the platform re-queues

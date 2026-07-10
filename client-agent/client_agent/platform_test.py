@@ -470,6 +470,42 @@ def test_post_raises_unavailable_after_read_timeout_exhausts_retries() -> None:
     assert sleeps == [1, 2]
 
 
+# ----- 12.7. _post: retry on httpx.ConnectError (issue #54) -----
+
+
+def test_post_retries_on_connect_error() -> None:
+    """A ``ConnectError`` (DNS blip, connection refused while the platform
+    is mid-deploy) is transport-level just like a timeout, yet #42 only
+    widened the retry whitelist to :class:`httpx.TimeoutException`. So a
+    single connect blip during ``update_task_status`` propagated with zero
+    retries and wedged the platform-side task (issue #54). Transport errors
+    must share the same 3-attempt / 1s-2s budget as timeouts: first attempt
+    raises ``ConnectError``, second returns 200, the call succeeds after one
+    backoff sleep."""
+    from client_agent.platform import PlatformClient
+
+    sleeps: list[float] = []
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/register").mock(
+            side_effect=[
+                httpx.ConnectError("[Errno 111] Connection refused"),
+                httpx.Response(200, json={"appliance_id": "a", "tenant_id": "t"}),
+            ]
+        )
+        client = PlatformClient(
+            base_url="https://platform.example",
+            token="tok",
+            sleep=sleeps.append,
+        )
+
+        response = client.register(agent_version="v")
+
+    assert response.appliance_id == "a"
+    # One retry → one sleep at backoff[0] (1 s).
+    assert sleeps == [1]
+
+
 # ----- 12. get_upload_url: 5xx → retry budget shared with other GETs -----
 
 

@@ -423,3 +423,57 @@ def test_upload_chunks_returns_mixed_results_when_one_chunk_fails(tmp_path: Path
     assert [r.success for r in results] == [True, False, True]
     assert results[1].error is not None
     assert "503" in results[1].error
+
+
+# ----- 9. upload_chunk transport error → failed result, no exception (issue #54) -----
+
+
+def test_put_transport_error_returns_failed_result(tmp_path: Path) -> None:
+    """A Wi-Fi blip mid-PUT surfaces as ``httpx.ConnectError`` /
+    ``ReadError`` / ``ReadTimeout`` — not a 5xx status. The pre-#54 code
+    only retried on 5xx *status codes*, so a raised transport error escaped
+    ``upload_chunk`` and wedged the task at ``uploading`` (the class
+    docstring promises "no exceptions bubble"). The uploader must catch it,
+    count it against the same 3-attempt budget as a 5xx, and — when all
+    attempts fail transport-wise — return ``UploadResult(success=False,
+    error=...)`` instead of raising.
+
+    ``http_put`` is injected here (the real default is ``httpx.put``) so we
+    can simulate transport failures deterministically without a live socket;
+    the GET for the presigned URL still goes through respx."""
+    from client_agent.uploader import PresignedUploader
+
+    chunk_path = tmp_path / "chunk_003.mp4"
+    chunk_path.write_bytes(b"x" * 512)
+
+    presigned_url = "https://r2.example/k?sig=ok"
+    put_urls: list[str] = []
+    sleeps: list[float] = []
+
+    def flaky_put(url: str, *, content: bytes, timeout: object) -> httpx.Response:
+        put_urls.append(url)
+        raise httpx.ConnectError("[Errno 65] No route to host")
+
+    with respx.mock(assert_all_called=True) as mock:
+        mock.get(
+            "https://platform.example/appliance/upload-url",
+            params={"task_id": "task-1", "chunk_n": "3"},
+        ).mock(
+            return_value=httpx.Response(
+                200, json={"url": presigned_url, "key": "k", "expires_in": 1800}
+            )
+        )
+
+        platform = PlatformClient(base_url="https://platform.example", token="tok")
+        uploader = PresignedUploader(platform=platform, sleep=sleeps.append, http_put=flaky_put)
+
+        result = uploader.upload_chunk("task-1", 3, chunk_path)
+
+    # No exception crossed the boundary — the failure is data, not a raise.
+    assert result.success is False
+    assert result.chunk_n == 3
+    assert result.key is None
+    assert result.error is not None
+    # Transport errors count against the same 3-attempt / 1s-2s budget as 5xx.
+    assert put_urls == [presigned_url, presigned_url, presigned_url]
+    assert sleeps == [1, 2]

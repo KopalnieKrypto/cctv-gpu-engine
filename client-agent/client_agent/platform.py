@@ -146,7 +146,11 @@ class PlatformClient:
                     json=json,
                     timeout=_resolve_timeout(),
                 )
-            except httpx.TimeoutException:
+            except httpx.TransportError:
+                # Any transport-level failure (timeout, ConnectError from a
+                # DNS blip / connection refused mid-deploy, ReadError) shares
+                # the 5xx retry budget — #42 only caught timeouts, leaving a
+                # single ConnectError to wedge the task (issue #54).
                 last = None
             if last is not None:
                 if last.status_code == 401:
@@ -332,7 +336,9 @@ class PlatformClient:
                     params=params,
                     timeout=_resolve_timeout(),
                 )
-            except httpx.TimeoutException:
+            except httpx.TransportError:
+                # See _post: transport errors (timeout / ConnectError /
+                # ReadError) share the 5xx retry budget (issue #54).
                 last = None
             if last is not None:
                 if last.status_code == 401:

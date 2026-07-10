@@ -68,10 +68,15 @@ class PresignedUploader:
         platform: PlatformClient,
         sleep: Callable[[float], None] = time.sleep,
         max_workers: int = 4,
+        http_put: Callable[..., httpx.Response] = httpx.put,
     ) -> None:
         self._platform = platform
         self._sleep = sleep
         self._max_workers = max_workers
+        # Injectable so tests can simulate transport failures deterministically.
+        # Production default is ``httpx.put`` (respx patches the transport for
+        # the URL-pattern tests, so the default flows through respx unchanged).
+        self._http_put = http_put
 
     def upload_chunks(self, task_id: str, chunks: list[Path]) -> list[UploadResult]:
         """Upload many chunks in parallel; results return in input order.
@@ -124,15 +129,32 @@ class PresignedUploader:
         refreshed = False
         while True:
             last: httpx.Response | None = None
+            last_error: str | None = None
             for i in range(_PUT_ATTEMPTS):
-                last = httpx.put(upload_url.url, content=body, timeout=_PUT_TIMEOUT)
-                if last.status_code < 500:
-                    break
+                try:
+                    last = self._http_put(upload_url.url, content=body, timeout=_PUT_TIMEOUT)
+                except httpx.HTTPError as exc:
+                    # A transport error (ConnectError / ReadError / ReadTimeout
+                    # from a Wi-Fi blip) is not a status code — mirror
+                    # SnapshotPoller.default_http_put and count it against the
+                    # same 3-attempt budget as a 5xx (issue #54). Without this
+                    # the raise escaped the class boundary and wedged the task.
+                    last = None
+                    last_error = f"transport error: {exc}"
+                else:
+                    if last.status_code < 500:
+                        break
                 if i + 1 >= _PUT_ATTEMPTS:
                     break
                 self._sleep(_PUT_BACKOFFS[i] if i < len(_PUT_BACKOFFS) else _PUT_BACKOFFS[-1])
 
-            assert last is not None
+            if last is None:
+                # Every attempt hit a transport error — no response to inspect.
+                return UploadResult(
+                    chunk_n=chunk_n,
+                    success=False,
+                    error=f"{last_error} after {_PUT_ATTEMPTS} attempt(s)",
+                )
             if last.status_code == 403 and "SignatureDoesNotMatch" in last.text and not refreshed:
                 # One-shot refresh: the URL expired between issuance and
                 # this PUT. Most likely on the tail end of a slow parallel

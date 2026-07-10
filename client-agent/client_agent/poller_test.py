@@ -455,6 +455,110 @@ def test_trim_output_removed_after_failed_upload(tmp_path: Path) -> None:
     assert not captured["output"].exists()
 
 
+# ----- 5d. trim_fn raises → task marked failed, never wedged (issue #54) -----
+
+
+def test_trim_failure_marks_task_failed(tmp_path: Path) -> None:
+    """Once a task is flipped to ``recording``, *any* exception before a
+    terminal status escapes ``run_once`` — ``run()`` only logs it, so the
+    platform-side task stays wedged in ``recording`` forever until a human
+    intervenes (issue #54). ffmpeg crashing (``trim_fn`` raising) is the
+    most likely such path and has no local try/except today.
+
+    The poller must funnel the exception into ``update_task_status(failed)``
+    with a non-empty error and return ``True`` (the task *was* handled — it
+    reached a terminal state). ``uploading`` must never be emitted because
+    trim never produced an mp4 to upload."""
+    from client_agent.poller import TaskPoller
+
+    t10 = datetime(2026, 5, 15, 10, 0, 0, tzinfo=UTC)
+    chunk = BufferChunk(path=tmp_path / "chunk_001.mp4", start=t10, end=t10 + timedelta(hours=1))
+    platform = FakePlatform(
+        next_tasks=[
+            Task(
+                id="task-trimfail",
+                camera_id="cam-1",
+                start_time=t10 + timedelta(minutes=15),
+                end_time=t10 + timedelta(minutes=45),
+            )
+        ]
+    )
+    buffer = FakeBuffer(chunks_by_camera={"cam-1": [chunk]})
+
+    def exploding_trim(*, chunks, start, end, output, runner):
+        raise RuntimeError("ffmpeg exited 1: Invalid data found when processing input")
+
+    poller = TaskPoller(
+        platform=platform,
+        buffer=buffer,
+        trim_fn=exploding_trim,
+        output_dir=tmp_path / "out",
+        uploader=FakeUploader(),
+    )
+    handled = poller.run_once()
+
+    assert handled is True
+    # recording → failed; uploading never reached (no mp4 was produced).
+    assert [call[1] for call in platform.status_calls] == ["recording", "failed"]
+    failed_call = platform.status_calls[-1]
+    assert failed_call[0] == "task-trimfail"
+    assert failed_call[2] is not None  # operator-facing error present
+
+
+# ----- 5e. uploader raises → task marked failed (belt-and-suspenders, #54) -----
+
+
+def test_uploader_exception_marks_task_failed(tmp_path: Path) -> None:
+    """The uploader's contract is "no exceptions bubble" (it returns a
+    failed :class:`UploadResult`), and #54's uploader fix restores that.
+    But the poller must not *depend* on that contract holding — a future
+    uploader bug (or any raise past its boundary) after ``status=uploading``
+    would otherwise wedge the task at ``uploading`` (issue #54). This is the
+    belt-and-suspenders twin of the trim-failure case: a raising uploader
+    lands at the same ``failed`` funnel.
+
+    Unlike the trim-failure path, ``uploading`` *is* emitted first (the trim
+    succeeded and the poller announced the upload before the uploader blew
+    up), so the transition sequence is recording → uploading → failed."""
+    from client_agent.poller import TaskPoller
+
+    t10 = datetime(2026, 5, 15, 10, 0, 0, tzinfo=UTC)
+    chunk = BufferChunk(path=tmp_path / "chunk_001.mp4", start=t10, end=t10 + timedelta(hours=1))
+    platform = FakePlatform(
+        next_tasks=[
+            Task(
+                id="task-uploadraise",
+                camera_id="cam-1",
+                start_time=t10 + timedelta(minutes=15),
+                end_time=t10 + timedelta(minutes=45),
+            )
+        ]
+    )
+    buffer = FakeBuffer(chunks_by_camera={"cam-1": [chunk]})
+
+    def fake_trim(*, chunks, start, end, output, runner):
+        output.write_bytes(b"trim-ok")
+
+    class ExplodingUploader:
+        def upload_chunks(self, task_id: str, chunks: list[Path]) -> list[object]:
+            raise ConnectionError("[Errno 65] No route to host")
+
+    poller = TaskPoller(
+        platform=platform,
+        buffer=buffer,
+        trim_fn=fake_trim,
+        output_dir=tmp_path / "out",
+        uploader=ExplodingUploader(),
+    )
+    handled = poller.run_once()
+
+    assert handled is True
+    assert [call[1] for call in platform.status_calls] == ["recording", "uploading", "failed"]
+    failed_call = platform.status_calls[-1]
+    assert failed_call[0] == "task-uploadraise"
+    assert failed_call[2] is not None
+
+
 # ----- 6. run() loop is resilient to transient exceptions (Wi-Fi blip) -----
 
 
