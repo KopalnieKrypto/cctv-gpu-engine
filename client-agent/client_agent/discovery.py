@@ -18,6 +18,7 @@ on a physical camera in the operator's LAN (issue #21 acceptance #7).
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from urllib.parse import urlparse
@@ -262,6 +263,31 @@ def inject_credentials(url: str, credentials: tuple[str, str] | None) -> str:
     if parsed.port is not None:
         netloc = f"{userinfo}{parsed.hostname}:{parsed.port}"
     return parsed._replace(netloc=netloc).geturl()
+
+
+# ``scheme://user:pass@`` userinfo (RTSP camera creds) and SigV4 presigned-URL
+# query secrets (R2 PUT urls) — the two secret shapes that ride inside stream
+# and upload URLs. Bounded so the surrounding host/path/status stays intact.
+_URL_USERINFO_RE = re.compile(r"([a-zA-Z][a-zA-Z0-9+.\-]*://)[^/\s@]+@")
+_PRESIGNED_SECRET_RE = re.compile(
+    r"(?i)([?&](?:X-Amz-Signature|X-Amz-Credential|X-Amz-Security-Token|Signature|AWSAccessKeyId)=)[^&\s]+"
+)
+
+
+def scrub_url_credentials(text: str) -> str:
+    """Redact secrets from any URL embedded in a diagnostic string before it
+    crosses a trust boundary — e.g. the platform's snapshot/task error column,
+    which admins of *other* tenants may see (issue #53).
+
+    Strips ``scheme://user:pass@`` userinfo (RTSP camera creds — now live in
+    error messages because the snapshot/recorder paths inject them, #22) and
+    SigV4 presigned-URL query secrets (a leaked R2 PUT url is writable until it
+    expires). Everything else — host, path, status code, exception class — is
+    left intact so the operator's message stays diagnostic. Idempotent; safe on
+    strings with no URL. Keep the *local* log unscrubbed: journald is
+    operator-side and the operator owns these creds."""
+    text = _URL_USERINFO_RE.sub(r"\1", text)
+    return _PRESIGNED_SECRET_RE.sub(r"\1REDACTED", text)
 
 
 def guess_vendor_from_open_ports(open_ports: set[int]) -> str:

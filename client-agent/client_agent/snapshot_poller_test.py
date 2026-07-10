@@ -242,3 +242,66 @@ def test_run_once_reports_failed_does_not_propagate_grabber_exception() -> None:
     # Should NOT raise.
     handled = poller.run_once()
     assert handled is True
+
+
+def test_run_once_grab_failure_report_scrubs_credentials() -> None:
+    """Issue #53: the credentialed RTSP url the snapshot path now injects must
+    NOT reach the platform's error column (visible to other tenants' admins).
+    The grab-failure exception embeds the full url — report it scrubbed."""
+    platform = FakePlatform(next_claims=[_claim(camera_id="cam-9")])
+
+    def fake_grab(_url: str, _t: float) -> bytes:
+        raise RuntimeError(
+            "cv2.VideoCapture failed to open 'rtsp://admin:s3cret@10.0.0.5:554/h264'"
+        )
+
+    poller = SnapshotPoller(
+        platform=platform,
+        camera_resolver=lambda _id: CameraSnapshotSource(
+            rtsp_url="rtsp://admin:s3cret@10.0.0.5:554/h264"
+        ),
+        snapshot_grabber=fake_grab,
+        http_put=lambda _u, _b, _c: PutResult(success=True),
+    )
+
+    poller.run_once()
+
+    _req, status, error = platform.status_calls[0]
+    assert status == "failed"
+    assert error is not None
+    # No credentials leaked...
+    assert "s3cret" not in error
+    assert "admin:" not in error
+    # ...but still actionable: names the camera + the failing host.
+    assert "cam-9" in error
+    assert "10.0.0.5" in error
+
+
+def test_run_once_grab_failure_local_log_keeps_full_detail(caplog) -> None:
+    """Acceptance 2: the operator's own journald keeps the full url (creds
+    included) for diagnosis — only the platform-facing report is scrubbed."""
+    import logging
+
+    platform = FakePlatform(next_claims=[_claim(camera_id="cam-9")])
+
+    def fake_grab(_url: str, _t: float) -> bytes:
+        raise RuntimeError(
+            "cv2.VideoCapture failed to open 'rtsp://admin:s3cret@10.0.0.5:554/h264'"
+        )
+
+    poller = SnapshotPoller(
+        platform=platform,
+        camera_resolver=lambda _id: CameraSnapshotSource(
+            rtsp_url="rtsp://admin:s3cret@10.0.0.5:554/h264"
+        ),
+        snapshot_grabber=fake_grab,
+        http_put=lambda _u, _b, _c: PutResult(success=True),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        poller.run_once()
+
+    # Operator-side log keeps the creds; platform-facing report does not.
+    assert "s3cret" in caplog.text
+    _req, _status, error = platform.status_calls[0]
+    assert error is not None and "s3cret" not in error
