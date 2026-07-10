@@ -234,6 +234,36 @@ def strip_credentials_from_url(url: str) -> str:
     return parsed._replace(netloc=netloc).geturl()
 
 
+def inject_credentials(url: str, credentials: tuple[str, str] | None) -> str:
+    """Re-attach ``user:pass@`` userinfo to an ``rtsp://`` URL.
+
+    The exact inverse of :func:`strip_credentials_from_url`. The platform stores
+    every stream URL credential-free (issue #22), so any consumer that must
+    actually *open* the stream — the buffer recorder handing the URL to ffmpeg —
+    has to re-attach the operator's ``cameras.env`` creds first. Without this an
+    ONVIF-discovered camera (whose ``GetStreamUri`` returns a bare
+    ``rtsp://host:port/path``) makes ffmpeg 401 and the recorder dies on loop.
+
+    No-op when ``credentials is None`` or the URL already carries userinfo (so it
+    is safe to apply unconditionally). The password is percent-encoded
+    (``quote(safe='')``, matching :func:`build_rtsp_url`) so specials like ``#``,
+    ``@`` and ``:`` survive URL parsing downstream.
+    """
+    if credentials is None:
+        return url
+    parsed = urlparse(url)
+    if parsed.username or parsed.password or not parsed.hostname:
+        return url
+    from urllib.parse import quote
+
+    user, password = credentials
+    userinfo = f"{quote(user, safe='')}:{quote(password, safe='')}@"
+    netloc = f"{userinfo}{parsed.hostname}"
+    if parsed.port is not None:
+        netloc = f"{userinfo}{parsed.hostname}:{parsed.port}"
+    return parsed._replace(netloc=netloc).geturl()
+
+
 def guess_vendor_from_open_ports(open_ports: set[int]) -> str:
     """Secondary vendor fingerprint based on management-port presence.
 
