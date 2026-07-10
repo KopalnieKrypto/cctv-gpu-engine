@@ -1103,6 +1103,70 @@ def test_quiet_wsdiscovery_loggers_suppresses_resolve_handler_warning(caplog) ->
     assert not any("_handle_resolve" in r.getMessage() for r in caplog.records)
 
 
+def test_is_link_local_xaddr_detects_ipv6_and_ipv4_link_local() -> None:
+    """ONVIF WS-Discovery can advertise a device on its IPv6 link-local
+    (fe80::/10) or IPv4 APIPA (169.254/16) address. Those aren't reachable
+    without a scope id, and the unbracketed ``fe80::…`` form even makes
+    ``urlparse(...).port`` raise — so enrich errors every discovery cycle
+    (#70). The predicate flags them across the bracketed, unbracketed, and
+    zone-id spellings while leaving ordinary private-LAN addresses alone."""
+    from client_agent.discovery import _is_link_local_xaddr
+
+    assert _is_link_local_xaddr("http://fe80::1234:5357/onvif/device_service") is True
+    assert _is_link_local_xaddr("http://[fe80::1234]:5357/onvif/device_service") is True
+    assert _is_link_local_xaddr("http://[fe80::1234%25eth0]:5357/onvif/device_service") is True
+    assert _is_link_local_xaddr("http://169.254.10.20:5357/onvif/device_service") is True
+
+    assert _is_link_local_xaddr("http://192.168.88.83:5357/onvif/device_service") is False
+    assert _is_link_local_xaddr("http://10.0.0.5/onvif/device_service") is False
+
+
+def test_real_probe_skips_link_local_and_prefers_routable_xaddr(monkeypatch) -> None:
+    """A camera advertising only a link-local xaddr must never become a
+    ProbeMatch — enrich can't reach it and would error every cycle, and the
+    unbracketed ``fe80::…`` form would even crash the probe on ``.port`` (#70).
+    A camera advertising both a link-local and a routable address is kept via
+    its routable one. The WS-Discovery library is faked so no multicast fires."""
+    import sys
+    import types
+
+    from client_agent import discovery
+
+    class _FakeService:
+        def __init__(self, xaddrs: list[str]) -> None:
+            self._xaddrs = xaddrs
+
+        def getXAddrs(self) -> list[str]:
+            return self._xaddrs
+
+    class _FakeWSD:
+        def start(self) -> None: ...
+
+        def searchServices(self, timeout: int) -> list:
+            return [
+                # Link-local only (unbracketed) — would crash urlparse().port.
+                _FakeService(["http://fe80::abcd:5357/onvif/device_service"]),
+                # Link-local first, routable second — keep the routable one.
+                _FakeService(
+                    [
+                        "http://[fe80::ef01]:5357/onvif/device_service",
+                        "http://192.168.88.50:80/onvif/device_service",
+                    ]
+                ),
+            ]
+
+        def stop(self) -> None: ...
+
+    fake_module = types.ModuleType("wsdiscovery.discovery")
+    fake_module.ThreadedWSDiscovery = lambda: _FakeWSD()  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "wsdiscovery.discovery", fake_module)
+
+    matches = discovery._real_probe(timeout=1.0)
+
+    assert [m.ip for m in matches] == ["192.168.88.50"]
+    assert matches[0].port == 80
+
+
 def test_real_probe_silences_wsdiscovery_daemon_noise(monkeypatch, caplog) -> None:
     """``_real_probe`` is the only place we start the WS-Discovery daemon
     thread, so it must silence the library's ``_handle_resolve`` noise as part
