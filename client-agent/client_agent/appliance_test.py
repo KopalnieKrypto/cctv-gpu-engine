@@ -623,6 +623,50 @@ def test_run_platform_session_factory_spawns_buffer_mode_recorder_per_camera() -
     assert active_recorders == {"cam-1": recorders_made[0]}
 
 
+def test_run_platform_session_threads_supervision_dict_into_reconcile() -> None:
+    """Respawn backoff must survive across heartbeats, so
+    ``run_platform_session`` threads a caller-owned ``supervision`` dict into
+    ``reconcile_recorders`` (mirroring ``active_recorders``, both owned by
+    ``main`` for the appliance's lifetime). Proof: a camera whose recorder is
+    dead gets respawned AND leaves a backoff entry in the caller's dict — the
+    state the next heartbeat consults to throttle a crash loop (issue #71).
+    Without the wiring reconcile would allocate a throwaway dict each tick and
+    the loop could never back off."""
+    import httpx
+    import respx
+
+    from client_agent.appliance import run_platform_session
+    from client_agent.platform import PlatformClient
+
+    dead_handle = MagicMock()
+    dead_handle.is_running.return_value = False
+
+    config = {"cameras": [{"id": "cam-1", "enabled": True, "rtsp_url": "rtsp://x/1"}]}
+    active_recorders: dict[str, MagicMock] = {"cam-1": dead_handle}
+    supervision: dict[str, object] = {}
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/register").mock(
+            return_value=httpx.Response(200, json={"appliance_id": "app-1", "tenant_id": "t-1"})
+        )
+        mock.post("/appliance/cameras").mock(return_value=httpx.Response(204))
+        mock.post("/appliance/heartbeat").mock(
+            return_value=httpx.Response(200, json={"config": config})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        run_platform_session(
+            platform_client=client,
+            discover_fn=lambda: [_make_camera()],
+            recorder_factory=MagicMock,
+            active_recorders=active_recorders,
+            supervision=supervision,
+            environ={},
+        )
+
+    assert "cam-1" in supervision
+
+
 def test_run_platform_session_stops_recorder_when_camera_flips_to_disabled() -> None:
     """Second heartbeat after the operator revokes approval for cam-1:
     the recorder handle in ``active_recorders`` from the previous iteration
@@ -981,6 +1025,153 @@ def test_reconcile_recorders_treats_handle_without_is_running_as_alive() -> None
     assert spawn_calls == []
     assert stop_calls == []
     assert active == {"cam-1": "opaque-handle"}
+
+
+# ----- 6b. reconcile_recorders: root-cause logging + respawn backoff (issue #71) -----
+
+
+def test_reconcile_recorders_logs_root_cause_on_respawn(caplog) -> None:
+    """When a recorder is found dead, the respawn warning must carry the
+    *root cause* — the ffmpeg/RTSP failure ``Recorder._run`` stashed in
+    ``status().message`` — not just a generic "exited; respawning". The prod
+    appliance whose camera crash-looped (issue #71) was unactionable
+    precisely because the log never said *why*: the DESCRIBE error sat
+    unread in the dead handle's status."""
+    import logging
+
+    from client_agent.appliance import reconcile_recorders
+    from client_agent.recorder import RecorderStatus
+
+    class DeadHandle:
+        def is_running(self) -> bool:
+            return False
+
+        def status(self) -> RecorderStatus:
+            return RecorderStatus(
+                state="failed",
+                job_id="job-1",
+                message="ffmpeg exited 1: RTSP DESCRIBE 404 Stream Not Found",
+            )
+
+    active: dict[str, object] = {"cam-1": DeadHandle()}
+
+    with caplog.at_level(logging.WARNING, logger="client_agent.appliance"):
+        reconcile_recorders(
+            [{"id": "cam-1", "enabled": True, "rtsp_url": "rtsp://x/1"}],
+            active=active,
+            spawn=lambda cam: object(),
+            stop=lambda h: None,
+        )
+
+    assert "RTSP DESCRIBE 404 Stream Not Found" in caplog.text
+
+
+def test_reconcile_recorders_backs_off_on_repeated_death() -> None:
+    """A camera that crash-loops must not respawn on every 30s heartbeat.
+    After each respawn the supervisor opens a growing window
+    (30/60/120s ... cap 300s) during which a still-dead recorder is left
+    alone — no tight respawn loop (issue #71). The very first death still
+    respawns immediately so a transient blip self-heals fast; only a
+    persistently-broken camera backs off.
+
+    The caller-owned ``supervision`` dict carries the per-camera backoff
+    state across heartbeats and the injected ``now`` clock makes the
+    windows deterministic without real sleeps."""
+    from client_agent.appliance import reconcile_recorders
+
+    class DeadHandle:
+        def is_running(self) -> bool:
+            return False
+
+    config = [{"id": "cam-1", "enabled": True, "rtsp_url": "rtsp://x/1"}]
+    supervision: dict[str, object] = {}
+    clock = {"t": 1000.0}
+    spawn_ticks: list[float] = []
+    active: dict[str, object] = {"cam-1": DeadHandle()}
+
+    def _spawn(cam: dict) -> object:
+        spawn_ticks.append(clock["t"])
+        return DeadHandle()  # respawned recorder dies again → crash loop
+
+    def _reconcile() -> None:
+        reconcile_recorders(
+            config,
+            active=active,
+            spawn=_spawn,
+            stop=lambda h: None,
+            supervision=supervision,
+            now=lambda: clock["t"],
+        )
+
+    # t=1000: first death → immediate respawn; opens a 30s window.
+    _reconcile()
+    clock["t"] = 1010.0  # inside the 30s window → skip
+    _reconcile()
+    clock["t"] = 1030.0  # 30s window elapsed → respawn #2, opens 60s window
+    _reconcile()
+    clock["t"] = 1050.0  # inside the 60s window → skip
+    _reconcile()
+    clock["t"] = 1090.0  # 60s window elapsed → respawn #3, opens 120s window
+    _reconcile()
+    clock["t"] = 1150.0  # inside the 120s window → skip
+    _reconcile()
+
+    assert spawn_ticks == [1000.0, 1030.0, 1090.0]
+
+
+def test_reconcile_recorders_resets_backoff_when_recorder_recovers() -> None:
+    """A recorder that recovers — observed alive on a heartbeat — clears its
+    backoff, so a later death respawns immediately instead of being throttled
+    by a stale window left over from an earlier crash streak (issue #71). A
+    camera that flaps back to health must not inherit the penalty of its
+    previous outage."""
+    from client_agent.appliance import reconcile_recorders
+
+    class Handle:
+        def __init__(self, alive: bool) -> None:
+            self._alive = alive
+
+        def is_running(self) -> bool:
+            return self._alive
+
+    config = [{"id": "cam-1", "enabled": True, "rtsp_url": "rtsp://x/1"}]
+    supervision: dict[str, object] = {}
+    clock = {"t": 1000.0}
+    spawn_ticks: list[float] = []
+    active: dict[str, object] = {"cam-1": Handle(alive=False)}
+
+    def _spawn(cam: dict) -> object:
+        spawn_ticks.append(clock["t"])
+        return Handle(alive=False)
+
+    def _reconcile() -> None:
+        reconcile_recorders(
+            config,
+            active=active,
+            spawn=_spawn,
+            stop=lambda h: None,
+            supervision=supervision,
+            now=lambda: clock["t"],
+        )
+
+    # crash #1 at t=1000 → immediate respawn, opens a 30s window.
+    _reconcile()
+    assert spawn_ticks == [1000.0]
+    assert supervision  # backoff state recorded
+
+    # recorder recovers: observed alive at t=1005 → backoff cleared.
+    active["cam-1"] = Handle(alive=True)
+    clock["t"] = 1005.0
+    _reconcile()
+    assert supervision == {}
+
+    # it dies again at t=1006 — well inside the OLD 30s window. Because the
+    # backoff was reset on recovery, this respawns immediately rather than
+    # being skipped.
+    active["cam-1"] = Handle(alive=False)
+    clock["t"] = 1006.0
+    _reconcile()
+    assert spawn_ticks == [1000.0, 1006.0]
 
 
 # ----- 5c. TaskPoller wired into appliance boot (issue #30) -----

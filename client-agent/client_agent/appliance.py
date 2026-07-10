@@ -23,6 +23,7 @@ import os
 import threading
 import time
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -175,12 +176,65 @@ def list_managed_cameras(
     return rows
 
 
+# Respawn backoff for crash-looping recorders (issue #71). The first crash
+# respawns immediately (transient blip self-heals on the next heartbeat); each
+# further consecutive crash opens an exponentially larger window during which a
+# still-dead recorder is left alone, so a persistently-broken camera stops
+# churning ffmpeg every 30s.
+_RESPAWN_BACKOFF_BASE_S = 30.0
+_RESPAWN_BACKOFF_CAP_S = 300.0
+
+
+@dataclass
+class _RecorderBackoff:
+    """Per-camera respawn state carried across heartbeats in ``supervision``.
+
+    ``failures`` counts consecutive crashes handled so far; ``next_spawn_at``
+    is the monotonic deadline before which a dead recorder is not respawned."""
+
+    failures: int = 0
+    next_spawn_at: float = 0.0
+
+
+def _respawn_window_s(failures: int) -> float:
+    """Backoff window opened after the ``failures``-th consecutive crash.
+
+    ``failures`` is the pre-increment count, so the first crash (0) opens a
+    30s window, then 60/120/240, capped at 300s. The window gates only the
+    *next* respawn — the current one already fired — so a one-off blip never
+    waits while a broken camera's respawns spread further and further apart."""
+    return min(_RESPAWN_BACKOFF_BASE_S * (2**failures), _RESPAWN_BACKOFF_CAP_S)
+
+
+def _describe_recorder_death(handle: Any) -> str:
+    """Best-effort root cause for a dead recorder handle (issue #71).
+
+    ``Recorder._run`` stashes the ffmpeg/RTSP failure in ``status().message``
+    (e.g. an RTSP DESCRIBE error) and sets ``state="failed"`` — but nothing
+    read it, so the respawn log was unactionable. Pull it out here so the
+    warning says *why* the recorder died. Guarded so opaque test fakes and
+    handles without ``status()`` degrade to a readable placeholder instead
+    of raising inside the reconcile loop."""
+    status = getattr(handle, "status", None)
+    if not callable(status):
+        return "cause unknown (handle exposes no status)"
+    try:
+        snapshot = status()
+    except Exception as exc:  # noqa: BLE001
+        return f"cause unknown (status() raised: {exc})"
+    state = getattr(snapshot, "state", "?")
+    message = (getattr(snapshot, "message", "") or "").strip()
+    return f"state={state}: {message}" if message else f"state={state}"
+
+
 def reconcile_recorders(
     config_cameras: list[dict],
     *,
     active: dict[str, Any],
     spawn: Callable[[dict], Any],
     stop: Callable[[Any], None],
+    supervision: dict[str, _RecorderBackoff] | None = None,
+    now: Callable[[], float] = time.monotonic,
 ) -> None:
     """Apply the heartbeat config to the live recorder set (issue #27).
 
@@ -207,6 +261,9 @@ def reconcile_recorders(
     treated as always-alive — preserves backwards compatibility with
     test fakes that don't model thread lifecycle.
     """
+    if supervision is None:
+        supervision = {}
+
     desired_ids: set[str] = set()
     for cam in config_cameras:
         cam_id = cam["id"]
@@ -218,22 +275,48 @@ def reconcile_recorders(
                 continue
             is_running = getattr(existing, "is_running", None)
             if callable(is_running) and not is_running():
-                # Stale handle — respawn. We don't ``stop`` here because the
-                # thread is already dead; stopping again would be a no-op at
-                # best and an error at worst, and stop()/spawn() in the same
+                # Stale handle — respawn, unless we're inside the crash-loop
+                # backoff window (issue #71). We don't ``stop`` here because
+                # the thread is already dead; stopping again would be a no-op
+                # at best and an error at worst, and stop()/spawn() in the same
                 # cycle would race the new ffmpeg process against the dead
                 # one's status.json.
+                backoff = supervision.setdefault(cam_id, _RecorderBackoff())
+                now_s = now()
+                if now_s < backoff.next_spawn_at:
+                    # Persistently-broken camera — leave it dead until the
+                    # window elapses instead of respawning every heartbeat.
+                    logger.debug(
+                        "reconcile_recorders: camera_id=%s dead but within "
+                        "respawn backoff (%.0fs remaining); skipping",
+                        cam_id,
+                        backoff.next_spawn_at - now_s,
+                    )
+                    continue
                 logger.warning(
-                    "reconcile_recorders: recorder for camera_id=%s exited; respawning",
+                    "reconcile_recorders: recorder for camera_id=%s died (%s); "
+                    "respawning (failure #%d)",
                     cam_id,
+                    _describe_recorder_death(existing),
+                    backoff.failures + 1,
                 )
                 active[cam_id] = spawn(cam)
+                backoff.next_spawn_at = now_s + _respawn_window_s(backoff.failures)
+                backoff.failures += 1
+            else:
+                # Alive (or an opaque handle treated as alive) — the recorder
+                # is healthy, so drop any crash-loop backoff so a future death
+                # starts fresh (immediate respawn) instead of inheriting the
+                # penalty from an earlier outage (issue #71).
+                supervision.pop(cam_id, None)
 
     # Anything currently active that the heartbeat doesn't list as
     # ``enabled=True`` (either ``enabled=False`` or removed) must stop.
     for cam_id in list(active.keys()):
         if cam_id not in desired_ids:
             stop(active.pop(cam_id))
+            # Drop any backoff state so a re-approved camera starts fresh.
+            supervision.pop(cam_id, None)
 
 
 def run_platform_session(
@@ -243,6 +326,7 @@ def run_platform_session(
     recorder_factory: Callable[[], Any],
     environ: Mapping[str, str],
     active_recorders: dict[str, Any] | None = None,
+    supervision: dict[str, _RecorderBackoff] | None = None,
     hostname: str | None = None,
     version: str = "0.5.0",
 ) -> HeartbeatResponse:
@@ -267,6 +351,13 @@ def run_platform_session(
     omitted (typical test fixture) a fresh empty dict is used per call
     and previously-spawned recorders cannot be stopped — fine for a
     single iteration, wrong for a multi-iteration loop.
+
+    ``supervision`` is the sibling of ``active_recorders`` for respawn
+    backoff (issue #71): it carries each camera's crash-loop state across
+    heartbeats so a persistently-broken recorder backs off instead of
+    respawning every tick. Same ownership contract — ``main()`` owns it for
+    the process lifetime; omitting it (single-iteration test) disables
+    cross-tick backoff, which is harmless for one call.
 
     Each spawn calls ``recorder.start(url=..., duration_s=..., camera_id=...)``
     where ``camera_id`` puts the recorder into buffer mode (issue #27):
@@ -344,6 +435,7 @@ def run_platform_session(
         active=active_recorders,
         spawn=_spawn,
         stop=_stop,
+        supervision=supervision,
     )
 
     return response
@@ -581,6 +673,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     # loop mutates via ``reconcile_recorders``. Empty in legacy / Docker
     # mode — the lister returns [] and the panel stays hidden.
     active_recorders: dict[str, Any] = {}
+    # Sibling of ``active_recorders`` (issue #71): per-camera respawn backoff
+    # state, owned here so it persists across every heartbeat tick and a
+    # crash-looping camera actually backs off instead of respawning each 30s.
+    recorder_supervision: dict[str, _RecorderBackoff] = {}
     built = build_app(
         os.environ,
         recordings_root=recordings_root,
@@ -673,6 +769,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             discover_fn=_discover,
             recorder_factory=_recorder_factory,
             active_recorders=active_recorders,
+            supervision=recorder_supervision,
             environ=os.environ,
         )
         # Issue #41: seed the snapshot resolver registry from the boot
@@ -699,6 +796,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                         discover_fn=_discover,
                         recorder_factory=_recorder_factory,
                         active_recorders=active_recorders,
+                        supervision=recorder_supervision,
                         environ=os.environ,
                     )
                     # Keep the snapshot resolver registry in lockstep with

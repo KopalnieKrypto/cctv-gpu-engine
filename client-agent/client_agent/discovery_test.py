@@ -1069,3 +1069,69 @@ def test_scrub_url_credentials_is_noop_without_secrets() -> None:
 
     text = "grab failed for camera cam-1: RuntimeError no frame"
     assert scrub_url_credentials(text) == text
+
+
+# ----- WS-Discovery daemon log noise (issue #71) -----
+
+
+def test_quiet_wsdiscovery_loggers_suppresses_resolve_handler_warning(caplog) -> None:
+    """The prod appliance log spammed
+    ``daemon could not find handler for: _handle_resolve`` — benign WS-Discovery
+    protocol noise the ``wsdiscovery`` library emits on its ``daemon`` logger
+    when a ``Resolve`` request lands on our discovery *client* (which, unlike a
+    publishing target, has no ``_handle_resolve``). It is neither our bug nor
+    stoppable from our side, so ``quiet_wsdiscovery_loggers`` raises that
+    logger's level to keep it out of ``appliance.log`` (issue #71)."""
+    import logging
+
+    from client_agent.discovery import quiet_wsdiscovery_loggers
+
+    daemon_logger = logging.getLogger("daemon")
+    # Undo any prior silencing so the positive control below is meaningful
+    # regardless of test order (the silencer is process-global).
+    daemon_logger.setLevel(logging.NOTSET)
+
+    with caplog.at_level(logging.WARNING):
+        # Positive control: unsilenced, the library WARNING really does surface.
+        daemon_logger.warning("could not find handler for: _handle_resolve")
+    assert any("_handle_resolve" in r.getMessage() for r in caplog.records)
+
+    quiet_wsdiscovery_loggers()
+
+    caplog.clear()
+    daemon_logger.warning("could not find handler for: _handle_resolve")
+    assert not any("_handle_resolve" in r.getMessage() for r in caplog.records)
+
+
+def test_real_probe_silences_wsdiscovery_daemon_noise(monkeypatch, caplog) -> None:
+    """``_real_probe`` is the only place we start the WS-Discovery daemon
+    thread, so it must silence the library's ``_handle_resolve`` noise as part
+    of starting it — that keeps the fix in force for both the Docker and
+    appliance targets that drive discovery, with no separate wiring per target
+    (issue #71). The library is faked so no multicast leaves the box."""
+    import logging
+    import sys
+    import types
+
+    from client_agent import discovery
+
+    # Reset so the assertion reflects THIS call, not a prior test's silencing.
+    logging.getLogger("daemon").setLevel(logging.NOTSET)
+
+    class _FakeWSD:
+        def start(self) -> None: ...
+
+        def searchServices(self, timeout: int) -> list:
+            return []
+
+        def stop(self) -> None: ...
+
+    fake_module = types.ModuleType("wsdiscovery.discovery")
+    fake_module.ThreadedWSDiscovery = lambda: _FakeWSD()  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "wsdiscovery.discovery", fake_module)
+
+    discovery._real_probe(timeout=1.0)
+
+    caplog.clear()
+    logging.getLogger("daemon").warning("could not find handler for: _handle_resolve")
+    assert not any("_handle_resolve" in r.getMessage() for r in caplog.records)

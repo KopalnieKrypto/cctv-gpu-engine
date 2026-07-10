@@ -328,6 +328,27 @@ def identify_vendor_from_rtsp_options(server_header: str | None) -> str:
     return "Unknown"
 
 
+# Loggers the ``wsdiscovery`` library hijacks under generic, un-namespaced
+# names. The ``daemon`` one warns ``could not find handler for: _handle_resolve``
+# every time a WS-Discovery ``Resolve`` request reaches our discovery *client*
+# (only a publishing target implements ``_handle_resolve``) — benign LAN
+# protocol traffic we can neither handle nor stop the network from sending. The
+# warning flooded the prod appliance log (issue #71), so we mute it here.
+_WSDISCOVERY_NOISY_LOGGERS = ("daemon",)
+
+
+def quiet_wsdiscovery_loggers() -> None:
+    """Raise the ``wsdiscovery`` library's noisy loggers above WARNING.
+
+    Called before starting the WS-Discovery daemon so its benign
+    ``_handle_resolve`` "could not find handler" spam stays out of the
+    appliance log (issue #71). Idempotent — safe to call every probe. Nothing
+    in this codebase logs under these generic names, so raising them to ERROR
+    hides only third-party protocol noise, never our own diagnostics."""
+    for name in _WSDISCOVERY_NOISY_LOGGERS:
+        logging.getLogger(name).setLevel(logging.ERROR)
+
+
 def _real_probe(timeout: float) -> list[ProbeMatch]:
     """WS-Discovery probe via the ``wsdiscovery`` package.
 
@@ -347,6 +368,10 @@ def _real_probe(timeout: float) -> list[ProbeMatch]:
         raise RuntimeError(
             "WSDiscovery not installed — run `uv sync` to pull discovery deps"
         ) from exc
+
+    # Mute the library's benign ``_handle_resolve`` daemon-log spam before we
+    # start the daemon thread that emits it (issue #71).
+    quiet_wsdiscovery_loggers()
 
     wsd = ThreadedWSDiscovery()
     wsd.start()
