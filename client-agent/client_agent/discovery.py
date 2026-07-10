@@ -349,13 +349,35 @@ def quiet_wsdiscovery_loggers() -> None:
         logging.getLogger(name).setLevel(logging.ERROR)
 
 
+def _is_link_local_xaddr(xaddr: str) -> bool:
+    """True when the ONVIF service address points at a link-local host.
+
+    IPv6 link-local (``fe80::/10``) devices advertise an xaddr the appliance
+    can't reach without a scope id, and the unbracketed ``fe80::…`` spelling
+    some cameras emit even makes ``urlparse(...).port`` raise ``ValueError``.
+    IPv4 link-local (``169.254/16``, APIPA) is likewise off the normal LAN.
+    Either way enrich fails on every discovery cycle, spamming the log (#70),
+    so we detect these on the raw authority and drop them at probe time.
+
+    Matches on the raw ``fe80:`` / ``169.254.`` prefix rather than
+    ``ipaddress`` parsing so the unbracketed IPv6 form — which ``ipaddress``
+    and ``urlparse`` both choke on — is still caught."""
+    authority = xaddr.split("://", 1)[-1].split("/", 1)[0]
+    host = authority.strip()
+    if host.startswith("["):  # bracketed IPv6: [fe80::1%eth0]:5357
+        host = host[1:].split("]", 1)[0]
+    host = host.split("%", 1)[0].lower()
+    return host.startswith("fe80:") or host.startswith("169.254.")
+
+
 def _real_probe(timeout: float) -> list[ProbeMatch]:
     """WS-Discovery probe via the ``wsdiscovery`` package.
 
     Sends a multicast Probe to ``239.255.255.250:3702`` and collects every
     ProbeMatch reply within ``timeout`` seconds. Each device may publish
-    multiple ``XAddrs``; we take the first because it's the one the device
-    advertised first and that's typically the device-service URL.
+    multiple ``XAddrs``; we take the first *routable* one (skipping link-local
+    fe80::/169.254 candidates enrich can't reach, #70), which is typically the
+    device-service URL.
 
     No unit test exercises this — it's covered only by the manual test on
     a real camera (issue #21 #7). If the import fails (deps not installed
@@ -384,9 +406,14 @@ def _real_probe(timeout: float) -> list[ProbeMatch]:
     seen: set[str] = set()
     for svc in services:
         xaddrs = list(svc.getXAddrs() or [])
-        if not xaddrs:
+        # Prefer a routable address; drop link-local (fe80::/169.254) candidates
+        # that enrich can't reach and whose unbracketed IPv6 form even crashes
+        # urlparse(...).port (#70). A device advertising only link-local xaddrs
+        # is skipped entirely.
+        routable = [x for x in xaddrs if not _is_link_local_xaddr(x)]
+        if not routable:
             continue
-        xaddr = xaddrs[0]
+        xaddr = routable[0]
         if xaddr in seen:
             continue
         seen.add(xaddr)

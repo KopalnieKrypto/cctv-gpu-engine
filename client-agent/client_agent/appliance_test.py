@@ -330,6 +330,32 @@ def _make_camera(ip: str = "192.168.50.2") -> object:
     )
 
 
+def test_camera_to_push_dict_emits_needs_manual_url_flag() -> None:
+    """A URL-less camera (Tuya #38 / Unknown-vendor #37) must reach the
+    platform carrying ``needs_manual_url=True`` so the operator can paste the
+    per-device URI on the /cameras page — not be silently dropped (#70). A
+    normal URL-ful camera carries the flag as ``False`` so the platform has an
+    explicit signal either way."""
+    from client_agent.appliance import _camera_to_push_dict
+    from client_agent.discovery import DiscoveredCamera
+
+    manual = DiscoveredCamera(
+        ip="192.168.88.83",
+        port=554,
+        vendor="Unknown (nginx-RTSP / per-device URI)",
+        model="",
+        rtsp_url="",
+        discovery_method="rtsp-scan",
+        needs_manual_url=True,
+    )
+    manual_dict = _camera_to_push_dict(manual)
+    assert manual_dict["needs_manual_url"] is True
+    assert manual_dict["rtsp_url"] == ""
+
+    normal_dict = _camera_to_push_dict(_make_camera())
+    assert normal_dict["needs_manual_url"] is False
+
+
 def test_run_platform_session_registers_pushes_and_heartbeats() -> None:
     """Single iteration of the platform loop hits all three endpoints in
     the right order. ``run_platform_session`` is the testable unit; the
@@ -412,14 +438,14 @@ def test_run_platform_session_falls_back_to_rtsp_default_url_when_discovery_empt
     assert cameras[0]["rtsp_url"] == fallback_url
 
 
-def test_run_platform_session_filters_cameras_with_empty_rtsp_url() -> None:
+def test_run_platform_session_pushes_needs_manual_url_cameras_with_flag() -> None:
     """Stage 2 Unknown-vendor (#37) and Stage 3 Tuya (#38) discovery emit
     ``DiscoveredCamera(rtsp_url="", needs_manual_url=True)`` when the device
-    exists on the LAN but its streaming URI is per-device. The platform
-    validator rejects empty rtsp_url (``z.string().min(1)``) and 400s the
-    whole batch on the first invalid item, so heartbeat cycles after a Tuya
-    broadcast landed previously failed end-to-end. The appliance must filter
-    those rows out before the push and surface the count via the logger."""
+    exists on the LAN but its streaming URI is per-device. Once the platform
+    companion (#122) accepts URL-less rows, the appliance must push ALL
+    discovered cameras — the URL-less ones carrying ``needs_manual_url=True``
+    + ``rtsp_url=""`` — so they surface on the operator's /cameras page instead
+    of being silently dropped (#70). The mixed batch must still push cleanly."""
     import json as _json
 
     import httpx
@@ -472,10 +498,14 @@ def test_run_platform_session_filters_cameras_with_empty_rtsp_url() -> None:
 
     body = _json.loads(push_route.calls.last.request.read())
     cameras = body["cameras"]
-    assert len(cameras) == 1
-    assert cameras[0]["rtsp_url"] == real_cam.rtsp_url
-    # Belt-and-braces: no row in the payload should ever have empty rtsp_url.
-    assert all(c["rtsp_url"] for c in cameras)
+    # All three rows reach the platform — nothing is filtered out.
+    assert len(cameras) == 3
+    by_url = {c["rtsp_url"]: c for c in cameras}
+    assert by_url[real_cam.rtsp_url]["needs_manual_url"] is False
+    # Both URL-less devices survive, flagged for the operator to fill in.
+    url_less = [c for c in cameras if not c["rtsp_url"]]
+    assert len(url_less) == 2
+    assert all(c["needs_manual_url"] is True for c in url_less)
 
 
 def test_run_platform_session_starts_recorder_for_each_enabled_camera() -> None:

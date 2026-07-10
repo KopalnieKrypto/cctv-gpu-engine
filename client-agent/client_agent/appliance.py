@@ -79,13 +79,19 @@ def _camera_to_push_dict(cam: DiscoveredCamera) -> dict[str, Any]:
     """Project a :class:`DiscoveredCamera` into the canonical
     ``POST /appliance/cameras`` payload (DD-09 gpu-exchange).
 
-    The wire shape is ``{rtsp_url, onvif_uuid?, name?, model_info?}``.
-    Vendor / model / discovery metadata land inside ``model_info`` as a
-    free-form jsonb so the platform can persist them without a schema
-    bump every time the discovery code learns a new field. Snapshot URL
-    is included there too — the operator's preview lives in the same
-    metadata blob."""
-    body: dict[str, Any] = {"rtsp_url": cam.rtsp_url}
+    The wire shape is ``{rtsp_url, needs_manual_url, name?, model_info?}``.
+    ``needs_manual_url`` is emitted as an explicit bool so the platform can
+    surface URL-less devices (Tuya #38 / Unknown-vendor #37, ``rtsp_url=""``)
+    on the /cameras page for the operator to fill in, instead of us dropping
+    them (#70). Vendor / model / discovery metadata land inside ``model_info``
+    as a free-form jsonb so the platform can persist them without a schema
+    bump every time the discovery code learns a new field. Snapshot URL is
+    included there too — the operator's preview lives in the same metadata
+    blob."""
+    body: dict[str, Any] = {
+        "rtsp_url": cam.rtsp_url,
+        "needs_manual_url": cam.needs_manual_url,
+    }
     name = f"{cam.vendor} {cam.model}".strip()
     if name:
         body["name"] = name
@@ -393,21 +399,19 @@ def run_platform_session(
     # Stage 2 Unknown-vendor (#37) and Stage 3 Tuya (#38) discovery can emit a
     # DiscoveredCamera with rtsp_url="" + needs_manual_url=True — the device
     # exists on the LAN but the streaming URI is per-device and only obtainable
-    # via the vendor app. The platform schema requires rtsp_url to be non-empty
-    # (z.string().min(1)) and rejects the whole batch on the first empty row,
-    # which previously caused every heartbeat cycle after a Tuya broadcast
-    # landed to fail with 400 Bad Request. Filter those rows out here; the
-    # devices stay in local discovery state and can surface in a future UI flow
-    # that lets the operator paste the manual URL.
-    skipped = [c for c in cameras if not c.rtsp_url]
-    if skipped:
+    # via the vendor app. The platform companion (#122) accepts these URL-less
+    # rows carrying needs_manual_url, so we push the whole discovered set and
+    # let the platform surface them on the operator's /cameras page (#70).
+    # (Before #122 the platform's z.string().min(1) rejected the whole batch on
+    # the first empty row — do not deploy this ahead of that companion.)
+    manual = [c for c in cameras if not c.rtsp_url]
+    if manual:
         logger.info(
-            "push_cameras: skipping %d camera(s) with empty rtsp_url (needs_manual_url): %s",
-            len(skipped),
-            ", ".join(f"{c.ip}:{c.port} ({c.vendor})" for c in skipped),
+            "push_cameras: surfacing %d needs_manual_url camera(s) to platform: %s",
+            len(manual),
+            ", ".join(f"{c.ip}:{c.port} ({c.vendor})" for c in manual),
         )
-    publishable = [c for c in cameras if c.rtsp_url]
-    payload = [_camera_to_push_dict(cam) for cam in publishable]
+    payload = [_camera_to_push_dict(cam) for cam in cameras]
     platform_client.push_cameras(payload)
 
     if active_recorders is None:
