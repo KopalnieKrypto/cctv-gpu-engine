@@ -130,39 +130,46 @@ class TaskPoller:
 
         self._output_dir.mkdir(parents=True, exist_ok=True)
         output = self._output_dir / f"{task.id}-{uuid.uuid4().hex[:8]}.mp4"
-        self._trim_fn(
-            chunks=chunks,
-            start=task.start_time,
-            end=task.end_time,
-            output=output,
-            runner=self._runner,
-        )
-
-        self._platform.update_task_status(task.id, status="uploading")
-        results = self._uploader.upload_chunks(task.id, [output])
-        failed = [r for r in results if not getattr(r, "success", False)]
-        if failed:
-            # Aggregate every failed chunk's error into one operator-
-            # facing message. Keeps the platform-side error column
-            # bounded but loses nothing diagnostic — each chunk_n is
-            # tagged so the operator can spot a "chunk 7 always 503"
-            # pattern across retries.
-            error = "; ".join(
-                f"chunk {getattr(r, 'chunk_n', '?')}: {getattr(r, 'error', 'unknown')}"
-                for r in failed
+        try:
+            self._trim_fn(
+                chunks=chunks,
+                start=task.start_time,
+                end=task.end_time,
+                output=output,
+                runner=self._runner,
             )
-            self._platform.update_task_status(task.id, status="failed", error=error)
-            return True
 
-        # The platform's `uploaded` status variant requires `chunk_r2_key`
-        # (the R2 key the appliance just PUT into). For MVP we trim into a
-        # single concatenated chunk before upload, so results[0].key is the
-        # whole task's payload. When upload_chunks is expanded to multi-
-        # chunk batches the platform's schema also gains a multi-key shape;
-        # for now `results[0].key` is the contract.
-        uploaded_key = getattr(results[0], "key", None) if results else None
-        self._platform.update_task_status(task.id, status="uploaded", chunk_r2_key=uploaded_key)
-        return True
+            self._platform.update_task_status(task.id, status="uploading")
+            results = self._uploader.upload_chunks(task.id, [output])
+            failed = [r for r in results if not getattr(r, "success", False)]
+            if failed:
+                # Aggregate every failed chunk's error into one operator-
+                # facing message. Keeps the platform-side error column
+                # bounded but loses nothing diagnostic — each chunk_n is
+                # tagged so the operator can spot a "chunk 7 always 503"
+                # pattern across retries.
+                error = "; ".join(
+                    f"chunk {getattr(r, 'chunk_n', '?')}: {getattr(r, 'error', 'unknown')}"
+                    for r in failed
+                )
+                self._platform.update_task_status(task.id, status="failed", error=error)
+                return True
+
+            # The platform's `uploaded` status variant requires `chunk_r2_key`
+            # (the R2 key the appliance just PUT into). For MVP we trim into a
+            # single concatenated chunk before upload, so results[0].key is the
+            # whole task's payload. When upload_chunks is expanded to multi-
+            # chunk batches the platform's schema also gains a multi-key shape;
+            # for now `results[0].key` is the contract.
+            uploaded_key = getattr(results[0], "key", None) if results else None
+            self._platform.update_task_status(task.id, status="uploaded", chunk_r2_key=uploaded_key)
+            return True
+        finally:
+            # Whatever the outcome, the trimmed mp4 has no second local use:
+            # on success it is already in R2, on failure the platform re-queues
+            # the task. Leaving it behind fills the appliance disk one task at a
+            # time (issue #51). ``missing_ok`` covers the trim-never-wrote case.
+            output.unlink(missing_ok=True)
 
     def run(self) -> None:
         """Blocking poll loop — production entrypoint.

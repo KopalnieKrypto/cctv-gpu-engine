@@ -21,7 +21,9 @@ import argparse
 import logging
 import os
 import threading
+import time
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -387,17 +389,7 @@ def start_poller_thread(
     to exit promptly. A non-daemon thread blocking on
     ``platform.fetch_next_task`` would force a stop-timeout SIGKILL.
     """
-    # segment_seconds must match what the recorder writes (issue #27 buffer
-    # mode emits 60s chunks via build_ffmpeg_cmd(buffer_mode=True)); otherwise
-    # chunks_in_range's chunk_start = mtime - segment_seconds would over- or
-    # under-estimate the chunk's coverage window and miss overlap matches.
-    from client_agent.recorder import BUFFER_SEGMENT_SECONDS
-
-    buffer = RollingBuffer(
-        base_dir=buffer_dir,
-        buffer_hours=parse_buffer_hours(environ),
-        segment_seconds=BUFFER_SEGMENT_SECONDS,
-    )
+    buffer = _build_rolling_buffer(buffer_dir, environ)
     uploader = PresignedUploader(platform=platform_client)
     poller = TaskPoller(
         platform=platform_client,
@@ -409,6 +401,87 @@ def start_poller_thread(
     thread = threading.Thread(
         target=poller.run,
         name="cctv-task-poller",
+        daemon=True,
+    )
+    thread.start()
+    return thread
+
+
+def _build_rolling_buffer(buffer_dir: Path, environ: Mapping[str, str]) -> RollingBuffer:
+    """The one :class:`RollingBuffer` the appliance uses in platform mode.
+
+    Both the task poller (reads chunks) and the maintenance thread (trims
+    chunks) go through here so they can never disagree on the two settings
+    that must match: ``buffer_hours`` (retention window) and
+    ``segment_seconds``. The latter must equal what the recorder writes
+    (issue #27 buffer mode emits 60s chunks via
+    ``build_ffmpeg_cmd(buffer_mode=True)``); otherwise ``chunks_in_range``'s
+    ``chunk_start = mtime - segment_seconds`` would mis-estimate a chunk's
+    coverage window and miss overlap matches."""
+    from client_agent.recorder import BUFFER_SEGMENT_SECONDS
+
+    return RollingBuffer(
+        base_dir=buffer_dir,
+        buffer_hours=parse_buffer_hours(environ),
+        segment_seconds=BUFFER_SEGMENT_SECONDS,
+    )
+
+
+# How often the maintenance thread trims stale chunks. Matches the buffer
+# segment length (``recorder.BUFFER_SEGMENT_SECONDS``): trimming once per
+# segment bounds the overshoot to at most one extra 60s chunk per camera
+# beyond ``BUFFER_HOURS``, while keeping the per-tick glob+stat cost trivial.
+MAINTENANCE_INTERVAL_S = 60
+
+
+def _maintenance_loop(
+    buffer: RollingBuffer,
+    *,
+    interval_s: int,
+    now_fn: Callable[[], datetime],
+    sleep: Callable[[float], None],
+) -> None:
+    """Trim every camera's stale chunks, sleep, repeat — forever.
+
+    This is the production caller that finally enforces ``BUFFER_HOURS``
+    (issue #51): before it, retention was dead code and a recording
+    appliance filled its disk until ffmpeg failed and the camera went dark.
+
+    A trim failure (transient FS error, recorder racing a delete) is logged
+    and swallowed so the daemon thread survives — letting it propagate would
+    silently stop retention and reintroduce the disk-fill bug. ``sleep`` sits
+    outside the guard so a test can end the loop cleanly via a sentinel."""
+    while True:
+        try:
+            deleted = buffer.trim_all_cameras(now=now_fn())
+            if deleted:
+                logger.info("buffer maintenance: trimmed %d stale chunk(s)", deleted)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("buffer maintenance iteration failed: %s", exc)
+        sleep(interval_s)
+
+
+def start_maintenance_thread(
+    *,
+    buffer_dir: Path,
+    environ: Mapping[str, str],
+    interval_s: int = MAINTENANCE_INTERVAL_S,
+    now_fn: Callable[[], datetime] = lambda: datetime.now(UTC),
+    sleep: Callable[[float], None] = time.sleep,
+) -> threading.Thread:
+    """Build a :class:`RollingBuffer` and run :func:`_maintenance_loop` on a
+    daemon thread. Called once at platform-mode boot alongside the task
+    poller so retention runs continuously without operator action.
+
+    ``daemon=True`` mirrors ``start_poller_thread`` — systemd wants a prompt
+    SIGTERM exit, and a non-daemon loop thread would force a stop-timeout
+    SIGKILL (and leak a thread per ``--update`` redeploy)."""
+    buffer = _build_rolling_buffer(buffer_dir, environ)
+    thread = threading.Thread(
+        target=_maintenance_loop,
+        args=(buffer,),
+        kwargs={"interval_s": interval_s, "now_fn": now_fn, "sleep": sleep},
+        name="cctv-buffer-maintenance",
         daemon=True,
     )
     thread.start()
@@ -615,6 +688,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             platform_client=platform_client,
             buffer_dir=buffer_dir,
             trim_output_dir=trim_output_dir,
+            environ=os.environ,
+        )
+
+        # Enforce BUFFER_HOURS (issue #51). Without this daemon the rolling
+        # buffer only ever grows: recorders write 60s chunks continuously and
+        # nothing deletes the old ones, so the appliance disk fills in days.
+        start_maintenance_thread(
+            buffer_dir=buffer_dir,
             environ=os.environ,
         )
 

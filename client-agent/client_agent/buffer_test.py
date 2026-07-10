@@ -152,6 +152,51 @@ def test_trim_old_chunks_deletes_chunks_older_than_buffer_hours(tmp_path: Path) 
     assert deleted == 24
 
 
+# ----- 4b. trim_all_cameras trims every camera dir under the buffer root -----
+
+
+def test_trim_all_cameras_trims_every_camera_dir(tmp_path: Path) -> None:
+    """The maintenance thread can't enumerate cameras itself — the buffer
+    owns the root, so it discovers every ``base_dir/{camera_id}/`` dir and
+    applies ``trim_old_chunks`` to each with a single pinned ``now``.
+
+    Two cameras, each with one stale chunk (2h old, outside a 1h window)
+    and one fresh chunk (30 min old). After one pass every stale chunk is
+    gone and every fresh chunk survives — for *both* cameras without the
+    caller naming them. The returned count is the total deleted across
+    cameras so a maintenance thread can emit one metric per sweep."""
+    from client_agent.buffer import RollingBuffer
+
+    base = tmp_path / "cctv-buffer"
+    now = datetime(2026, 5, 15, 12, 0, 0, tzinfo=UTC)
+    for cam in ("cam-1", "cam-2"):
+        _make_chunk(base / cam / "chunk_stale.mp4", end=now - timedelta(hours=2))
+        _make_chunk(base / cam / "chunk_fresh.mp4", end=now - timedelta(minutes=30))
+
+    buffer = RollingBuffer(base_dir=base, buffer_hours=1, segment_seconds=3600)
+    deleted = buffer.trim_all_cameras(now=now)
+
+    assert deleted == 2
+    for cam in ("cam-1", "cam-2"):
+        survivors = sorted(p.name for p in (base / cam).glob("chunk_*.mp4"))
+        assert survivors == ["chunk_fresh.mp4"]
+
+
+def test_trim_all_cameras_on_missing_root_returns_zero(tmp_path: Path) -> None:
+    """First maintenance tick can fire before any recorder created the
+    buffer root (platform mode boots the poller + maintenance threads up
+    front, recorders spawn only once the operator approves a camera). A
+    missing root is "nothing to trim", not an ``OSError`` that kills the
+    daemon thread."""
+    from client_agent.buffer import RollingBuffer
+
+    buffer = RollingBuffer(
+        base_dir=tmp_path / "never-created", buffer_hours=1, segment_seconds=3600
+    )
+
+    assert buffer.trim_all_cameras(now=datetime(2026, 5, 15, 12, 0, 0, tzinfo=UTC)) == 0
+
+
 # ----- 5. has_recorded distinguishes "no history" from "stale history" -----
 
 

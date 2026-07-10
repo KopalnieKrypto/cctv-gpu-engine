@@ -927,6 +927,7 @@ def test_main_starts_poller_thread_in_platform_mode(
             patch("client_agent.agent.R2Client", return_value=MagicMock()),
             patch("client_agent.appliance.serve"),
             patch("client_agent.appliance.start_poller_thread") as fake_start,
+            patch("client_agent.appliance.start_maintenance_thread"),
         ):
             main(["--env-dir", str(env_dir)])
 
@@ -1309,3 +1310,210 @@ def test_build_camera_registry_extracts_name_vendor_model_from_heartbeat() -> No
     assert registry["cam-uuid-1"].model == "DS-2CD2042"
     assert registry["cam-uuid-2"].vendor == "Dahua"
     assert registry["cam-uuid-2"].model == "IPC-HFW"
+
+
+# ----- 5d. Buffer maintenance loop enforces BUFFER_HOURS (issue #51) -----
+
+
+def test_maintenance_loop_trims_each_tick_and_survives_errors() -> None:
+    """The maintenance loop is the production caller that finally makes
+    ``BUFFER_HOURS`` mean something: each tick it trims every camera dir,
+    then sleeps ``interval_s``. A transient filesystem error on one tick
+    (recorder racing a delete, momentary EACCES) must NOT kill the daemon
+    thread — otherwise trimming silently stops and the disk fills, the
+    exact regression #51 is about. Drives the loop directly with an
+    injected sleep that trips a sentinel, mirroring the poller's
+    run()-loop resilience test."""
+    from datetime import UTC, datetime
+
+    from client_agent.appliance import _maintenance_loop
+
+    now = datetime(2026, 5, 15, 12, 0, 0, tzinfo=UTC)
+    trims: list[object] = []
+
+    class Stop(Exception):
+        pass
+
+    class FlakyBuffer:
+        def trim_all_cameras(self, *, now: object) -> int:
+            trims.append(now)
+            if len(trims) == 1:
+                raise OSError("transient FS error")
+            return 0
+
+    sleeps: list[float] = []
+
+    def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        if len(sleeps) >= 3:
+            raise Stop()
+
+    try:
+        _maintenance_loop(
+            FlakyBuffer(),
+            interval_s=60,
+            now_fn=lambda: now,
+            sleep=fake_sleep,
+        )
+    except Stop:
+        pass
+
+    # First tick raised inside trim, but the loop kept going — three ticks
+    # happened before the sentinel, each trimming with the injected clock
+    # and sleeping the configured interval.
+    assert len(trims) >= 3
+    assert all(t == now for t in trims)
+    assert sleeps[:3] == [60, 60, 60]
+
+
+def test_start_maintenance_thread_returns_started_daemon_thread(
+    tmp_path: Path,
+) -> None:
+    """The maintenance sweep runs on its own daemon thread so waitress and
+    the poller keep running. ``daemon=True`` is non-negotiable (same reason
+    as the poller thread — clean SIGTERM exit under systemd). The loop is
+    patched so the thread returns immediately; we assert the *threading*
+    contract here, the loop body is covered above."""
+    from client_agent.appliance import start_maintenance_thread
+
+    with patch("client_agent.appliance._maintenance_loop") as fake_loop:
+        thread = start_maintenance_thread(
+            buffer_dir=tmp_path / "buf",
+            environ={"BUFFER_HOURS": "1"},
+        )
+
+    thread.join(timeout=2)
+    assert thread.daemon is True
+    fake_loop.assert_called_once()
+
+
+def test_start_maintenance_thread_builds_buffer_with_env_hours(
+    tmp_path: Path,
+) -> None:
+    """``BUFFER_HOURS`` from env flows into the :class:`RollingBuffer` the
+    maintenance loop trims against — a hardcoded default would enforce the
+    wrong retention window (e.g. trim an 8-hour appliance down to 1h)."""
+    from client_agent.appliance import start_maintenance_thread
+
+    captured: dict[str, object] = {}
+
+    def fake_rolling_buffer(*, base_dir, buffer_hours, **kw):
+        captured["buffer_hours"] = buffer_hours
+        captured["base_dir"] = base_dir
+        return MagicMock()
+
+    with (
+        patch("client_agent.appliance.RollingBuffer", side_effect=fake_rolling_buffer),
+        patch("client_agent.appliance._maintenance_loop"),
+    ):
+        thread = start_maintenance_thread(
+            buffer_dir=tmp_path / "buf",
+            environ={"BUFFER_HOURS": "8"},
+        )
+
+    thread.join(timeout=2)
+    assert captured["buffer_hours"] == 8
+    assert captured["base_dir"] == tmp_path / "buf"
+    assert thread.daemon is True
+
+
+def test_main_starts_maintenance_thread_in_platform_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Wiring guard: platform-mode ``main()`` must start the maintenance
+    thread, else ``BUFFER_HOURS`` stays dead code and the box fills up
+    (issue #51). The poller thread is patched too so the test doesn't
+    spawn real background loops."""
+    import httpx
+    import respx
+
+    from client_agent.appliance import main
+
+    env_dir = tmp_path / "etc-cctv-client"
+    env_dir.mkdir()
+    (env_dir / "r2.env").write_text(
+        "R2_ENDPOINT=https://acct.r2.cloudflarestorage.com\n"
+        "R2_ACCESS_KEY_ID=AK-test\n"
+        "R2_SECRET_ACCESS_KEY=SK-test\n"
+        "R2_BUCKET=surveillance-data\n"
+    )
+    (env_dir / "platform.env").write_text(
+        "PLATFORM_URL=https://platform.example\nAPPLIANCE_TOKEN=tok\nBUFFER_HOURS=1\n"
+    )
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    for k in (
+        "R2_ENDPOINT",
+        "R2_ACCESS_KEY_ID",
+        "R2_SECRET_ACCESS_KEY",
+        "R2_BUCKET",
+        "PLATFORM_URL",
+        "APPLIANCE_TOKEN",
+        "BUFFER_HOURS",
+    ):
+        monkeypatch.delenv(k, raising=False)
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/register").mock(
+            return_value=httpx.Response(
+                200, json={"appliance_id": "app-1", "tenant_id": "tenant-1"}
+            )
+        )
+        mock.post("/appliance/cameras").mock(return_value=httpx.Response(204))
+        mock.post("/appliance/heartbeat").mock(
+            return_value=httpx.Response(200, json={"config": {"cameras": []}})
+        )
+
+        with (
+            patch("client_agent.agent.R2Client", return_value=MagicMock()),
+            patch("client_agent.appliance.serve"),
+            patch("client_agent.appliance.start_poller_thread"),
+            patch("client_agent.appliance.start_maintenance_thread") as fake_maint,
+        ):
+            main(["--env-dir", str(env_dir)])
+
+    fake_maint.assert_called_once()
+    call_kwargs = fake_maint.call_args.kwargs
+    assert "buffer_dir" in call_kwargs
+    assert "environ" in call_kwargs
+
+
+def test_main_does_not_start_maintenance_thread_in_legacy_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without platform.env the appliance runs the legacy flow — no rolling
+    buffer, so no maintenance thread. Starting it anyway would trim a
+    directory that legacy mode never populates (harmless) but signals a
+    mode-detection regression."""
+    env_dir = tmp_path / "etc-cctv-client"
+    env_dir.mkdir()
+    (env_dir / "r2.env").write_text(
+        "R2_ENDPOINT=https://acct.r2.cloudflarestorage.com\n"
+        "R2_ACCESS_KEY_ID=AK-test\n"
+        "R2_SECRET_ACCESS_KEY=SK-test\n"
+        "R2_BUCKET=surveillance-data\n"
+    )
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    for k in (
+        "R2_ENDPOINT",
+        "R2_ACCESS_KEY_ID",
+        "R2_SECRET_ACCESS_KEY",
+        "R2_BUCKET",
+        "PLATFORM_URL",
+        "APPLIANCE_TOKEN",
+    ):
+        monkeypatch.delenv(k, raising=False)
+
+    with (
+        patch("client_agent.agent.R2Client", return_value=MagicMock()),
+        patch("client_agent.appliance.serve"),
+        patch("client_agent.appliance.start_maintenance_thread") as fake_maint,
+    ):
+        from client_agent.appliance import main
+
+        main(["--env-dir", str(env_dir)])
+
+    fake_maint.assert_not_called()

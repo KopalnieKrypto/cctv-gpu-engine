@@ -108,9 +108,15 @@ def test_trim_multi_chunk_uses_concat_demuxer_with_file_list(tmp_path: Path) -> 
     c2 = _chunk(c2_path, end=t10 + timedelta(hours=2))
     output = tmp_path / "out.mp4"
     calls: list[list[str]] = []
+    list_contents: list[str] = []
 
     def runner(cmd, **kwargs):
         calls.append(cmd)
+        # Read the concat list *here* — this stands in for ffmpeg opening
+        # the file during the call. trim_and_concat unlinks it on return,
+        # so reading it afterward would race the cleanup.
+        list_path = Path(cmd[cmd.index("-i") + 1])
+        list_contents.extend(list_path.read_text().splitlines())
 
         class _R:
             returncode = 0
@@ -134,12 +140,12 @@ def test_trim_multi_chunk_uses_concat_demuxer_with_file_list(tmp_path: Path) -> 
     assert cmd[cmd.index("-f") + 1] == "concat"
     assert "-safe" in cmd
     assert cmd[cmd.index("-safe") + 1] == "0"
-    # -i should point at a real file on disk listing both chunks in order.
+    # -i should point at the list file — its contents were captured inside
+    # the runner (see ``list_contents``), i.e. while ffmpeg would be reading
+    # it, because the file is cleaned up once trim_and_concat returns.
     i_idx = cmd.index("-i")
-    list_path = Path(cmd[i_idx + 1])
-    assert list_path.exists()
-    contents = list_path.read_text().splitlines()
-    assert contents == [f"file '{c1_path}'", f"file '{c2_path}'"]
+    assert list_contents == [f"file '{c1_path}'", f"file '{c2_path}'"]
+    assert cmd[i_idx + 1].endswith(".concat.txt")
     # Offsets land at 2700s / 4500s into the virtual stream.
     assert cmd[cmd.index("-ss") + 1] == "2700"
     assert cmd[cmd.index("-to") + 1] == "4500"
@@ -165,3 +171,44 @@ def test_trim_empty_chunks_raises_value_error(tmp_path: Path) -> None:
             output=tmp_path / "out.mp4",
             runner=lambda *a, **kw: None,
         )
+
+
+# ----- 4. multi-chunk path leaves no concat list file behind -----
+
+
+def test_concat_listfile_cleaned_up(tmp_path: Path) -> None:
+    """The concat demuxer needs a temp file list, written with
+    ``delete=False`` so ffmpeg can reopen it by name. Nothing removed it —
+    every multi-chunk task dropped a ``*.concat.txt`` next to the output
+    that never got cleaned, leaking inodes on the appliance (issue #51).
+    After ``trim_and_concat`` returns, the output's directory holds no
+    ``*.concat.txt``."""
+    from client_agent.ffmpeg_trim import trim_and_concat
+
+    t10 = datetime(2026, 5, 15, 10, 0, 0, tzinfo=UTC)
+    c1_path = tmp_path / "chunk_001.mp4"
+    c1_path.write_bytes(b"fake1")
+    c2_path = tmp_path / "chunk_002.mp4"
+    c2_path.write_bytes(b"fake2")
+    out_dir = tmp_path / "trim-out"
+    out_dir.mkdir()
+    output = out_dir / "out.mp4"
+
+    def runner(cmd, **kwargs):
+        # The list file must exist *during* the call — assert that here so
+        # cleanup is proven to happen after ffmpeg is done, not before.
+        assert Path(cmd[cmd.index("-i") + 1]).exists()
+        output.write_bytes(b"fake-concat")
+
+    trim_and_concat(
+        chunks=[
+            _chunk(c1_path, end=t10 + timedelta(hours=1)),
+            _chunk(c2_path, end=t10 + timedelta(hours=2)),
+        ],
+        start=t10 + timedelta(minutes=45),
+        end=t10 + timedelta(minutes=75),
+        output=output,
+        runner=runner,
+    )
+
+    assert list(out_dir.glob("*.concat.txt")) == []

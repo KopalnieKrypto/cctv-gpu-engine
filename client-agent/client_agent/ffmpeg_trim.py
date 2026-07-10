@@ -68,6 +68,9 @@ def trim_and_concat(
     first = chunks[0]
     ss = int((start - first.start).total_seconds())
     to = int((end - first.start).total_seconds())
+    # ``delete=False`` so ffmpeg can reopen the list by name; we own the
+    # cleanup ourselves in the ``finally`` below. Without it every multi-
+    # chunk task leaks a ``*.concat.txt`` next to the output (issue #51).
     list_file = tempfile.NamedTemporaryFile(
         mode="w",
         suffix=".concat.txt",
@@ -77,23 +80,25 @@ def trim_and_concat(
     try:
         for c in chunks:
             list_file.write(f"file '{c.path}'\n")
-    finally:
         list_file.close()
 
-    cmd = [
-        "ffmpeg",
-        "-f",
-        "concat",
-        "-safe",
-        "0",
-        "-i",
-        list_file.name,
-        "-ss",
-        str(ss),
-        "-to",
-        str(to),
-        "-c",
-        "copy",
-        str(output),
-    ]
-    runner(cmd, capture_output=True, text=True)
+        cmd = [
+            "ffmpeg",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            list_file.name,
+            "-ss",
+            str(ss),
+            "-to",
+            str(to),
+            "-c",
+            "copy",
+            str(output),
+        ]
+        runner(cmd, capture_output=True, text=True)
+    finally:
+        list_file.close()
+        Path(list_file.name).unlink(missing_ok=True)

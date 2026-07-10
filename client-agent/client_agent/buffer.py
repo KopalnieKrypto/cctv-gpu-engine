@@ -85,6 +85,24 @@ class RollingBuffer:
                 deleted += 1
         return deleted
 
+    def trim_all_cameras(self, *, now: datetime) -> int:
+        """Trim every camera dir under the buffer root, return total deleted.
+
+        The buffer owns its root, so it — not the caller — enumerates the
+        per-camera dirs and applies :meth:`trim_old_chunks` to each with a
+        single pinned ``now``. This is the production caller for the
+        retention policy: a maintenance thread ticks this on an interval so
+        ``BUFFER_HOURS`` is actually enforced and the appliance disk stays
+        bounded (issue #51). A missing root (no recorder has written yet)
+        is "nothing to trim", not an error."""
+        if not self._base_dir.exists():
+            return 0
+        deleted = 0
+        for cam_dir in self._base_dir.iterdir():
+            if cam_dir.is_dir():
+                deleted += self.trim_old_chunks(cam_dir.name, now=now)
+        return deleted
+
     def has_recorded(self, camera_id: str) -> bool:
         """``True`` iff the camera has at least one chunk on disk.
 

@@ -358,6 +358,103 @@ def test_run_once_upload_failure_marks_task_failed_with_chunk_errors(tmp_path: P
     assert "500" in failed_call[2]
 
 
+# ----- 5b. trimmed output is unlinked after a successful upload -----
+
+
+def test_trim_output_removed_after_successful_upload(tmp_path: Path) -> None:
+    """Once the trimmed mp4 is PUT to R2, the local copy has no second
+    use — leaving it behind fills the appliance disk one task at a time
+    (issue #51). After a successful ``run_once`` the trim output must be
+    gone. The uuid-suffixed path is generated inside ``run_once`` so we
+    capture it from the trim callback."""
+    from client_agent.poller import TaskPoller
+    from client_agent.uploader import UploadResult
+
+    t10 = datetime(2026, 5, 15, 10, 0, 0, tzinfo=UTC)
+    chunk = BufferChunk(path=tmp_path / "chunk_001.mp4", start=t10, end=t10 + timedelta(hours=1))
+    platform = FakePlatform(
+        next_tasks=[
+            Task(
+                id="task-1",
+                camera_id="cam-1",
+                start_time=t10 + timedelta(minutes=15),
+                end_time=t10 + timedelta(minutes=45),
+            )
+        ]
+    )
+    buffer = FakeBuffer(chunks_by_camera={"cam-1": [chunk]})
+    captured: dict[str, Path] = {}
+
+    def fake_trim(*, chunks, start, end, output, runner):
+        captured["output"] = output
+        output.write_bytes(b"fake-trimmed")
+
+    uploader = FakeUploader(
+        results_by_task={"task-1": [UploadResult(chunk_n=0, success=True, key="k")]}
+    )
+    poller = TaskPoller(
+        platform=platform,
+        buffer=buffer,
+        trim_fn=fake_trim,
+        output_dir=tmp_path / "out",
+        uploader=uploader,
+    )
+
+    poller.run_once()
+
+    # The uploader saw the file (it was PUT), but the local copy is gone.
+    assert uploader.upload_calls[0][1] == [captured["output"]]
+    assert not captured["output"].exists()
+
+
+# ----- 5c. trimmed output is unlinked even when the upload fails -----
+
+
+def test_trim_output_removed_after_failed_upload(tmp_path: Path) -> None:
+    """A failed upload re-queues on the platform side (the task goes back
+    to ``failed`` and the operator/platform retries), so the local trim
+    output has no second use here either — it must not linger and leak
+    disk while the box keeps taking new tasks (issue #51)."""
+    from client_agent.poller import TaskPoller
+    from client_agent.uploader import UploadResult
+
+    t10 = datetime(2026, 5, 15, 10, 0, 0, tzinfo=UTC)
+    chunk = BufferChunk(path=tmp_path / "chunk_001.mp4", start=t10, end=t10 + timedelta(hours=1))
+    platform = FakePlatform(
+        next_tasks=[
+            Task(
+                id="task-fail",
+                camera_id="cam-1",
+                start_time=t10 + timedelta(minutes=15),
+                end_time=t10 + timedelta(minutes=45),
+            )
+        ]
+    )
+    buffer = FakeBuffer(chunks_by_camera={"cam-1": [chunk]})
+    captured: dict[str, Path] = {}
+
+    def fake_trim(*, chunks, start, end, output, runner):
+        captured["output"] = output
+        output.write_bytes(b"fake-trimmed")
+
+    uploader = FakeUploader(
+        results_by_task={
+            "task-fail": [UploadResult(chunk_n=0, success=False, error="R2 PUT returned 500")]
+        }
+    )
+    poller = TaskPoller(
+        platform=platform,
+        buffer=buffer,
+        trim_fn=fake_trim,
+        output_dir=tmp_path / "out",
+        uploader=uploader,
+    )
+
+    poller.run_once()
+
+    assert not captured["output"].exists()
+
+
 # ----- 6. run() loop is resilient to transient exceptions (Wi-Fi blip) -----
 
 
