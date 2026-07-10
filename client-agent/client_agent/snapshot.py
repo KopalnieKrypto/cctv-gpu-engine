@@ -31,7 +31,44 @@ _MAX_WIDTH_PX = 640
 # significantly smaller than q=95.
 _JPEG_QUALITY = 70
 
+# Decoder warm-up: the first frame(s) an FFmpeg RTSP session emits are
+# frequently a uniform grey placeholder produced before the first keyframe
+# (IDR) decodes — a 4K BCS/Hikvision H.265 main stream shows per-pixel stddev
+# ~0.3 for frames 0-1 then ~58 from frame 2. Grabbing frame 0 (as the naive
+# read did) uploads that grey placeholder as the preview. Read up to
+# ``_SNAPSHOT_WARMUP_MAX_FRAMES`` until a frame clears ``_SNAPSHOT_MIN_STDDEV``.
+# The cap keeps HEVC 4K decode cost bounded and a genuinely flat scene from
+# spinning; 8.0 sits well above grey (~0.3) and below any real content (~58),
+# so even a dim night scene clears it.
+_SNAPSHOT_WARMUP_MAX_FRAMES = 15
+_SNAPSHOT_MIN_STDDEV = 8.0
+
 SnapshotGrabberFn = Callable[[str, float], bytes]
+
+
+def _select_snapshot_frame(
+    read_fn: Callable[[], tuple[bool, object]],
+    *,
+    max_frames: int = _SNAPSHOT_WARMUP_MAX_FRAMES,
+    min_stddev: float = _SNAPSHOT_MIN_STDDEV,
+) -> object | None:
+    """Read frames until one has real detail, skipping grey warm-up frames.
+
+    ``read_fn`` is ``cv2.VideoCapture.read`` (or a fake): returns
+    ``(ok, frame)`` where ``frame`` exposes ``.std()`` (a numpy ndarray does).
+    Returns the first frame whose per-pixel stddev reaches ``min_stddev``; if
+    none do within ``max_frames`` (a genuinely flat scene or a short stream),
+    the last frame read is returned so the caller still gets the real view.
+    Returns ``None`` when ``read_fn`` never yields a frame."""
+    frame: object | None = None
+    for _ in range(max_frames):
+        ok, candidate = read_fn()
+        if not ok or candidate is None:
+            break
+        frame = candidate
+        if float(candidate.std()) >= min_stddev:  # type: ignore[attr-defined]
+            break
+    return frame
 
 
 def build_snapshot_grabber(
@@ -102,8 +139,10 @@ def _rtsp_frame_grab(url: str, timeout_s: float) -> bytes:
         cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, timeout_ms)
         if not cap.isOpened():
             raise RuntimeError(f"cv2.VideoCapture failed to open {url!r}")
-        ok, frame = cap.read()
-        if not ok or frame is None:
+        # Skip the grey pre-keyframe warm-up frames (see _select_snapshot_frame)
+        # rather than grabbing frame 0, which uploaded a blank grey preview.
+        frame = _select_snapshot_frame(cap.read)
+        if frame is None:
             raise RuntimeError(f"cv2.VideoCapture.read() returned no frame from {url!r}")
         height, width = frame.shape[:2]
         if width > _MAX_WIDTH_PX:
