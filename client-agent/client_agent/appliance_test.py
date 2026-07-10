@@ -103,6 +103,46 @@ def test_load_env_files_skips_blank_lines_and_comments(tmp_path: Path) -> None:
     assert environ == {"RTSP_DEFAULT_USER": "admin"}
 
 
+# ----- authenticated_rtsp_url: re-attach cameras.env creds for the buffer recorder -----
+
+
+def test_authenticated_rtsp_url_injects_creds_from_environ() -> None:
+    """The platform hands back credential-free URLs (#22); the buffer recorder
+    must re-attach the operator's ``cameras.env`` creds or ffmpeg 401s on every
+    ONVIF-discovered camera and the recorder respawns forever, buffering nothing.
+    Password specials are percent-encoded."""
+    from client_agent.appliance import authenticated_rtsp_url
+
+    environ = {"RTSP_DEFAULT_USER": "admin", "RTSP_DEFAULT_PASS": "#J2Zxs9b0iMP"}
+    url = "rtsp://192.168.88.89:554/unicast/c1/s0/live"
+
+    assert (
+        authenticated_rtsp_url(url, environ)
+        == "rtsp://admin:%23J2Zxs9b0iMP@192.168.88.89:554/unicast/c1/s0/live"
+    )
+
+
+def test_authenticated_rtsp_url_noop_when_no_creds_configured() -> None:
+    """No creds in the environ for the host → URL returned untouched (ffmpeg's
+    401 is a clearer signal than a silent rewrite)."""
+    from client_agent.appliance import authenticated_rtsp_url
+
+    url = "rtsp://192.168.88.89:554/unicast/c1/s0/live"
+
+    assert authenticated_rtsp_url(url, {}) == url
+
+
+def test_authenticated_rtsp_url_noop_when_already_credentialed() -> None:
+    """A URL that already carries userinfo (e.g. a hardcoded per-camera URL) is
+    left alone, so the env default creds never clobber an explicit one."""
+    from client_agent.appliance import authenticated_rtsp_url
+
+    environ = {"RTSP_DEFAULT_USER": "admin", "RTSP_DEFAULT_PASS": "envpass"}
+    url = "rtsp://cam:hardcoded@192.168.1.198:554/V_ENC_000"
+
+    assert authenticated_rtsp_url(url, environ) == url
+
+
 # ----- 2. default_recordings_dir: XDG state dir -----
 
 

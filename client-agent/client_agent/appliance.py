@@ -26,12 +26,17 @@ from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from waitress import serve
 
 from client_agent.agent import build_app
 from client_agent.buffer import RollingBuffer
-from client_agent.discovery import DiscoveredCamera
+from client_agent.discovery import (
+    DiscoveredCamera,
+    inject_credentials,
+    resolve_camera_credentials,
+)
 from client_agent.ffmpeg_trim import trim_and_concat
 from client_agent.platform import HeartbeatResponse, PlatformClient
 from client_agent.poller import TaskPoller
@@ -48,6 +53,25 @@ logger = logging.getLogger(__name__)
 # ``recorder.SEGMENT_SECONDS`` so a short camera reactivation doesn't
 # cross a chunk boundary unnecessarily.
 DEFAULT_RECORDING_DURATION_S = 3600
+
+
+def authenticated_rtsp_url(url: str, environ: Mapping[str, str]) -> str:
+    """Re-attach RTSP credentials to a platform-stored (credential-free) URL so
+    the buffer recorder's ffmpeg can authenticate.
+
+    The platform strips userinfo from every stored ``rtsp_url`` (issue #22), so a
+    recorder started straight off ``response.config.cameras`` gets ``401`` on any
+    ONVIF-discovered camera — ``GetStreamUri`` returns a bare
+    ``rtsp://host:port/path`` — whose creds live in ``cameras.env``. The recorder
+    then exits and respawns forever, buffering nothing. Resolve the per-host creds
+    from ``environ`` and inject them. No-op when the URL already carries userinfo
+    or no creds are configured for the host, so it is safe to apply to every
+    camera the platform hands back.
+    """
+    parsed = urlparse(url)
+    if parsed.username or not parsed.hostname:
+        return url
+    return inject_credentials(url, resolve_camera_credentials(parsed.hostname, environ))
 
 
 def _camera_to_push_dict(cam: DiscoveredCamera) -> dict[str, Any]:
@@ -296,7 +320,7 @@ def run_platform_session(
     def _spawn(cam: dict) -> Any:
         rec = recorder_factory()
         rec.start(
-            url=cam["rtsp_url"],
+            url=authenticated_rtsp_url(cam["rtsp_url"], environ),
             duration_s=int(cam.get("duration_s", DEFAULT_RECORDING_DURATION_S)),
             camera_id=cam["id"],
         )
@@ -580,7 +604,6 @@ def main(argv: Sequence[str] | None = None) -> None:
             discover_cameras,
             make_real_rtsp_scan,
             make_real_tuya_scan,
-            resolve_camera_credentials,
         )
 
         env_snapshot = dict(os.environ)

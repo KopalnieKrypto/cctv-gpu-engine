@@ -461,6 +461,58 @@ def test_strip_credentials_preserves_path_with_at_sign() -> None:
     assert strip_credentials_from_url(url) == url
 
 
+def test_inject_credentials_adds_userinfo_to_bare_url() -> None:
+    """Inverse of strip: the platform stores credential-free URLs (#22), so a
+    consumer that must open the stream (the buffer recorder → ffmpeg) has to
+    re-attach ``cameras.env`` creds first. An ONVIF ``GetStreamUri`` result is
+    bare — without this it 401s and the recorder respawns forever."""
+    from client_agent.discovery import inject_credentials
+
+    url = "rtsp://192.168.88.89:554/unicast/c1/s0/live"
+    assert (
+        inject_credentials(url, ("admin", "secret"))
+        == "rtsp://admin:secret@192.168.88.89:554/unicast/c1/s0/live"
+    )
+
+
+def test_inject_credentials_url_encodes_special_password() -> None:
+    """Specials in the password (``#``/``@``/``:``) are percent-encoded so the
+    resulting URL parses correctly downstream (ffmpeg, the recorder)."""
+    from client_agent.discovery import inject_credentials
+
+    url = "rtsp://192.168.88.89:554/unicast/c1/s0/live"
+    assert (
+        inject_credentials(url, ("admin", "#J2Zxs9b0iMP"))
+        == "rtsp://admin:%23J2Zxs9b0iMP@192.168.88.89:554/unicast/c1/s0/live"
+    )
+
+
+def test_inject_credentials_noop_when_credentials_none() -> None:
+    """No creds configured for the host → return the URL untouched."""
+    from client_agent.discovery import inject_credentials
+
+    url = "rtsp://192.168.88.89:554/unicast/c1/s0/live"
+    assert inject_credentials(url, None) == url
+
+
+def test_inject_credentials_noop_when_url_already_credentialed() -> None:
+    """Idempotent: a URL already carrying userinfo is left alone, so applying
+    inject unconditionally can't double-stamp creds."""
+    from client_agent.discovery import inject_credentials
+
+    url = "rtsp://admin:secret@192.168.88.89:554/unicast/c1/s0/live"
+    assert inject_credentials(url, ("other", "creds")) == url
+
+
+def test_inject_credentials_round_trips_with_strip() -> None:
+    """``strip(inject(url, creds)) == url`` — the two helpers are exact inverses,
+    which is the whole #22 store-stripped / use-injected contract."""
+    from client_agent.discovery import inject_credentials, strip_credentials_from_url
+
+    url = "rtsp://192.168.88.89:554/unicast/c1/s0/live"
+    assert strip_credentials_from_url(inject_credentials(url, ("admin", "#J2Zxs9b0iMP"))) == url
+
+
 # ===== Credentials resolver wired into discover_cameras =====
 
 
