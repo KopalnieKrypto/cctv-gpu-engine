@@ -158,20 +158,25 @@ class R2Client:
                 downloaded.append(local)
         return sorted(downloaded)
 
-    def upload_input_chunk(self, job_id: str, fileobj: Any) -> str:
+    def upload_input_chunk(
+        self, job_id: str, fileobj: Any, chunk_name: str = "chunk_001.mp4"
+    ) -> str:
         """Stream an input MP4 chunk to R2 via boto3 multipart upload.
 
-        Used by the client-agent web UI (issue #7). MUST go through
-        ``upload_fileobj`` (not ``put_object``) so the request body is
-        drained chunk-by-chunk — a 2 GB MP4 would otherwise be loaded into
-        the agent process's RAM and OOM the container.
+        Used by the client-agent web UI (issue #7) and the RTSP recorder
+        (issue #8). MUST go through ``upload_fileobj`` (not ``put_object``)
+        so the request body is drained chunk-by-chunk — a 2 GB MP4 would
+        otherwise be loaded into the agent process's RAM and OOM the
+        container.
 
         SPEC §6.2 key convention:
-        ``surveillance-jobs/{job_id}/input/chunk_001.mp4``. Single-chunk for
-        now; multi-chunk recordings (issue #8 / RTSP segmented capture) can
-        pass a different chunk name later.
+        ``surveillance-jobs/{job_id}/input/{chunk_name}``. ``chunk_name``
+        defaults to ``chunk_001.mp4`` for the single-chunk upload-form path;
+        the recorder passes each segment's own filename
+        (``chunk_000.mp4`` … ``chunk_NNN.mp4``) so a segmented recording
+        lands as N distinct objects instead of overwriting one (issue #50).
         """
-        key = f"{self._input_prefix(job_id)}chunk_001.mp4"
+        key = f"{self._input_prefix(job_id)}{chunk_name}"
         self._s3.upload_fileobj(fileobj, self._bucket, key)
         return key
 

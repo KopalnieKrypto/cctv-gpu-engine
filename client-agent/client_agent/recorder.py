@@ -158,7 +158,9 @@ class _UploaderLike(Protocol):
     — no overlap with the upload-MP4 form, no list/get methods, just the
     two writes a recording produces."""
 
-    def upload_input_chunk(self, job_id: str, fileobj: Any) -> str: ...
+    def upload_input_chunk(
+        self, job_id: str, fileobj: Any, chunk_name: str = "chunk_001.mp4"
+    ) -> str: ...
     def put_status(self, job_id: str, status: dict[str, Any]) -> None: ...
 
 
@@ -294,8 +296,12 @@ class Recorder:
             self._status = RecorderStatus(state="uploading", job_id=job_id, chunks_uploaded=0)
 
         for chunk in chunks:
+            # Pass the chunk's own filename as the R2 key suffix. Without
+            # this every segment overwrites ``chunk_001.mp4`` and only the
+            # last hour of a long recording survives (issue #50). ``chunks``
+            # is lexically sorted, so keys land in chronological order.
             with chunk.open("rb") as fh:
-                self.uploader.upload_input_chunk(job_id, fh)
+                self.uploader.upload_input_chunk(job_id, fh, chunk_name=chunk.name)
             with self._lock:
                 self._status.chunks_uploaded += 1
 

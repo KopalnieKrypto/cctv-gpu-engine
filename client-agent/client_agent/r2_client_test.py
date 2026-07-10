@@ -236,6 +236,44 @@ def test_upload_input_chunk_streams_fileobj_via_upload_fileobj() -> None:
     s3.put_object.assert_not_called()
 
 
+def test_upload_input_chunk_respects_chunk_name() -> None:
+    """Regression for issue #50: a multi-chunk recording must be able to
+    write each segment to its own key. ``upload_input_chunk`` takes an
+    optional ``chunk_name`` and PUTs to
+    ``surveillance-jobs/{job_id}/input/{chunk_name}``.
+
+    The default stays ``chunk_001.mp4`` so the single-chunk upload-form
+    path (issue #7) keeps working with no caller change.
+    """
+    from io import BytesIO
+
+    s3 = MagicMock()
+    client = _make_client(s3)
+
+    fileobj = BytesIO(b"hour-2 bytes")
+    key = client.upload_input_chunk("j1", fileobj, chunk_name="chunk_002.mp4")
+
+    assert key == "surveillance-jobs/j1/input/chunk_002.mp4"
+    s3.upload_fileobj.assert_called_once()
+    args, kwargs = s3.upload_fileobj.call_args
+    passed_key = args[2] if args else kwargs["Key"]
+    assert passed_key == "surveillance-jobs/j1/input/chunk_002.mp4"
+
+
+def test_upload_input_chunk_defaults_chunk_name_for_upload_form() -> None:
+    """Backward-compat guard: called without ``chunk_name`` (the upload-form
+    path), ``upload_input_chunk`` still targets ``chunk_001.mp4`` — so the
+    issue #50 signature change doesn't silently move the single-chunk key."""
+    from io import BytesIO
+
+    s3 = MagicMock()
+    client = _make_client(s3)
+
+    key = client.upload_input_chunk("j1", BytesIO(b"single chunk"))
+
+    assert key == "surveillance-jobs/j1/input/chunk_001.mp4"
+
+
 def test_get_report_returns_html_bytes_from_output_report_html_key() -> None:
     """``get_report`` reads the report HTML the worker wrote to R2 and
     returns its raw bytes — used by the client-agent's report viewer.

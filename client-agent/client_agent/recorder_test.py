@@ -174,14 +174,23 @@ class FakeR2ForRecorder:
 
     def __init__(self) -> None:
         self.uploaded: list[tuple[str, bytes]] = []
+        self.keys: list[str] = []
         self.statuses: dict[str, dict[str, Any]] = {}
 
-    def upload_input_chunk(self, job_id: str, fileobj: Any) -> str:
+    def upload_input_chunk(
+        self, job_id: str, fileobj: Any, chunk_name: str = "chunk_001.mp4"
+    ) -> str:
         # Drain the file-like the same way boto3's upload_fileobj would,
         # so the test can assert on the exact bytes that left the host.
         data = fileobj.read()
         self.uploaded.append((job_id, data))
-        return f"surveillance-jobs/{job_id}/input/chunk_{len(self.uploaded):03d}.mp4"
+        # Mirror the production key convention exactly — the destination is
+        # derived from ``chunk_name``, NOT fabricated from call order. The
+        # old fake invented ``chunk_{len:03d}.mp4`` which masked issue #50
+        # (every real chunk overwriting ``chunk_001.mp4`` in R2).
+        key = f"surveillance-jobs/{job_id}/input/{chunk_name}"
+        self.keys.append(key)
+        return key
 
     def put_status(self, job_id: str, status: dict[str, Any]) -> None:
         self.statuses[job_id] = status
@@ -509,6 +518,43 @@ def test_recorder_buffer_mode_routes_to_camera_id_and_leaves_chunks(tmp_path) ->
     ]
     # State machine back to idle so the next start (or per-camera respawn) works.
     assert rec.status().state == "idle"
+
+
+# ----- 14. issue #50: multi-chunk recording writes distinct R2 keys -----
+
+
+def test_multichunk_recording_uploads_distinct_r2_keys(tmp_path) -> None:  # noqa: ANN001
+    """Regression for issue #50: a segmented (multi-chunk) recording must
+    upload each chunk to its OWN R2 key. The bug was that every chunk was
+    written to ``chunk_001.mp4``, so an 8h recording left only its final
+    hour in R2 — silent data loss that the ``chunks_uploaded`` counter
+    happily reported as a full upload.
+
+    The fake mirrors the production signature and records the *real*
+    destination key (``surveillance-jobs/{job}/input/{chunk_name}``) instead
+    of fabricating one from call order, so this test actually exercises the
+    key the recorder asks for. Order-preserving because the worker downloads
+    the ``input/`` prefix lexically sorted."""
+    fake_r2 = FakeR2ForRecorder()
+
+    rec = Recorder(
+        uploader=fake_r2,
+        runner=_make_runner_that_writes_chunks(
+            {"chunk_000.mp4": b"h0", "chunk_001.mp4": b"h1", "chunk_002.mp4": b"h2"}
+        ),
+        output_dir_factory=lambda jid: str(tmp_path / jid),
+        job_id_factory=lambda: "job-multi",
+    )
+
+    rec.start(url="rtsp://camera.local/stream", duration_s=4 * 3600)
+
+    assert fake_r2.keys == [
+        "surveillance-jobs/job-multi/input/chunk_000.mp4",
+        "surveillance-jobs/job-multi/input/chunk_001.mp4",
+        "surveillance-jobs/job-multi/input/chunk_002.mp4",
+    ]
+    # Distinctness is the crux — the bug produced three identical keys.
+    assert len(set(fake_r2.keys)) == 3
 
 
 # ----- BackgroundRecorder thread survival + is_running contract -----
