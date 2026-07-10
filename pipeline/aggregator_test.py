@@ -14,7 +14,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from pipeline.aggregator import Aggregator, ReportData
+from pipeline.aggregator import MAX_KEYFRAME_CANDIDATES, Aggregator, ReportData
 from pipeline.postprocessing import Detection, Keypoint
 
 
@@ -239,3 +239,66 @@ class TestAggregatorKeyframes:
         timestamps = [kf.timestamp_s for kf in agg.build_report_data().keyframes]
 
         assert timestamps == sorted(timestamps)
+
+
+class TestAggregatorCandidateBuffer:
+    """Issue #49: the candidate keyframe buffer must be provably bounded.
+
+    ``add_frame`` used to append ``frame.copy()`` for *every* frame with a
+    person, with no cap — a 1 h 1080p video of a continuously-present person
+    accumulates ~3600 frames ≈ 21 GiB RSS and OOMs the gpu-service container.
+    This violates the CLAUDE.md hard rule "frame-by-frame processing, never
+    full video in RAM". The buffer only ever needs ~keyframe_count frames.
+    """
+
+    def test_candidate_buffer_is_bounded_by_constant(self):
+        # A person in every one of 500 frames must NOT retain 500 raw frames.
+        agg = Aggregator(fps=1)
+        for t in range(500):
+            agg.add_frame(float(t), _frame(64, 64), [_det("standing")])
+
+        assert agg.candidate_count <= MAX_KEYFRAME_CANDIDATES
+
+    def test_sole_occurrence_of_an_activity_survives_eviction_flood(self):
+        """Eviction must not drop the ONLY frame of a rare activity.
+
+        Regression guard against a naive "evict lowest person_count" bound: an
+        early single-person ``running`` frame is the lowest-value candidate,
+        yet it is the sole evidence of running in the whole video. Per-activity
+        coverage (an existing keyframe guarantee) must survive bounding, so the
+        report still shows what happened rather than only the crowded frames.
+        """
+        agg = Aggregator(fps=1, keyframe_count=8, keyframe_min_spacing_s=0.0)
+        # One low-value running frame very early...
+        agg.add_frame(0.0, _frame(64, 64), [_det("running")])
+        # ...then a flood of higher-person-count walking frames.
+        for t in range(1, 400):
+            agg.add_frame(float(t), _frame(64, 64), [_det("walking")] * 3)
+
+        activities = {kf.detections[0].activity for kf in agg.build_report_data().keyframes}
+
+        assert "running" in activities
+        assert "walking" in activities
+
+    def test_memory_footprint_stays_flat_regardless_of_video_length(self):
+        """Retained keyframe bytes stay bounded as frame count scales (AC #2).
+
+        The OOM risk in issue #49 comes entirely from retained ``frame.copy()``
+        buffers, so summing ``kf.frame.nbytes`` over the candidate buffer is the
+        memory that actually matters. (We assert on nbytes rather than
+        ``tracemalloc`` because numpy allocates its data buffers outside
+        CPython's allocator, so tracemalloc does not see the frame bytes — the
+        exact allocation that causes the OOM.) On the old unbounded code, 1000
+        frames of 640×360 retain ~1.2 GiB; the bound caps it near 42 MiB.
+
+        Linear-extrapolation assumption: bytes-per-frame is constant, so a bound
+        that holds at 1000 frames holds for a 1 h (3600-frame) video too.
+        """
+        frame_bytes = 360 * 640 * 3  # 640×360 BGR uint8 ≈ 0.66 MiB
+        agg = Aggregator(fps=1)
+        for t in range(1000):
+            agg.add_frame(float(t), _frame(360, 640), [_det("walking")])
+
+        retained_bytes = sum(c.frame.nbytes for c in agg._candidates)
+
+        assert retained_bytes <= 2 * MAX_KEYFRAME_CANDIDATES * frame_bytes

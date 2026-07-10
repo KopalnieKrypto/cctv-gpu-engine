@@ -10,8 +10,9 @@ processed frame and tracks just enough state to build a complete
 * 1-minute timeline bins (per-activity)
 * a bounded buffer of "best" candidate keyframes for the report
 
-The aggregator never holds more than ``keyframe_buffer_size`` raw frames in
-memory, so it stays flat regardless of video length.
+The aggregator never retains more than ``MAX_KEYFRAME_CANDIDATES`` raw frames
+in memory (evicting the lowest-value unprotected candidate on overflow), so RSS
+stays flat regardless of video length (issue #49).
 """
 
 from __future__ import annotations
@@ -23,6 +24,13 @@ import numpy as np
 from pipeline.postprocessing import Detection
 
 ACTIVITIES = ("sitting", "standing", "walking", "running")
+
+# Hard cap on the number of raw candidate frames retained for keyframe
+# selection. The selector only ever needs ~keyframe_count (8) frames; 64 gives
+# ample slack for per-activity coverage + min-spacing fill while keeping RSS
+# flat regardless of video length (issue #49). At 1080p BGR (~5.9 MiB/frame)
+# this bounds the candidate buffer at ~380 MiB instead of unbounded ~21 GiB/h.
+MAX_KEYFRAME_CANDIDATES = 64
 
 
 @dataclass
@@ -78,9 +86,14 @@ class Aggregator:
         self._activity_person_frames: dict[str, int] = dict.fromkeys(ACTIVITIES, 0)
         self._last_timestamp_s = 0.0
         self._bins: dict[int, TimelineBin] = {}
-        # All frames with ≥1 person are kept as candidates. We do not bound this
-        # buffer in tests; the orchestrator caps at runtime via _trim_candidates.
+        # Frames with ≥1 person are kept as keyframe candidates, capped at
+        # MAX_KEYFRAME_CANDIDATES (issue #49). ``_activity_best`` pins the top
+        # candidate of each observed activity so eviction can never drop the
+        # sole evidence of a rare activity — per-activity report coverage
+        # survives bounding. Its values are always objects still in
+        # ``_candidates`` (protected frames are never evicted).
         self._candidates: list[Keyframe] = []
+        self._activity_best: dict[str, Keyframe] = {}
 
     def add_frame(
         self,
@@ -108,14 +121,49 @@ class Aggregator:
         if person_count > 0:
             # Keep a copy of the frame because the caller will overwrite the
             # buffer on the next ffmpeg read.
-            self._candidates.append(
-                Keyframe(
-                    timestamp_s=timestamp_s,
-                    person_count=person_count,
-                    frame=frame.copy(),
-                    detections=list(detections),
-                )
+            candidate = Keyframe(
+                timestamp_s=timestamp_s,
+                person_count=person_count,
+                frame=frame.copy(),
+                detections=list(detections),
             )
+            self._candidates.append(candidate)
+            self._update_activity_best(candidate)
+            self._evict_if_over_capacity()
+
+    @property
+    def candidate_count(self) -> int:
+        """Number of raw frames currently retained (bounded, issue #49)."""
+        return len(self._candidates)
+
+    def _update_activity_best(self, candidate: Keyframe) -> None:
+        """Pin ``candidate`` as an activity's best if it outranks the incumbent.
+
+        Ranking matches ``_select_keyframes`` pass 1: highest ``person_count``,
+        ties broken by earliest timestamp. A frame is a candidate for every
+        activity present among its detections.
+        """
+        key = (candidate.person_count, -candidate.timestamp_s)
+        for activity in {d.activity for d in candidate.detections if d.activity in ACTIVITIES}:
+            incumbent = self._activity_best.get(activity)
+            if incumbent is None or key > (incumbent.person_count, -incumbent.timestamp_s):
+                self._activity_best[activity] = candidate
+
+    def _evict_if_over_capacity(self) -> None:
+        """Drop the lowest-value *unprotected* candidate over the cap.
+
+        Per-activity bests are protected so bounding never erases the sole
+        evidence of a rare activity. Protected frames number at most
+        ``len(ACTIVITIES)`` (4) ≪ cap, so an evictable candidate always exists.
+        """
+        if len(self._candidates) <= MAX_KEYFRAME_CANDIDATES:
+            return
+        protected = {id(k) for k in self._activity_best.values()}
+        evictable = [k for k in self._candidates if id(k) not in protected]
+        if not evictable:
+            return
+        worst = min(evictable, key=lambda k: (k.person_count, k.timestamp_s))
+        self._candidates = [k for k in self._candidates if k is not worst]
 
     def _select_keyframes(self) -> list[Keyframe]:
         """Two-pass selection: one keyframe per detected activity, then fill.
