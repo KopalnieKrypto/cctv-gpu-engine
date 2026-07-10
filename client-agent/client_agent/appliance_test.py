@@ -1492,6 +1492,46 @@ def test_build_camera_registry_extracts_name_vendor_model_from_heartbeat() -> No
     assert registry["cam-uuid-2"].model == "IPC-HFW"
 
 
+def test_build_camera_registry_injects_rtsp_credentials_from_environ() -> None:
+    """When ``environ`` is passed, the credential-free RTSP url the platform
+    stores (#22) is re-credentialed from ``cameras.env`` so the snapshot
+    poller's cv2/ffmpeg can authenticate — otherwise the /cameras preview stays
+    a placeholder. Already-credentialed urls are left untouched."""
+    from client_agent.appliance import build_camera_registry
+    from client_agent.platform import HeartbeatResponse
+
+    response = HeartbeatResponse(
+        config={
+            "cameras": [
+                {"id": "cam-1", "rtsp_url": "rtsp://192.168.88.89:554/live"},
+                {"id": "cam-2", "rtsp_url": "rtsp://u:p@192.168.88.90:554/live"},
+            ]
+        }
+    )
+    environ = {"RTSP_DEFAULT_USER": "admin", "RTSP_DEFAULT_PASS": "#J2Zxs9b0iMP"}
+
+    registry = build_camera_registry(response, environ)
+
+    # Bare url → creds injected; the '#'-leading password is percent-encoded.
+    assert registry["cam-1"].rtsp_url == "rtsp://admin:%23J2Zxs9b0iMP@192.168.88.89:554/live"
+    # Already-credentialed url is left as-is.
+    assert registry["cam-2"].rtsp_url == "rtsp://u:p@192.168.88.90:554/live"
+
+
+def test_build_camera_registry_without_environ_leaves_urls_bare() -> None:
+    """Backward-compat: no ``environ`` → urls stored verbatim."""
+    from client_agent.appliance import build_camera_registry
+    from client_agent.platform import HeartbeatResponse
+
+    response = HeartbeatResponse(
+        config={"cameras": [{"id": "cam-1", "rtsp_url": "rtsp://192.168.88.89:554/live"}]}
+    )
+
+    registry = build_camera_registry(response)
+
+    assert registry["cam-1"].rtsp_url == "rtsp://192.168.88.89:554/live"
+
+
 # ----- 5d. Buffer maintenance loop enforces BUFFER_HOURS (issue #51) -----
 
 
