@@ -1,22 +1,51 @@
-"""Pre-flight VRAM check for the gpu-service container (issue #43).
+"""Pre-flight VRAM check + GPU selection for the gpu-service container.
 
-Operators previously saw mid-load PyTorch OOM tracebacks when another CUDA
-process held most of the GPU. This module turns that into a one-line,
-structured fail-fast at container startup.
+Two jobs, run once at container startup before any model loads:
+
+1. **Select** the visible GPU with the most free VRAM and pin every downstream
+   CUDA consumer to it via ``CUDA_VISIBLE_DEVICES=<uuid>``. This lets the box
+   host a warm SGLang LLM on one GPU while CCTV inference lands on the free one
+   — no static per-GPU assignment, the container adapts to whatever's free.
+2. **Fail fast** (issue #43) if *no* GPU has enough free VRAM: one structured
+   ``VRAM_PREFLIGHT_FAIL …`` stderr line + ``exit(2)`` instead of a mid-load
+   PyTorch OOM traceback that masks the real cause (another CUDA process).
+
+The free-VRAM query goes through ``nvidia-smi`` (NVML), *not* torch — so no
+CUDA context is created here. That's what makes the ``CUDA_VISIBLE_DEVICES``
+pin effective: it is set before torch/onnxruntime first initialise CUDA, so
+their default ``cuda:0`` / ``device_id=0`` transparently maps to the chosen
+physical GPU. UUID (not index) is used so the pin is immune to device ordering.
 """
 
 from __future__ import annotations
 
+import logging
+import os
+import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, MutableMapping
+from dataclasses import dataclass
 from typing import IO
 
-MemGetInfo = Callable[[], tuple[int, int]]
+logger = logging.getLogger(__name__)
+
 _MIB = 1024 * 1024
 
 
 class InsufficientVRAMError(Exception):
-    """Free VRAM is below the configured budget for this classifier."""
+    """No visible GPU has enough free VRAM for the configured budget."""
+
+
+class NoGpuError(Exception):
+    """nvidia-smi reported no usable GPU (or is unavailable)."""
+
+
+@dataclass(frozen=True)
+class GpuInfo:
+    index: int
+    uuid: str
+    free_mb: int
+    total_mb: int
 
 
 # Per-classifier VRAM budgets (MiB). Source: warm-load occupancy on a clean
@@ -27,6 +56,8 @@ DEFAULT_BUDGETS_MB: dict[str, int] = {
     "vlm": 7168,
 }
 
+QueryGpus = Callable[[], list[GpuInfo]]
+
 
 def resolve_required_mb(classifier: str, env_override: str | None) -> int:
     """Decide the budget for this run: env var beats classifier default."""
@@ -35,45 +66,105 @@ def resolve_required_mb(classifier: str, env_override: str | None) -> int:
     return DEFAULT_BUDGETS_MB[classifier]
 
 
-def _default_mem_get_info() -> tuple[int, int]:
-    """Lazy-import torch.cuda so unit tests don't pull onnxruntime / cu128."""
-    import torch
+def parse_nvidia_smi(csv_text: str) -> list[GpuInfo]:
+    """Parse ``index,uuid,memory.free,memory.total`` CSV rows (nounits → MiB).
 
-    return torch.cuda.mem_get_info(0)
+    Blank lines and short/garbled rows are skipped rather than raising — a
+    partial parse still lets ``select_best_gpu`` pick from the usable GPUs.
+    """
+    gpus: list[GpuInfo] = []
+    for raw in csv_text.strip().splitlines():
+        parts = [p.strip() for p in raw.split(",")]
+        if len(parts) < 4:
+            continue
+        try:
+            gpus.append(
+                GpuInfo(
+                    index=int(parts[0]),
+                    uuid=parts[1],
+                    free_mb=int(parts[2]),
+                    total_mb=int(parts[3]),
+                )
+            )
+        except ValueError:
+            continue
+    return gpus
+
+
+def _default_query_gpus() -> list[GpuInfo]:
+    """Query every visible GPU's free VRAM via nvidia-smi (no CUDA context)."""
+    try:
+        completed = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=index,uuid,memory.free,memory.total",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise NoGpuError(f"nvidia-smi unavailable: {exc}") from exc
+    return parse_nvidia_smi(completed.stdout)
+
+
+def select_best_gpu(gpus: list[GpuInfo]) -> GpuInfo:
+    """The GPU with the most free VRAM; ties break to the lowest index."""
+    if not gpus:
+        raise NoGpuError("nvidia-smi reported no GPU")
+    return max(gpus, key=lambda g: (g.free_mb, -g.index))
 
 
 def preflight_or_exit(
     classifier: str,
     env_override: str | None,
-    mem_get_info: MemGetInfo | None = None,
+    query_gpus: QueryGpus | None = None,
+    environ: MutableMapping[str, str] | None = None,
     stderr: IO[str] = sys.stderr,
     exit_fn: Callable[[int], None] = sys.exit,
 ) -> None:
-    """Run the VRAM check at container entrypoint.
+    """Select the freest GPU and pin CUDA to it, or fail fast.
 
-    On insufficient VRAM: write one ``VRAM_PREFLIGHT_FAIL …`` line to stderr
-    (flushed, single line so gpu-agent's failure capture stays clean) and call
-    ``exit_fn(2)``. On success: no output, no exit — caller proceeds to load
-    models. Both ``mem_get_info`` and ``exit_fn`` are injectable for tests.
+    On success: sets ``CUDA_VISIBLE_DEVICES`` to the chosen GPU's UUID and
+    returns (no stderr output). On no-GPU or insufficient-VRAM: writes one
+    ``VRAM_PREFLIGHT_FAIL …`` line to ``stderr`` and calls ``exit_fn(2)``.
+    ``query_gpus``, ``environ``, and ``exit_fn`` are injectable for tests.
     """
     required = resolve_required_mb(classifier, env_override)
-    if mem_get_info is None:
-        mem_get_info = _default_mem_get_info
+    if query_gpus is None:
+        query_gpus = _default_query_gpus
+    if environ is None:
+        environ = os.environ
+
     try:
-        check_vram_budget(required, mem_get_info)
-    except InsufficientVRAMError as exc:
+        gpus = query_gpus()
+        best = select_best_gpu(gpus)
+        if best.free_mb < required:
+            raise InsufficientVRAMError(
+                f"insufficient VRAM: required={required} MiB; freest of {len(gpus)} "
+                f"GPU(s) is GPU {best.index} with free={best.free_mb} MiB, "
+                f"total={best.total_mb} MiB. "
+                f"Another CUDA process is likely consuming VRAM; "
+                f"nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv"
+            )
+    except (InsufficientVRAMError, NoGpuError) as exc:
         print(f"VRAM_PREFLIGHT_FAIL {exc}", file=stderr, flush=True)
         exit_fn(2)
+        return
 
-
-def check_vram_budget(required_mb: int, mem_get_info: MemGetInfo) -> None:
-    free_bytes, total_bytes = mem_get_info()
-    free_mb = free_bytes // _MIB
-    total_mb = total_bytes // _MIB
-    if free_mb < required_mb:
-        raise InsufficientVRAMError(
-            f"insufficient VRAM on GPU 0: required={required_mb} MiB, "
-            f"free={free_mb} MiB, total={total_mb} MiB. "
-            f"Another CUDA process is likely consuming VRAM; "
-            f"nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv"
-        )
+    # Pin every downstream CUDA consumer (torch cuda:0, onnxruntime device_id=0)
+    # to the chosen GPU. Set BEFORE the first torch import initialises CUDA —
+    # rest_server/worker call this before _warm_up_pipeline, so the pin holds.
+    environ["CUDA_VISIBLE_DEVICES"] = best.uuid
+    logger.info(
+        "VRAM preflight: selected GPU %d (%s) free=%d MiB of %d MiB "
+        "for classifier=%s (required=%d MiB)",
+        best.index,
+        best.uuid,
+        best.free_mb,
+        best.total_mb,
+        classifier,
+        required,
+    )
