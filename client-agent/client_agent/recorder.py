@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import subprocess
 import threading
 import uuid
 from collections.abc import Callable
@@ -52,8 +53,6 @@ def probe_rtsp(url: str, *, timeout: float, runner) -> ProbeResult:
     hung past the deadline" — we catch it here so the operator sees a
     clean ProbeResult instead of a Flask 500 (#8 testing focus).
     """
-    import subprocess as _sp
-
     try:
         result = runner(
             [
@@ -72,7 +71,7 @@ def probe_rtsp(url: str, *, timeout: float, runner) -> ProbeResult:
             capture_output=True,
             text=True,
         )
-    except _sp.TimeoutExpired:
+    except subprocess.TimeoutExpired:
         return ProbeResult(ok=False, message=f"timeout after {timeout}s")
     if result.returncode == 0:
         return ProbeResult(ok=True)
@@ -210,13 +209,33 @@ class Recorder:
     one-shot recordings (Flask UI flow) still require an uploader."""
 
     uploader: _UploaderLike | None = None
-    runner: Callable[..., Any]
+    # ``runner`` is the ``subprocess.run``-shaped boundary used ONLY by
+    # :meth:`probe` (a bounded, blocking call that must surface
+    # ``TimeoutExpired``). ``popen_factory`` is the ``subprocess.Popen``-shaped
+    # boundary used by the recording itself: we keep the handle so
+    # :meth:`stop` can actually SIGTERM the ffmpeg child (issue #52) instead
+    # of only flipping in-memory state.
+    runner: Callable[..., Any] = subprocess.run
+    popen_factory: Callable[..., Any] = subprocess.Popen
     output_dir_factory: Callable[[str], str]
     job_id_factory: Callable[[], str] = _default_job_id
     clock: Callable[[], datetime] = field(default=lambda: datetime.now(UTC))
+    # Seconds to wait for ffmpeg to honour SIGTERM before escalating to
+    # SIGKILL (issue #52). ffmpeg flushes the current segment's moov atom on
+    # SIGTERM, so a few seconds keeps the last chunk playable; past that we
+    # stop waiting so an operator "stop" can't hang on a wedged encoder.
+    stop_grace_s: float = 5.0
 
     _status: RecorderStatus = field(default_factory=RecorderStatus)
     _lock: threading.Lock = field(default_factory=threading.Lock)
+    # Handle on the in-flight ffmpeg child (``None`` when idle). Held under
+    # ``_lock`` so :meth:`stop` on the web thread can read it while the
+    # recording thread is blocked in ``communicate()``.
+    _proc: Any = field(default=None)
+    # Set by :meth:`stop` so the recording thread, once ffmpeg is terminated
+    # and ``communicate`` returns, knows the exit was operator-requested and
+    # skips the R2 upload (a killed recording must not create a phantom job).
+    _cancelled: bool = field(default=False)
 
     def status(self) -> RecorderStatus:
         """Return a snapshot of the current state. Cheap, lock-protected."""
@@ -241,7 +260,23 @@ class Recorder:
         is the source of truth in this mode.
 
         Default (``camera_id=None``) is the legacy one-shot mode: chunks
-        upload to R2 immediately and the temp dir is removed afterwards."""
+        upload to R2 immediately and the temp dir is removed afterwards.
+
+        Split into :meth:`_reserve` (atomic slot claim) + :meth:`_run`
+        (the ffmpeg work) so :class:`BackgroundRecorder` can claim the slot
+        synchronously on the HTTP thread and only defer ``_run`` to the
+        daemon thread — closing the concurrent-start TOCTOU (issue #52)."""
+        job_id = self._reserve(camera_id)
+        return self._run(job_id, url=url, duration_s=duration_s, camera_id=camera_id)
+
+    def _reserve(self, camera_id: str | None) -> str:
+        """Atomically claim the single recording slot, returning the ``job_id``.
+
+        Raises :class:`RecorderBusy` if a recording is already in flight. This
+        is the ONLY place the ``idle → recording`` transition happens, and it
+        runs under ``_lock``, so two callers racing to start can never both
+        win — exactly one gets the slot, the other gets ``RecorderBusy`` on
+        its own (HTTP) thread."""
         buffer_mode = camera_id is not None
         with self._lock:
             if self._status.state in ("recording", "uploading"):
@@ -251,17 +286,53 @@ class Recorder:
             # way (one identifier per active recording).
             job_id = camera_id if buffer_mode else self.job_id_factory()
             self._status = RecorderStatus(state="recording", job_id=job_id)
+            self._cancelled = False
+            self._proc = None
+        return job_id
 
+    def _run(self, job_id: str, *, url: str, duration_s: int, camera_id: str | None) -> str:
+        """Run ffmpeg for an already-reserved slot and upload/keep its chunks.
+
+        Assumes :meth:`_reserve` has already claimed the slot for ``job_id``;
+        never re-checks busy state. Safe to run on a background thread."""
+        buffer_mode = camera_id is not None
         out_dir = Path(self.output_dir_factory(job_id))
         out_dir.mkdir(parents=True, exist_ok=True)
         cmd = build_ffmpeg_cmd(
             url=url, duration_s=duration_s, output_dir=str(out_dir), buffer_mode=buffer_mode
         )
+        # Spawn ffmpeg and KEEP THE HANDLE so ``stop`` can terminate it
+        # (issue #52). ``communicate`` blocks until ffmpeg exits — naturally
+        # (``-t`` elapsed), on a crash, or because ``stop`` sent it a signal.
         # We don't catch subprocess errors here — partial output (the
         # camera-offline-mid-recording case) is reported by ffmpeg as a
         # non-zero exit but still leaves chunks on disk, so we always
         # walk the dir afterwards instead of branching on returncode.
-        result = self.runner(cmd, capture_output=True, text=True)
+        proc = self.popen_factory(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        with self._lock:
+            self._proc = proc
+            # Close the spawn-window race: if ``stop`` fired between the
+            # reservation and here (proc was still ``None`` when it looked),
+            # it set ``_cancelled`` without a handle to kill. Honour it now so
+            # a stop-right-after-start can never leave ffmpeg running.
+            cancel_now = self._cancelled
+        if cancel_now:
+            self._terminate_proc(proc)
+        _, stderr = proc.communicate()
+        returncode = proc.returncode
+        with self._lock:
+            self._proc = None
+            cancelled = self._cancelled
+
+        if cancelled:
+            # Operator/platform requested the stop. Do NOT upload a killed
+            # legacy recording (issue point #2 — that phantom job would just
+            # fail in the GPU worker); buffer-mode chunks stay on disk for the
+            # poller. ``stop`` already set state=idle; leave it (a fresh start
+            # may already own the state machine, so we must not clobber it).
+            if not buffer_mode:
+                shutil.rmtree(out_dir, ignore_errors=True)
+            return job_id
 
         chunks = sorted(out_dir.glob("*.mp4"))
         # Filter out 0-byte files — ffmpeg creates the output file before
@@ -274,8 +345,7 @@ class Recorder:
                 self._status = RecorderStatus(
                     state="failed",
                     job_id=job_id,
-                    message=(getattr(result, "stderr", "") or "").strip()
-                    or f"ffmpeg exited {getattr(result, 'returncode', '?')} with no output",
+                    message=(stderr or "").strip() or f"ffmpeg exited {returncode} with no output",
                 )
             if not buffer_mode:
                 shutil.rmtree(out_dir, ignore_errors=True)
@@ -335,16 +405,37 @@ class Recorder:
         return probe_rtsp(url, timeout=timeout, runner=self.runner)
 
     def stop(self) -> None:
-        """Mark the current recording as cancelled.
+        """Terminate the in-flight ffmpeg child and reset to ``idle`` (issue #52).
 
-        The synchronous ffmpeg run can't be interrupted from here without
-        a real subprocess handle, but flipping state to ``idle`` lets the
-        web layer return a clean 200 and the next recording proceed. The
-        production wiring (web route → background thread → real
-        ``subprocess.run``) hands the actual SIGTERM problem to the
-        thread layer, which is out of scope for the unit tests."""
+        For a CCTV product "stop recording" must mean recording stops *now*,
+        not "within ``duration_s``". We hold the ffmpeg handle (``_proc``), so
+        this actually SIGTERMs it: the recording thread's ``communicate``
+        returns, sees ``_cancelled``, and skips the upload.
+
+        Ordering is race-safe against a near-simultaneous ``start``: we set
+        ``_cancelled`` and read ``_proc`` under the same lock ``start`` uses to
+        publish the handle. If the handle isn't up yet (stop beat the spawn),
+        ``start`` observes ``_cancelled`` right after it publishes ``_proc``
+        and terminates the child itself.
+
+        Idempotent: calling ``stop`` while idle just re-asserts idle."""
         with self._lock:
+            self._cancelled = True
+            proc = self._proc
             self._status = RecorderStatus(state="idle")
+        if proc is not None:
+            self._terminate_proc(proc)
+
+    def _terminate_proc(self, proc: Any) -> None:
+        """SIGTERM the ffmpeg child and wait up to ``stop_grace_s`` for it to
+        flush and exit. Safe to call from the web thread while the recording
+        thread is blocked in ``communicate`` — modern CPython guards
+        concurrent ``wait``/``communicate`` on one ``Popen`` internally."""
+        proc.terminate()
+        try:
+            proc.wait(timeout=self.stop_grace_s)
+        except subprocess.TimeoutExpired:
+            proc.kill()
 
 
 class BackgroundRecorder:
@@ -367,25 +458,28 @@ class BackgroundRecorder:
         self._thread: threading.Thread | None = None
 
     def start(self, *, url: str, duration_s: int, camera_id: str | None = None) -> str:
-        # Pre-flight the busy check on the main thread so /start can
-        # return 409 *before* the operator's request returns. Otherwise
-        # the rejection would be invisible to the HTTP layer.
-        snapshot = self._inner.status()
-        if snapshot.state in ("recording", "uploading"):
-            raise RecorderBusy(f"recorder already busy in state {snapshot.state!r}")
+        # Claim the recording slot SYNCHRONOUSLY on the caller's (HTTP)
+        # thread. ``_reserve`` does the atomic idle→recording flip under the
+        # inner lock and raises ``RecorderBusy`` if the slot is taken — so a
+        # second concurrent ``/start`` is rejected here, on the request
+        # thread, and the web layer turns it into a 409. The old code only
+        # pre-checked a stale ``status()`` then spawned the thread, so two
+        # near-simultaneous callers both passed and the loser raised
+        # ``RecorderBusy`` invisibly inside its daemon thread (issue #52 #4).
+        job_id = self._inner._reserve(camera_id)
 
         def _target() -> None:
-            # Wrap the synchronous Recorder.start so an exception inside
-            # ffmpeg / upload / status-handshake does NOT silently kill the
-            # daemon thread with no trace. Source incident: Wi-Fi blip on a
-            # macOS dev box dropped the RTSP TCP, ffmpeg exited with an
-            # error, the exception propagated out of the thread and
-            # ``reconcile_recorders`` then refused to respawn because the
-            # dead handle was still in ``active`` (#66-shaped silent fail
-            # for the recorder lane). The warning + downstream is_running()
-            # check together make this self-healing on the next heartbeat.
+            # Wrap ``_run`` so an exception inside ffmpeg / upload /
+            # status-handshake does NOT silently kill the daemon thread with
+            # no trace. Source incident: Wi-Fi blip on a macOS dev box dropped
+            # the RTSP TCP, ffmpeg exited with an error, the exception
+            # propagated out of the thread and ``reconcile_recorders`` then
+            # refused to respawn because the dead handle was still in
+            # ``active`` (#66-shaped silent fail for the recorder lane). The
+            # warning + downstream is_running() check together make this
+            # self-healing on the next heartbeat.
             try:
-                self._inner.start(url=url, duration_s=duration_s, camera_id=camera_id)
+                self._inner._run(job_id, url=url, duration_s=duration_s, camera_id=camera_id)
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "recorder thread for camera_id=%s url=%s exited with exception: %s",

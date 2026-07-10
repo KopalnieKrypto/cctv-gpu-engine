@@ -13,6 +13,8 @@ should not break these tests.
 
 from __future__ import annotations
 
+import threading
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -634,6 +636,144 @@ def test_run_platform_session_stops_recorder_when_camera_flips_to_disabled() -> 
     assert active_recorders == {}
     # No new spawn — disabled means tear-down only.
     assert factory_calls == 0
+
+
+class _InFlightFakePopen:
+    """``subprocess.Popen``-shaped fake whose ``communicate`` blocks until the
+    recorder terminates it — models an ffmpeg that keeps capturing until it is
+    signalled. Records ``terminated`` so a test can prove reconcile actually
+    SIGTERMed the child (issue #52) rather than merely dropping the handle.
+
+    Deliberately kept self-contained (not imported from ``recorder_test``) so
+    each test module owns its fakes, matching this file's ``_make_camera``
+    style."""
+
+    def __init__(self, cmd) -> None:  # noqa: ANN001
+        self.args = cmd
+        self.cmd = cmd
+        self.terminated = False
+        self.killed = False
+        self.returncode: int | None = None
+        self._exited = threading.Event()
+        self.entered_wait = threading.Event()
+
+    def poll(self):  # noqa: ANN201
+        return self.returncode
+
+    def wait(self, timeout=None):  # noqa: ANN001, ANN201
+        self.entered_wait.set()
+        if not self._exited.wait(timeout):
+            import subprocess
+
+            raise subprocess.TimeoutExpired(self.cmd, timeout)
+        if self.returncode is None:
+            self.returncode = 0
+        return self.returncode
+
+    def communicate(self, timeout=None):  # noqa: ANN001, ANN201
+        self.wait(timeout)
+        return ("", "")
+
+    def terminate(self) -> None:
+        self.terminated = True
+        self._exited.set()
+
+    def kill(self) -> None:
+        self.killed = True
+        self._exited.set()
+
+
+def test_run_platform_session_disable_terminates_underlying_ffmpeg(tmp_path: Path) -> None:
+    """Issue #52 acceptance: revoking a camera must terminate its ffmpeg child,
+    not just drop the handle from the active map. Before the fix, reconcile's
+    ``stop`` only flipped in-memory state — ffmpeg kept writing chunks for up
+    to ``duration_s`` (default 1h) after the operator disabled the camera.
+
+    Unlike the MagicMock disable test above, this wires a *real*
+    ``BackgroundRecorder(Recorder(...))`` to a fake ffmpeg, so it proves the
+    whole disable path (heartbeat → reconcile → ``_stop`` → ``BackgroundRecorder.stop``
+    → ``Recorder.stop`` → ``terminate``) reaches the process, not just the map."""
+    import httpx
+    import respx
+
+    from client_agent.appliance import run_platform_session
+    from client_agent.platform import PlatformClient
+    from client_agent.recorder import BackgroundRecorder, Recorder
+
+    created: list[_InFlightFakePopen] = []
+
+    def _popen_factory(cmd, **kwargs):  # noqa: ANN001, ANN202
+        proc = _InFlightFakePopen(cmd)
+        created.append(proc)
+        return proc
+
+    def recorder_factory():  # noqa: ANN202
+        return BackgroundRecorder(
+            Recorder(
+                uploader=None,  # buffer mode never uploads
+                popen_factory=_popen_factory,
+                output_dir_factory=lambda cam_id: str(tmp_path / "buffer" / cam_id),
+            )
+        )
+
+    active: dict[str, object] = {}
+    discover_fn = lambda: [_make_camera()]  # noqa: E731
+
+    enabled = {
+        "cameras": [
+            {
+                "id": "cam-1",
+                "enabled": True,
+                "rtsp_url": "rtsp://192.168.50.2:554/live",
+                "duration_s": 86400,
+            }
+        ]
+    }
+    disabled = {
+        "cameras": [{"id": "cam-1", "enabled": False, "rtsp_url": "rtsp://192.168.50.2:554/live"}]
+    }
+    heartbeat_calls = {"n": 0}
+
+    def _heartbeat(request):  # noqa: ANN001, ANN202
+        cfg = enabled if heartbeat_calls["n"] == 0 else disabled
+        heartbeat_calls["n"] += 1
+        return httpx.Response(200, json={"config": cfg})
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/register").mock(
+            return_value=httpx.Response(200, json={"appliance_id": "a", "tenant_id": "t"})
+        )
+        mock.post("/appliance/cameras").mock(return_value=httpx.Response(204))
+        mock.post("/appliance/heartbeat").mock(side_effect=_heartbeat)
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        # Heartbeat 1: cam-1 enabled → spawn a buffer-mode recorder.
+        run_platform_session(
+            platform_client=client,
+            discover_fn=discover_fn,
+            recorder_factory=recorder_factory,
+            active_recorders=active,
+            environ={},
+        )
+
+        # Wait until ffmpeg is spawned and actually capturing.
+        deadline = time.time() + 2.0
+        while not (created and created[0].entered_wait.is_set()) and time.time() < deadline:
+            time.sleep(0.01)
+        assert created and created[0].entered_wait.is_set(), "recorder never started ffmpeg"
+        assert "cam-1" in active
+
+        # Heartbeat 2: operator revoked approval → reconcile must stop it.
+        run_platform_session(
+            platform_client=client,
+            discover_fn=discover_fn,
+            recorder_factory=recorder_factory,
+            active_recorders=active,
+            environ={},
+        )
+
+    assert created[0].terminated is True, "reconcile disable must terminate the ffmpeg child"
+    assert active == {}, "the disabled camera's handle must be dropped from the active map"
 
 
 # ----- 6. reconcile_recorders: camera approval lock (issue #27, Slice 1c.2) -----

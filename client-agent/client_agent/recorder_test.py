@@ -14,6 +14,7 @@ production code can pass ``subprocess.run`` directly with no shim.
 from __future__ import annotations
 
 import subprocess
+import threading
 from typing import Any
 
 from client_agent.recorder import (
@@ -196,29 +197,124 @@ class FakeR2ForRecorder:
         self.statuses[job_id] = status
 
 
-def _make_runner_that_writes_chunks(
-    chunks: dict[str, bytes],
-    returncode: int = 0,
-    stderr: str = "",
-):
-    """Build a runner that simulates ffmpeg by dropping files into the
-    recording dir before "exiting". The runner inspects the cmd to find
-    the output template (last positional) and resolves the dir from it,
-    then materialises the requested chunk files there. This is the
-    cleanest way to fake ffmpeg without conditionally branching on cmd
-    shape — both the short and long branches end up with files on disk."""
+class FakePopen:
+    """``subprocess.Popen``-shaped fake for the recorder's recording boundary.
 
-    def _run(cmd, **kwargs):  # noqa: ANN001
+    Issue #52 moved recording from a blocking ``subprocess.run`` to a
+    ``subprocess.Popen`` handle the recorder keeps so ``stop`` can SIGTERM
+    the ffmpeg child. This fake mirrors just the slice the recorder uses:
+    ``communicate`` / ``wait`` / ``poll`` / ``terminate`` / ``kill`` /
+    ``returncode``.
+
+    Two lifecycles:
+
+    * ``auto_exit=True`` (default) — ffmpeg "ran its course" (``-t`` elapsed)
+      and exited on its own: ``communicate``/``wait`` return immediately.
+      Used by the single-threaded happy-path tests.
+    * ``auto_exit=False`` — a long capture that only ends when the recorder
+      signals it: ``communicate``/``wait`` block on an Event that
+      ``terminate``/``kill`` set. Lets a ``stop`` test drive the in-flight
+      case from another thread.
+
+    Chunk files are materialised at construction (ffmpeg opens its output
+    while capturing), so both the upload path and the "partial chunks left
+    on disk" path see files regardless of how the process ends.
+
+    ``ignore_terminate=True`` models a wedged ffmpeg that shrugs off SIGTERM,
+    forcing ``stop`` to escalate to ``kill()`` after the grace window.
+    """
+
+    def __init__(
+        self,
+        cmd,  # noqa: ANN001
+        *,
+        chunks: dict[str, bytes] | None = None,
+        returncode: int = 0,
+        stderr: str = "",
+        auto_exit: bool = True,
+        ignore_terminate: bool = False,
+    ) -> None:
         from pathlib import Path
 
-        output_template = cmd[-1]
-        out_dir = Path(output_template).parent
-        out_dir.mkdir(parents=True, exist_ok=True)
-        for name, data in chunks.items():
-            (out_dir / name).write_bytes(data)
-        return subprocess.CompletedProcess(args=cmd, returncode=returncode, stderr=stderr)
+        self.args = cmd
+        self.cmd = cmd
+        self.terminated = False
+        self.killed = False
+        self.returncode: int | None = None
+        self._pending_returncode = returncode
+        self._stderr = stderr
+        self._ignore_terminate = ignore_terminate
+        self._exited = threading.Event()
+        self._reap_lock = threading.Lock()
+        # Set the instant the recorder starts blocking in ``wait``/``communicate``.
+        # Lets a stop-test synchronise on "ffmpeg is genuinely in flight" instead
+        # of racing the spawn window.
+        self.entered_wait = threading.Event()
+        if chunks:
+            out_dir = Path(cmd[-1]).parent
+            out_dir.mkdir(parents=True, exist_ok=True)
+            for name, data in chunks.items():
+                (out_dir / name).write_bytes(data)
+        if auto_exit:
+            self._exited.set()
 
-    return _run
+    def _reap(self) -> None:
+        with self._reap_lock:
+            if self.returncode is None:
+                self.returncode = self._pending_returncode
+
+    def poll(self):  # noqa: ANN201
+        return self.returncode
+
+    def wait(self, timeout=None):  # noqa: ANN001, ANN201
+        self.entered_wait.set()
+        if not self._exited.wait(timeout):
+            raise subprocess.TimeoutExpired(self.cmd, timeout)
+        self._reap()
+        return self.returncode
+
+    def communicate(self, timeout=None):  # noqa: ANN001, ANN201
+        self.wait(timeout)
+        return ("", self._stderr)
+
+    def terminate(self) -> None:
+        self.terminated = True
+        if not self._ignore_terminate:
+            self._exited.set()
+
+    def kill(self) -> None:
+        self.killed = True
+        self._exited.set()
+
+
+def _popen_factory(
+    chunks: dict[str, bytes] | None = None,
+    *,
+    returncode: int = 0,
+    stderr: str = "",
+    auto_exit: bool = True,
+    ignore_terminate: bool = False,
+):
+    """Build a ``subprocess.Popen``-shaped factory that yields :class:`FakePopen`.
+
+    Every spawned process is recorded on ``.created`` so a test can assert
+    on ``terminate``/``kill`` after the recording ends."""
+    created: list[FakePopen] = []
+
+    def _factory(cmd, **kwargs):  # noqa: ANN001, ANN202
+        proc = FakePopen(
+            cmd,
+            chunks=chunks,
+            returncode=returncode,
+            stderr=stderr,
+            auto_exit=auto_exit,
+            ignore_terminate=ignore_terminate,
+        )
+        created.append(proc)
+        return proc
+
+    _factory.created = created  # type: ignore[attr-defined]
+    return _factory
 
 
 # ----- 7. Recorder.start invokes runner with the right cmd and transitions state -----
@@ -233,15 +329,15 @@ def test_recorder_start_invokes_ffmpeg_and_uploads_chunks(tmp_path) -> None:  # 
     Uses an injected ``output_dir_factory`` so the test pins the temp dir
     under pytest's ``tmp_path`` instead of the real ``/tmp``."""
     fake_r2 = FakeR2ForRecorder()
-    runner_calls: list[list[str]] = []
+    popen_calls: list[list[str]] = []
 
-    def _capturing_runner(cmd, **kwargs):  # noqa: ANN001
-        runner_calls.append(list(cmd))
-        return _make_runner_that_writes_chunks({"recording.mp4": b"fake-mp4-bytes"})(cmd, **kwargs)
+    def _capturing_factory(cmd, **kwargs):  # noqa: ANN001
+        popen_calls.append(list(cmd))
+        return FakePopen(cmd, chunks={"recording.mp4": b"fake-mp4-bytes"})
 
     rec = Recorder(
         uploader=fake_r2,
-        runner=_capturing_runner,
+        popen_factory=_capturing_factory,
         output_dir_factory=lambda job_id: str(tmp_path / job_id),
         job_id_factory=lambda: "job-rec-001",
     )
@@ -249,9 +345,9 @@ def test_recorder_start_invokes_ffmpeg_and_uploads_chunks(tmp_path) -> None:  # 
     rec.start(url="rtsp://camera.local/stream", duration_s=3600)
 
     # ffmpeg was invoked once with the cmd build_ffmpeg_cmd would produce.
-    assert len(runner_calls) == 1
-    assert runner_calls[0][0] == "ffmpeg"
-    assert "rtsp://camera.local/stream" in runner_calls[0]
+    assert len(popen_calls) == 1
+    assert popen_calls[0][0] == "ffmpeg"
+    assert "rtsp://camera.local/stream" in popen_calls[0]
     # Chunk reached R2 with the right job_id and the bytes ffmpeg "wrote".
     assert fake_r2.uploaded == [("job-rec-001", b"fake-mp4-bytes")]
     # status.json handshake — pending so the worker picks it up.
@@ -273,25 +369,24 @@ def test_recorder_rejects_concurrent_start(tmp_path) -> None:  # noqa: ANN001
     both recordings."""
     fake_r2 = FakeR2ForRecorder()
 
-    # A runner that pauses the "ffmpeg" call long enough for the second
-    # start to race in. We do this by having the runner itself call back
-    # into the recorder before "exiting" — easier than wiring threads.
+    # A factory that observes state *while ffmpeg is spawning* by re-entering
+    # the recorder before returning the handle — easier than wiring threads.
+    # The outer start has already reserved state='recording' by the time the
+    # factory runs, so the second start must raise.
     busy_observed: list[bool] = []
 
-    def _runner(cmd, **kwargs):  # noqa: ANN001
-        # While we're "inside ffmpeg", state should be 'recording' and
-        # a second start must raise.
+    def _factory(cmd, **kwargs):  # noqa: ANN001
         try:
             rec.start(url="rtsp://other/stream", duration_s=3600)
             busy_observed.append(False)
         except RecorderBusy:
             busy_observed.append(True)
         # Then act like a normal successful ffmpeg run.
-        return _make_runner_that_writes_chunks({"recording.mp4": b"x"})(cmd, **kwargs)
+        return FakePopen(cmd, chunks={"recording.mp4": b"x"})
 
     rec = Recorder(
         uploader=fake_r2,
-        runner=_runner,
+        popen_factory=_factory,
         output_dir_factory=lambda job_id: str(tmp_path / job_id),
         job_id_factory=lambda: "job-busy-1",
     )
@@ -316,15 +411,10 @@ def test_recorder_marks_failed_when_ffmpeg_produces_no_chunks(tmp_path) -> None:
     and surface the error in the UI."""
     fake_r2 = FakeR2ForRecorder()
 
-    def _runner(cmd, **kwargs):  # noqa: ANN001
-        # Don't write any chunk files — simulate "ffmpeg refused the URL".
-        return subprocess.CompletedProcess(
-            args=cmd, returncode=1, stderr="rtsp://nope: Connection refused"
-        )
-
     rec = Recorder(
         uploader=fake_r2,
-        runner=_runner,
+        # No chunk files — simulate "ffmpeg refused the URL".
+        popen_factory=_popen_factory(returncode=1, stderr="rtsp://nope: Connection refused"),
         output_dir_factory=lambda job_id: str(tmp_path / job_id),
         job_id_factory=lambda: "job-doomed",
     )
@@ -351,17 +441,14 @@ def test_recorder_rejects_zero_byte_chunks(tmp_path) -> None:  # noqa: ANN001
     no R2 writes."""
     fake_r2 = FakeR2ForRecorder()
 
-    def _runner(cmd, **kwargs):  # noqa: ANN001
+    rec = Recorder(
+        uploader=fake_r2,
         # Simulate ffmpeg creating an empty file and failing.
-        return _make_runner_that_writes_chunks(
+        popen_factory=_popen_factory(
             {"recording.mp4": b""},
             returncode=1,
             stderr="Could not find tag for codec pcm_mulaw in stream #1",
-        )(cmd, **kwargs)
-
-    rec = Recorder(
-        uploader=fake_r2,
-        runner=_runner,
+        ),
         output_dir_factory=lambda job_id: str(tmp_path / job_id),
         job_id_factory=lambda: "job-zerobyte",
     )
@@ -391,17 +478,14 @@ def test_recorder_uploads_partial_chunks_when_ffmpeg_fails_late(tmp_path) -> Non
     single status.json was written."""
     fake_r2 = FakeR2ForRecorder()
 
-    def _runner(cmd, **kwargs):  # noqa: ANN001
+    rec = Recorder(
+        uploader=fake_r2,
         # Simulate ffmpeg flushing two segments before crashing.
-        return _make_runner_that_writes_chunks(
+        popen_factory=_popen_factory(
             {"chunk_000.mp4": b"hour-1", "chunk_001.mp4": b"hour-2"},
             returncode=1,
             stderr="RTSP/1.0 200 OK ... Input/output error",
-        )(cmd, **kwargs)
-
-    rec = Recorder(
-        uploader=fake_r2,
-        runner=_runner,
+        ),
         output_dir_factory=lambda job_id: str(tmp_path / job_id),
         job_id_factory=lambda: "job-partial",
     )
@@ -427,12 +511,9 @@ def test_recorder_cleans_up_temp_dir_after_upload(tmp_path) -> None:  # noqa: AN
     fake_r2 = FakeR2ForRecorder()
     out_dir = tmp_path / "job-cleanup"
 
-    def _runner(cmd, **kwargs):  # noqa: ANN001
-        return _make_runner_that_writes_chunks({"recording.mp4": b"some bytes"})(cmd, **kwargs)
-
     rec = Recorder(
         uploader=fake_r2,
-        runner=_runner,
+        popen_factory=_popen_factory({"recording.mp4": b"some bytes"}),
         output_dir_factory=lambda job_id: str(out_dir),
         job_id_factory=lambda: "job-cleanup",
     )
@@ -453,14 +534,11 @@ def test_recorder_status_preserves_chunks_uploaded_after_idle(tmp_path) -> None:
     idle reset clobbered the counter."""
     fake_r2 = FakeR2ForRecorder()
 
-    def _runner(cmd, **kwargs):  # noqa: ANN001
-        return _make_runner_that_writes_chunks(
-            {"chunk_000.mp4": b"a", "chunk_001.mp4": b"b", "chunk_002.mp4": b"c"}
-        )(cmd, **kwargs)
-
     rec = Recorder(
         uploader=fake_r2,
-        runner=_runner,
+        popen_factory=_popen_factory(
+            {"chunk_000.mp4": b"a", "chunk_001.mp4": b"b", "chunk_002.mp4": b"c"}
+        ),
         output_dir_factory=lambda jid: str(tmp_path / jid),
         job_id_factory=lambda: "job-count",
     )
@@ -496,7 +574,7 @@ def test_recorder_buffer_mode_routes_to_camera_id_and_leaves_chunks(tmp_path) ->
 
     rec = Recorder(
         uploader=fake_r2,
-        runner=_make_runner_that_writes_chunks({"chunk_000.mp4": b"aaa", "chunk_001.mp4": b"bbb"}),
+        popen_factory=_popen_factory({"chunk_000.mp4": b"aaa", "chunk_001.mp4": b"bbb"}),
         output_dir_factory=_factory,
         # job_id_factory should NOT be called in buffer mode — wire it to a
         # sentinel that would explode if invoked.
@@ -539,7 +617,7 @@ def test_multichunk_recording_uploads_distinct_r2_keys(tmp_path) -> None:  # noq
 
     rec = Recorder(
         uploader=fake_r2,
-        runner=_make_runner_that_writes_chunks(
+        popen_factory=_popen_factory(
             {"chunk_000.mp4": b"h0", "chunk_001.mp4": b"h1", "chunk_002.mp4": b"h2"}
         ),
         output_dir_factory=lambda jid: str(tmp_path / jid),
@@ -555,6 +633,143 @@ def test_multichunk_recording_uploads_distinct_r2_keys(tmp_path) -> None:  # noq
     ]
     # Distinctness is the crux — the bug produced three identical keys.
     assert len(set(fake_r2.keys)) == 3
+
+
+# ===== stop() actually terminates the ffmpeg child (issue #52) =====
+#
+# Before #52, ``stop`` only flipped in-memory state to idle; the blocking
+# ``subprocess.run`` had no handle so ffmpeg kept capturing for up to
+# ``duration_s``. With the ``popen_factory`` boundary the recorder holds the
+# handle and ``stop`` sends it SIGTERM. These tests drive an *in-flight*
+# recording from a real thread (the fake's ``communicate`` blocks until the
+# recorder signals it) — hermetic (no ffmpeg, no network) but concurrent.
+
+
+def _wait_until(pred, *, timeout: float = 2.0, step: float = 0.01) -> bool:
+    """Spin until ``pred()`` is truthy or ``timeout`` elapses.
+
+    Used to synchronise the test thread with the recording thread without a
+    fixed sleep (which would be either flaky or needlessly slow)."""
+    import time
+
+    elapsed = 0.0
+    while not pred() and elapsed < timeout:
+        time.sleep(step)
+        elapsed += step
+    return pred()
+
+
+def test_stop_terminates_inflight_ffmpeg(tmp_path) -> None:  # noqa: ANN001
+    """Acceptance criterion (#52): ``stop`` must terminate the ffmpeg child,
+    not just flip state. Legacy (job_id) mode: a long recording is in flight
+    on a background thread; the fake ffmpeg blocks until signalled. After
+    ``stop`` the underlying process got ``terminate()``, the state machine is
+    back to ``idle``, and — crucially — the killed partial recording is NOT
+    uploaded to R2 (issue point #2: stop must not leave a phantom job)."""
+    fake_r2 = FakeR2ForRecorder()
+    factory = _popen_factory({"recording.mp4": b"partial"}, auto_exit=False)
+
+    rec = Recorder(
+        uploader=fake_r2,
+        popen_factory=factory,
+        output_dir_factory=lambda job_id: str(tmp_path / job_id),
+        job_id_factory=lambda: "job-stop",
+    )
+
+    thread = threading.Thread(
+        target=lambda: rec.start(url="rtsp://camera.local/stream", duration_s=8 * 3600),
+        daemon=True,
+    )
+    thread.start()
+
+    # Wait until ffmpeg is actually spawned and blocking (state=recording).
+    assert _wait_until(
+        lambda: bool(factory.created) and factory.created[0].entered_wait.is_set()
+    ), "recording never reached the in-flight state"
+    assert rec.status().state == "recording"
+
+    rec.stop()
+    thread.join(timeout=2.0)
+
+    assert not thread.is_alive(), "start thread should return once ffmpeg is terminated"
+    proc = factory.created[0]
+    assert proc.terminated is True, "stop must SIGTERM the ffmpeg child"
+    assert rec.status().state == "idle"
+    # The operator killed this recording — its partial output must not be
+    # uploaded (would create a phantom job the GPU worker later fails on).
+    assert fake_r2.uploaded == []
+    assert fake_r2.statuses == {}
+
+
+def test_stop_kills_after_grace(tmp_path) -> None:  # noqa: ANN001
+    """A wedged ffmpeg that ignores SIGTERM must not let ``stop`` hang the
+    web thread. After ``stop_grace_s`` the recorder escalates to SIGKILL so
+    the operator's "stop" always completes and the camera always frees up.
+    The fake ignores ``terminate()`` (models the wedged encoder), so the
+    grace ``wait`` times out and ``kill()`` is the only thing that unblocks
+    the recording thread."""
+    fake_r2 = FakeR2ForRecorder()
+    factory = _popen_factory({"recording.mp4": b"x"}, auto_exit=False, ignore_terminate=True)
+
+    rec = Recorder(
+        uploader=fake_r2,
+        popen_factory=factory,
+        output_dir_factory=lambda job_id: str(tmp_path / job_id),
+        job_id_factory=lambda: "job-wedged",
+        stop_grace_s=0.1,  # keep the test fast; production default is 5s
+    )
+
+    thread = threading.Thread(
+        target=lambda: rec.start(url="rtsp://camera.local/stream", duration_s=8 * 3600),
+        daemon=True,
+    )
+    thread.start()
+
+    assert _wait_until(
+        lambda: bool(factory.created) and factory.created[0].entered_wait.is_set()
+    ), "recording never reached the in-flight state"
+
+    rec.stop()
+    thread.join(timeout=2.0)
+
+    assert not thread.is_alive()
+    proc = factory.created[0]
+    assert proc.terminated is True, "stop must try SIGTERM first"
+    assert proc.killed is True, "stop must escalate to SIGKILL when SIGTERM is ignored"
+    assert rec.status().state == "idle"
+
+
+def test_stop_in_buffer_mode_stops_chunk_production(tmp_path) -> None:  # noqa: ANN001
+    """Buffer mode (issue #27) is the appliance's continuous-capture path:
+    ffmpeg writes 60s chunks into the rolling buffer indefinitely. When the
+    platform disables the camera the recorder must actually stop producing
+    chunks — before #52 ffmpeg kept writing for up to ``duration_s`` (default
+    1h). Through the production wrapper (:class:`BackgroundRecorder`): after
+    ``stop`` the ffmpeg child is terminated and ``is_running()`` — the signal
+    ``reconcile_recorders`` polls — reports ``False`` so the slot is free."""
+    from client_agent.recorder import BackgroundRecorder
+
+    factory = _popen_factory({"chunk_000.mp4": b"aaa"}, auto_exit=False)
+    inner = Recorder(
+        uploader=None,  # buffer mode never uploads — the poller does
+        popen_factory=factory,
+        output_dir_factory=lambda cam_id: str(tmp_path / "buffer" / cam_id),
+    )
+    bg = BackgroundRecorder(inner)
+
+    bg.start(url="rtsp://camera.local/stream", duration_s=8 * 3600, camera_id="cam-front")
+
+    assert _wait_until(
+        lambda: bool(factory.created) and factory.created[0].entered_wait.is_set()
+    ), "buffer recording never reached the in-flight state"
+    assert bg.is_running() is True
+
+    bg.stop()
+
+    assert _wait_until(lambda: not bg.is_running()), "recorder still running after stop"
+    proc = factory.created[0]
+    assert proc.terminated is True, "buffer-mode stop must terminate the ffmpeg child"
+    assert bg.is_running() is False
 
 
 # ----- BackgroundRecorder thread survival + is_running contract -----
@@ -576,8 +791,12 @@ def test_background_recorder_is_running_false_when_thread_exits_via_exception(
     from client_agent.recorder import BackgroundRecorder, Recorder
 
     class _Boom(Recorder):
-        def start(  # type: ignore[override]
-            self, *, url: str, duration_s: int, camera_id: str | None = None
+        # ``BackgroundRecorder`` reserves the slot synchronously then runs the
+        # ffmpeg work via ``_run`` on the daemon thread (issue #52 TOCTOU fix),
+        # so the simulated crash must come from ``_run`` to exercise the
+        # daemon-thread exception path.
+        def _run(  # type: ignore[override]
+            self, job_id: str, *, url: str, duration_s: int, camera_id: str | None
         ) -> str:
             raise RuntimeError("simulated ffmpeg crash on RTSP drop")
 
@@ -615,3 +834,61 @@ def test_background_recorder_is_running_false_before_start() -> None:
     )
     bg = BackgroundRecorder(inner)
     assert bg.is_running() is False
+
+
+def test_concurrent_start_second_caller_gets_busy(tmp_path) -> None:  # noqa: ANN001
+    """Issue #52 (#4): ``BackgroundRecorder.start`` must claim the single
+    recording slot SYNCHRONOUSLY on the caller's (HTTP) thread. The old code
+    only pre-checked a stale ``status()`` then spawned a daemon thread, so two
+    near-simultaneous ``/start`` calls both passed the check and the loser
+    raised ``RecorderBusy`` invisibly *inside* its daemon thread — its HTTP
+    caller had already been told the recording was scheduled.
+
+    A purely sequential test can't expose that race (the daemon reliably flips
+    state before the second call), so we pin the *mechanism*: the slot claim
+    (the ``idle → recording`` flip, which computes the ``job_id``) must happen
+    on the caller's own thread before ``start`` returns. We observe that via
+    the injected ``job_id_factory``:
+
+    * fixed → the factory ran on the test (caller) thread → the reservation is
+      synchronous → a second caller is rejected on its own thread.
+    * broken → the factory ran on the daemon thread (or hadn't run yet when
+      ``start`` returned) → the rejection would surface only in the daemon.
+    """
+    import pytest
+
+    from client_agent.recorder import BackgroundRecorder
+
+    caller = threading.current_thread()
+    reserve_threads: list[threading.Thread] = []
+
+    def _job_id_factory() -> str:
+        reserve_threads.append(threading.current_thread())
+        return "job-1"
+
+    # First recording stays in flight (blocks) so the slot is genuinely busy
+    # while the second caller races in. Legacy mode so the reservation calls
+    # ``job_id_factory`` (buffer mode would key on camera_id instead).
+    factory = _popen_factory({"recording.mp4": b"x"}, auto_exit=False)
+    inner = Recorder(
+        uploader=FakeR2ForRecorder(),
+        popen_factory=factory,
+        output_dir_factory=lambda job_id: str(tmp_path / job_id),
+        job_id_factory=_job_id_factory,
+    )
+    bg = BackgroundRecorder(inner)
+
+    bg.start(url="rtsp://camera.local/1", duration_s=8 * 3600)
+
+    # The slot was claimed synchronously, on THIS thread, before start returned.
+    assert reserve_threads == [caller], "reservation must run on the caller thread"
+    assert bg.status().state == "recording"
+
+    # A second caller must be rejected on THIS thread, not inside a daemon —
+    # and without invoking job_id_factory again (busy check comes first).
+    with pytest.raises(RecorderBusy):
+        bg.start(url="rtsp://camera.local/2", duration_s=8 * 3600)
+    assert reserve_threads == [caller], "a rejected start must not claim a job_id"
+
+    # Tear down: stop the first recording so its daemon thread exits cleanly.
+    bg.stop()
