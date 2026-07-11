@@ -15,6 +15,7 @@ need nothing more than a single GET/PUT with no auth headers.
 
 from __future__ import annotations
 
+import shutil
 import time
 import urllib.error
 import urllib.request
@@ -23,6 +24,12 @@ from pathlib import Path
 from typing import Any
 
 from gpu_service.http_retry import with_retry
+
+# Copy-buffer size for streaming a download to disk. Bounds peak RAM per
+# in-flight chunk at ~1 MiB regardless of the object's size (surveillance
+# chunks are multi-GB — see #56). shutil.copyfileobj reads this many bytes
+# per call.
+_COPY_BUFFER = 1024 * 1024
 
 # Exceptions we treat as retriable. URLError / HTTPError cover most
 # transient network and 5xx conditions; ConnectionError catches socket-level
@@ -53,13 +60,31 @@ class PresignedHttpClient:
         self._sleep = sleep
 
     def download(self, url: str, dest: Path) -> None:
+        # Stream the body straight to disk in bounded buffers. Peak RAM is
+        # ~_COPY_BUFFER, not the object size — a multi-GB surveillance chunk
+        # must never be held whole in the REST container's RAM alongside the
+        # YOLO + VLM models (#56).
+        part = dest.with_suffix(".part")
+
         def _op() -> None:
             with self._opener(url) as response:
-                body = response.read()
+                # Check status *before* consuming the body — a non-2xx (e.g.
+                # an expired presigned URL) should fail fast, not after a
+                # pointless full read.
                 _ensure_2xx(response, url)
-            dest.write_bytes(body)
+                with part.open("wb") as fh:
+                    shutil.copyfileobj(response, fh, _COPY_BUFFER)
+            # Rename is atomic on the same filesystem: dest only ever appears
+            # fully written, so a failed/retried attempt can never leave a
+            # truncated file that downstream mistakes for complete.
+            part.replace(dest)
 
-        with_retry(_op, sleep=self._sleep, retry_on=RETRIABLE)
+        try:
+            with_retry(_op, sleep=self._sleep, retry_on=RETRIABLE)
+        except BaseException:
+            # Terminal failure — drop the partial temp so it can't linger.
+            part.unlink(missing_ok=True)
+            raise
 
     def upload(self, url: str, body: bytes) -> None:
         def _op() -> None:

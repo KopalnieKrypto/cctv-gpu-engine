@@ -124,15 +124,19 @@ class PresignedUploader:
                 success=False,
                 error=f"platform refused upload-url ({exc.status_code})",
             )
-        body = local_path.read_bytes()
-
         refreshed = False
         while True:
             last: httpx.Response | None = None
             last_error: str | None = None
             for i in range(_PUT_ATTEMPTS):
                 try:
-                    last = self._http_put(upload_url.url, content=body, timeout=_PUT_TIMEOUT)
+                    # Stream the chunk straight off disk — a multi-GB chunk on
+                    # a mini-PC must not be read whole into RAM (#56). Reopen
+                    # per attempt so a retry/refresh gets a fresh, unconsumed
+                    # handle. httpx reads the file within the call, so closing
+                    # it after the PUT returns is safe.
+                    with local_path.open("rb") as fh:
+                        last = self._http_put(upload_url.url, content=fh, timeout=_PUT_TIMEOUT)
                 except httpx.HTTPError as exc:
                     # A transport error (ConnectError / ReadError / ReadTimeout
                     # from a Wi-Fi blip) is not a status code — mirror

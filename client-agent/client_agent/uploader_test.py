@@ -78,6 +78,47 @@ def test_upload_chunk_happy_path_gets_url_then_puts_chunk(tmp_path: Path) -> Non
     assert put_route.calls.last.request.content == chunk_body
 
 
+# ----- 1b. upload_chunk streams the file rather than reading it into RAM -----
+
+
+def test_upload_streams_file_content(tmp_path: Path) -> None:
+    """A multi-GB chunk on a mini-PC must not be materialized in RAM before
+    the PUT — ``httpx`` accepts a file-like object as ``content`` and streams
+    it off disk. Assert the injected put-callable receives a readable file
+    object, not a ``bytes`` snapshot of the whole file (#56)."""
+    from client_agent.uploader import PresignedUploader
+
+    chunk_path = tmp_path / "chunk_777.mp4"
+    chunk_path.write_bytes(b"m" * (2 * 1024 * 1024))
+
+    seen: dict = {}
+
+    def capture_put(url: str, *, content: object, timeout: object) -> httpx.Response:
+        seen["is_bytes"] = isinstance(content, (bytes, bytearray))
+        seen["readable"] = hasattr(content, "read")
+        return httpx.Response(200)
+
+    with respx.mock(assert_all_called=True) as mock:
+        mock.get(
+            "https://platform.example/appliance/upload-url",
+            params={"task_id": "task-1", "chunk_n": "7"},
+        ).mock(
+            return_value=httpx.Response(
+                200,
+                json={"url": "https://r2.example/k?sig=ok", "key": "k", "expires_in": 1800},
+            )
+        )
+
+        platform = PlatformClient(base_url="https://platform.example", token="tok")
+        uploader = PresignedUploader(platform=platform, http_put=capture_put)
+
+        result = uploader.upload_chunk("task-1", 7, chunk_path)
+
+    assert result.success is True
+    assert seen["is_bytes"] is False
+    assert seen["readable"] is True
+
+
 # ----- 2. upload_chunk retries on 5xx with exp backoff -----
 
 
