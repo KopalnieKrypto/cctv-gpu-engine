@@ -18,6 +18,8 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from client_agent.r2_client import R2Client
 
 
@@ -312,3 +314,126 @@ def test_upload_report_uses_output_result_json_key_and_returns_it() -> None:
     assert kwargs["Key"] == "surveillance-jobs/j1/output/result.json"
     assert kwargs["ContentType"] == "application/json"
     assert kwargs["Body"] == b'{"schema_version": 1}'
+
+
+# ----- Issue #61 part 1: retry with backoff (SPEC §8.2) -----
+
+
+def test_download_chunks_retries_transient_errors(tmp_path: Path, mocker) -> None:
+    """SPEC §8.2: download failure → retry 3× with exponential backoff."""
+    s3 = MagicMock()
+    s3.get_paginator.return_value.paginate.return_value = [
+        {"Contents": [{"Key": "surveillance-jobs/j1/input/chunk_001.mp4"}]}
+    ]
+
+    calls = {"n": 0}
+
+    def flaky_download(Bucket: str, Key: str, Filename: str) -> None:
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            raise ConnectionError("connection reset by peer")
+        Path(Filename).write_bytes(b"ok")
+
+    s3.download_file.side_effect = flaky_download
+    sleep = mocker.patch("client_agent.r2_client.time.sleep")
+
+    client = _make_client(s3)
+    paths = client.download_chunks("j1", tmp_path)
+
+    assert calls["n"] == 3
+    assert sleep.call_count == 2
+    assert [p.name for p in paths] == ["chunk_001.mp4"]
+    assert paths[0].read_bytes() == b"ok"
+
+
+def test_upload_report_retries_transient_errors(mocker) -> None:
+    """SPEC §8.2: upload failure → retry 3× then fail. Two blips, then OK."""
+    s3 = MagicMock()
+    s3.put_object.side_effect = [ConnectionError("reset"), ConnectionError("reset"), None]
+    sleep = mocker.patch("client_agent.r2_client.time.sleep")
+
+    client = _make_client(s3)
+    key = client.upload_report("j1", b'{"schema_version": 1}')
+
+    assert key == "surveillance-jobs/j1/output/result.json"
+    assert s3.put_object.call_count == 3
+    assert sleep.call_count == 2
+
+
+def test_upload_input_chunk_retries_transient_errors(mocker) -> None:
+    """SPEC §8.2: the client-agent write path also retries transient blips."""
+    from io import BytesIO
+
+    s3 = MagicMock()
+    s3.upload_fileobj.side_effect = [ConnectionError("reset"), ConnectionError("reset"), None]
+    sleep = mocker.patch("client_agent.r2_client.time.sleep")
+
+    client = _make_client(s3)
+    key = client.upload_input_chunk("j1", BytesIO(b"mp4"))
+
+    assert key == "surveillance-jobs/j1/input/chunk_001.mp4"
+    assert s3.upload_fileobj.call_count == 3
+    assert sleep.call_count == 2
+
+
+def test_get_report_retries_transient_errors(mocker) -> None:
+    """SPEC §8.2: reading the result artifact retries transient blips."""
+    s3 = MagicMock()
+    good = {"Body": MagicMock(read=MagicMock(return_value=b'{"schema_version": 1}'))}
+    s3.get_object.side_effect = [ConnectionError("reset"), ConnectionError("reset"), good]
+    sleep = mocker.patch("client_agent.r2_client.time.sleep")
+
+    client = _make_client(s3)
+    body = client.get_report("j1")
+
+    assert body == b'{"schema_version": 1}'
+    assert s3.get_object.call_count == 3
+    assert sleep.call_count == 2
+
+
+def test_retry_exhaustion_propagates(mocker) -> None:
+    """4th consecutive failure raises the original error (caller → 500/404)."""
+    s3 = MagicMock()
+    s3.put_object.side_effect = ConnectionError("persistent outage")
+    sleep = mocker.patch("client_agent.r2_client.time.sleep")
+
+    client = _make_client(s3)
+    with pytest.raises(ConnectionError, match="persistent outage"):
+        client.upload_report("j1", b"{}")
+
+    assert s3.put_object.call_count == 4  # 1 initial + 3 retries
+    assert sleep.call_count == 3
+
+
+# ----- Issue #61 part 2: ETag-keyed status cache -----
+
+
+def test_list_pending_skips_unchanged_statuses() -> None:
+    """A steady-state poll over an unchanged bucket issues zero status GETs."""
+    s3 = MagicMock()
+    pages = [
+        {
+            "Contents": [
+                {"Key": "surveillance-jobs/job-a/status.json", "ETag": '"etag-a"'},
+                {"Key": "surveillance-jobs/job-b/status.json", "ETag": '"etag-b"'},
+            ]
+        }
+    ]
+    s3.get_paginator.return_value.paginate.return_value = pages
+
+    def get_object(Bucket: str, Key: str) -> dict:
+        body = json.dumps({"status": "pending"}).encode()
+        return {"Body": MagicMock(read=MagicMock(return_value=body))}
+
+    s3.get_object.side_effect = get_object
+
+    client = _make_client(s3)
+
+    assert sorted(client.list_pending_job_ids()) == ["job-a", "job-b"]
+    assert s3.get_object.call_count == 2
+    assert sorted(client.list_pending_job_ids()) == ["job-a", "job-b"]
+    assert s3.get_object.call_count == 2  # unchanged ETags → zero new GETs
+
+    pages[0]["Contents"][1]["ETag"] = '"etag-b2"'
+    assert sorted(client.list_pending_job_ids()) == ["job-a", "job-b"]
+    assert s3.get_object.call_count == 3  # only job-b re-read

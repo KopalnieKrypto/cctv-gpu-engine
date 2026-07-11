@@ -30,7 +30,7 @@ Batch surveillance video analysis: MP4 → YOLO-pose + VLM → activity classifi
 
 ## TODO (deferred)
 
-- **Upload retry (issue #5 follow-up)**: every `gpu_service.r2_client.R2Client` network method (`upload_report`, `download_chunks`, `upload_input_chunk`, `get_report`) is currently single-shot. SPEC §8.2 calls for "retry 3× with exponential backoff, then fail". The worker translates any failure into `status: failed` and the client-agent surfaces R2 errors as a 500, but a flaky network will cause unnecessary job/upload failures. Add a retry decorator (e.g. `botocore.config.Config(retries={"max_attempts": 4, "mode": "adaptive"})` or a small custom backoff) before the first production deploy.
+- _(none currently)_ — the R2 upload/download retry item (issue #5 follow-up) is **done** in issue #61: both `R2Client` copies retry every network method 3× with exponential backoff via `_with_retry` (SPEC §8.2), and the status-list walks share an ETag-keyed cache so an idle bucket costs zero `get_object` calls per poll.
 
 ## Architecture
 

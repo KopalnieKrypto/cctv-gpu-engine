@@ -17,20 +17,53 @@ The R2 key conventions follow SPEC §6.2:
     surveillance-jobs/{job_id}/input/chunk_001.mp4
     surveillance-jobs/{job_id}/output/result.json  (issue #72 — was report.html)
 
-There is no retry logic in this layer — issue #5 deferred upload retry to a
-follow-up (see ``CLAUDE.md`` TODO). Network errors propagate to the worker,
-which records them as ``status: failed`` and keeps polling.
+Network methods retry transient failures 3× with exponential backoff per
+SPEC §8.2 (issue #61); after the final failure the original error propagates
+to the worker, which records it as ``status: failed`` and keeps polling.
+Status-list walks share an ETag-keyed cache so an unchanged bucket costs zero
+``get_object`` calls per poll.
 """
 
 from __future__ import annotations
 
 import json
+import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 import boto3
 
 JOBS_PREFIX = "surveillance-jobs"
+
+T = TypeVar("T")
+
+# SPEC §8.2: "retry 3× with exponential backoff, then fail". Four attempts
+# total = one initial try + three retries; backoffs precede each retry.
+RETRY_ATTEMPTS = 4
+RETRY_BACKOFFS = (1.0, 2.0, 4.0)
+
+
+def _with_retry(op: Callable[[], T]) -> T:
+    """Run ``op``, retrying transient failures per SPEC §8.2.
+
+    Up to :data:`RETRY_ATTEMPTS` tries with exponential backoff between them.
+    The *original* exception is re-raised after the final failure so callers
+    that already translate boto3 errors (worker → ``status: failed``, web UI
+    → 404) keep working unchanged. ``time.sleep`` is looked up on the module
+    at call time so tests can patch it and assert the backoff schedule.
+    """
+    last_exc: BaseException | None = None
+    for i in range(RETRY_ATTEMPTS):
+        try:
+            return op()
+        except Exception as exc:  # noqa: BLE001 — network layer, retry broadly
+            last_exc = exc
+            if i + 1 >= RETRY_ATTEMPTS:
+                break
+            time.sleep(RETRY_BACKOFFS[min(i, len(RETRY_BACKOFFS) - 1)])
+    assert last_exc is not None  # loop ran at least once
+    raise last_exc
 
 
 class R2Client:
@@ -45,6 +78,11 @@ class R2Client:
         region: str = "auto",
     ) -> None:
         self._bucket = bucket
+        # ETag-keyed status.json cache (issue #61): {key: (etag, status)}.
+        # ListObjectsV2 hands us each object's ETag for free, so an unchanged
+        # status.json is served from here instead of costing a GET on every
+        # 10 s poll — an idle 1000-job bucket otherwise burns ~8.6M reads/day.
+        self._status_cache: dict[str, tuple[str, dict[str, Any]]] = {}
         # R2 ignores region but boto3 needs *something*; "auto" is the
         # convention in Cloudflare's own docs and SDK examples.
         self._s3 = boto3.client(
@@ -88,7 +126,7 @@ class R2Client:
                 key = obj["Key"]
                 if not key.endswith("/status.json"):
                     continue
-                status = self._read_status_key(key)
+                status = self._read_status_cached(key, obj.get("ETag"))
                 if status is None:
                     continue
                 if status.get("status") != "pending":
@@ -116,7 +154,7 @@ class R2Client:
                 key = obj["Key"]
                 if not key.endswith("/status.json"):
                     continue
-                status = self._read_status_key(key)
+                status = self._read_status_cached(key, obj.get("ETag"))
                 if status is None:
                     continue
                 parts = key.split("/")
@@ -150,7 +188,11 @@ class R2Client:
                     continue
                 local = dest / name
                 local.parent.mkdir(parents=True, exist_ok=True)
-                self._s3.download_file(Bucket=self._bucket, Key=key, Filename=str(local))
+                _with_retry(
+                    lambda key=key, local=local: self._s3.download_file(
+                        Bucket=self._bucket, Key=key, Filename=str(local)
+                    )
+                )
                 downloaded.append(local)
         return sorted(downloaded)
 
@@ -168,7 +210,7 @@ class R2Client:
         pass a different chunk name later.
         """
         key = f"{self._input_prefix(job_id)}chunk_001.mp4"
-        self._s3.upload_fileobj(fileobj, self._bucket, key)
+        _with_retry(lambda: self._s3.upload_fileobj(fileobj, self._bucket, key))
         return key
 
     def get_report(self, job_id: str) -> bytes:
@@ -180,21 +222,42 @@ class R2Client:
         input files are 100x larger. Errors propagate so the caller can
         translate to 404.
         """
-        obj = self._s3.get_object(Bucket=self._bucket, Key=self._report_key(job_id))
+        obj = _with_retry(
+            lambda: self._s3.get_object(Bucket=self._bucket, Key=self._report_key(job_id))
+        )
         return obj["Body"].read()
 
     def upload_report(self, job_id: str, body: bytes) -> str:
         """Upload the canonical result.json artifact (issue #72) and return its key."""
         key = self._report_key(job_id)
-        self._s3.put_object(
-            Bucket=self._bucket,
-            Key=key,
-            Body=body,
-            ContentType="application/json",
+        _with_retry(
+            lambda: self._s3.put_object(
+                Bucket=self._bucket,
+                Key=key,
+                Body=body,
+                ContentType="application/json",
+            )
         )
         return key
 
     # ----- internals -----
+
+    def _read_status_cached(self, key: str, etag: str | None) -> dict[str, Any] | None:
+        """Return the parsed status.json for ``key``, using the ETag cache.
+
+        On an ETag match we skip the GET entirely. Only successful reads are
+        cached — a transient GET failure (returns None) is *not* cached, so
+        the next poll retries it instead of pinning a phantom None until the
+        object happens to change.
+        """
+        if etag is not None:
+            cached = self._status_cache.get(key)
+            if cached is not None and cached[0] == etag:
+                return cached[1]
+        status = self._read_status_key(key)
+        if status is not None and etag is not None:
+            self._status_cache[key] = (etag, status)
+        return status
 
     def _read_status_key(self, key: str) -> dict[str, Any] | None:
         """Read a single status.json key, returning None on any read error.
