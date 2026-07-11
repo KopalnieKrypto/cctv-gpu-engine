@@ -356,28 +356,29 @@ def test_get_jobs_report_links_only_for_completed_jobs() -> None:
     assert "/jobs/job-fail/report" not in body
 
 
-# ----- 10. GET /jobs/<id>/report — inline HTML proxy -----
+# ----- 10. GET /jobs/<id>/report — inline result.json proxy -----
 
 
-def test_get_report_returns_html_inline() -> None:
-    """`GET /jobs/<id>/report` proxies the HTML report from R2 verbatim
-    with ``text/html`` Content-Type so the browser renders it inline.
+def test_get_report_returns_result_json_inline() -> None:
+    """`GET /jobs/<id>/report` proxies the worker's result.json from R2
+    verbatim with ``application/json`` Content-Type so the browser shows it
+    inline.
 
-    The report is a *standalone* HTML file (vendored Chart.js, base64
-    images — see CLAUDE.md "Reports" rule) so we never need to rewrite asset
-    URLs or set up a static path."""
-    report_html = b"<!doctype html><html><body><h1>Report job-x</h1></body></html>"
+    Issue #74: #72 retired the standalone HTML report in favour of the
+    structured result.json artifact; the platform is the real UI now, so the
+    client-agent viewer just serves the raw JSON (option A / MVP)."""
+    result_json = b'{"schema_version": 1, "summary": {"total_people": 3}}'
     fake = FakeR2(
         jobs=[("job-x", {"status": "completed", "updated_at": "2026-04-08T10:00:00Z"})],
-        reports={"job-x": report_html},
+        reports={"job-x": result_json},
     )
     app, _ = _make_app(fake=fake)
 
     resp = app.test_client().get("/jobs/job-x/report")
 
     assert resp.status_code == 200
-    assert resp.mimetype == "text/html"
-    assert resp.data == report_html
+    assert resp.mimetype == "application/json"
+    assert resp.data == result_json
     # Inline view: no attachment disposition.
     assert "attachment" not in resp.headers.get("Content-Disposition", "")
 
@@ -388,33 +389,36 @@ def test_get_report_returns_html_inline() -> None:
 def test_get_report_download_sets_attachment_disposition() -> None:
     """`GET /jobs/<id>/report/download` returns the same body as the inline
     endpoint but with ``Content-Disposition: attachment`` so the browser
-    saves it instead of rendering. Filename includes the job_id so the
-    operator can match downloaded files back to jobs without renaming."""
-    report_html = b"<!doctype html><html><body>Report</body></html>"
+    saves it instead of rendering. Issue #74: the artifact is result.json, so
+    the file is served as ``application/json`` and named ``result-{id}.json``
+    (mirrors the gpu-service R2 key convention) — the operator can match
+    downloaded files back to jobs without renaming."""
+    result_json = b'{"schema_version": 1}'
     fake = FakeR2(
         jobs=[("job-y", {"status": "completed", "updated_at": "2026-04-08T10:00:00Z"})],
-        reports={"job-y": report_html},
+        reports={"job-y": result_json},
     )
     app, _ = _make_app(fake=fake)
 
     resp = app.test_client().get("/jobs/job-y/report/download")
 
     assert resp.status_code == 200
-    assert resp.mimetype == "text/html"
-    assert resp.data == report_html
+    assert resp.mimetype == "application/json"
+    assert resp.data == result_json
     disposition = resp.headers.get("Content-Disposition", "")
     assert "attachment" in disposition
-    assert "job-y" in disposition
+    assert "result-job-y.json" in disposition
 
 
 # ----- 12. Report endpoints return 404 when the report doesn't exist -----
 
 
 def test_get_report_returns_404_when_missing() -> None:
-    """Job exists but its report.html isn't in R2 yet (worker still
+    """Job exists but its result.json isn't in R2 yet (worker still
     processing, or upload failed). The viewer must 404 cleanly instead of
     raising a 500 — the operator opens the link from /jobs and a 500 looks
-    like a bug in the agent itself."""
+    like a bug in the agent itself. (Issue #74 acceptance criterion: missing
+    artifact still yields a clean 404, no traceback.)"""
     fake = FakeR2(
         jobs=[("job-z", {"status": "completed", "updated_at": "2026-04-08T10:00:00Z"})],
         reports={},  # no report uploaded

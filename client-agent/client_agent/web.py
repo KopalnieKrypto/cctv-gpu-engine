@@ -590,10 +590,12 @@ def create_app(
 
     @app.get("/jobs/<job_id>/report")
     def view_report(job_id: str):
+        # Issue #74: the worker's canonical artifact is result.json (#72), not
+        # HTML — serve it as application/json so the browser shows it inline.
         report = _fetch_report_or_404(job_id)
         if report is None:
             return ("report not found", 404)
-        return (report, 200, {"Content-Type": "text/html; charset=utf-8"})
+        return (report, 200, {"Content-Type": "application/json"})
 
     @app.get("/jobs/<job_id>/report/download")
     def download_report(job_id: str):
@@ -604,11 +606,12 @@ def create_app(
             report,
             200,
             {
-                "Content-Type": "text/html; charset=utf-8",
+                # Issue #74: canonical artifact is result.json (#72), not HTML.
+                "Content-Type": "application/json",
                 # ``attachment`` forces the browser to save instead of render;
                 # the filename mirrors the gpu-service R2 key convention so
                 # the operator can match files back to jobs without renaming.
-                "Content-Disposition": f'attachment; filename="report-{job_id}.html"',
+                "Content-Disposition": f'attachment; filename="result-{job_id}.json"',
             },
         )
 
