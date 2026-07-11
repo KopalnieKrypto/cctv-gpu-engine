@@ -135,6 +135,29 @@ class TestAnalyzeCLI:
 
 
 class TestAnalyzeFullVideoMode:
+    def test_output_mode_writes_result_json_by_default(self, mocker, tmp_path):
+        """Issue #72 — the canonical artifact is result.json, not HTML."""
+        import json
+
+        fake_frame = np.zeros((40, 60, 3), dtype=np.uint8)
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            return_value=iter([(0.0, fake_frame), (1.0, fake_frame)]),
+        )
+        fake_detector = MagicMock()
+        fake_detector.detect.return_value = [_detection(activity="walking")]
+        mocker.patch("pipeline.analyze.load_pose_model", return_value=fake_detector)
+
+        out_path = tmp_path / "result.json"
+        exit_code = main(
+            ["video.mp4", "--output", str(out_path), "--model", "models/yolo11n-pose.onnx"]
+        )
+
+        assert exit_code == 0
+        payload = json.loads(out_path.read_text(encoding="utf-8"))
+        assert payload["schema_version"] == 1
+        assert payload["total_frames"] == 2
+
     def test_output_mode_writes_standalone_html_with_summary(self, mocker, tmp_path):
         # Two frames: first frame has 2 walking persons, second frame has 1 standing
         fake_frame = np.zeros((40, 60, 3), dtype=np.uint8)
@@ -164,6 +187,8 @@ class TestAnalyzeFullVideoMode:
                 "video.mp4",
                 "--output",
                 str(out_path),
+                "--format",
+                "html",
                 "--model",
                 "models/yolo11n-pose.onnx",
             ]
@@ -192,15 +217,19 @@ class TestAnalyzeFullVideoMode:
             return_value=fake_detector,
         )
 
-        out_path = tmp_path / "empty.html"
+        out_path = tmp_path / "empty.json"
         exit_code = main(
             ["video.mp4", "--output", str(out_path), "--model", "models/yolo11n-pose.onnx"]
         )
 
         assert exit_code == 0
-        html = out_path.read_text(encoding="utf-8")
-        # No keyframes section content beyond the empty placeholder
-        assert "No keyframes" in html or "no persons" in html.lower()
+        import json
+
+        payload = json.loads(out_path.read_text(encoding="utf-8"))
+        # No people → no keyframes, and dominant activity collapses to "none".
+        assert payload["keyframes"] == []
+        assert payload["dominant_activity"] == "none"
+        assert payload["peak_persons"] == 0
 
 
 class TestRunFullVideoToHtml:
@@ -349,3 +378,66 @@ class TestRunFullVideoToHtml:
 
         with pytest.raises(RuntimeError, match="CUDAExecutionProvider"):
             run_full_video_to_html([Path("a.mp4")])
+
+
+class TestRunFullVideoToJson:
+    """Canonical structured artifact (issue #72) — the bytes the gpu-agent uploads.
+
+    Same boundary mocks as the HTML variant (ffmpeg iterator + model loader);
+    the aggregator and JSON serializer run for real so we assert the actual
+    ``result.json`` contract, not internal call shapes.
+    """
+
+    def test_single_chunk_returns_result_json_bytes(self, mocker):
+        import json
+        from pathlib import Path
+
+        from pipeline.analyze import run_full_video_to_json
+
+        fake_frame = np.zeros((40, 60, 3), dtype=np.uint8)
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            return_value=iter([(0.0, fake_frame), (1.0, fake_frame)]),
+        )
+        fake_detector = MagicMock()
+        fake_detector.detect.return_value = [_detection(activity="walking")]
+        mocker.patch(
+            "pipeline.analyze.load_pose_model",
+            return_value=fake_detector,
+        )
+
+        raw = run_full_video_to_json([Path("chunk_001.mp4")])
+
+        assert isinstance(raw, bytes)
+        payload = json.loads(raw)
+        assert payload["schema_version"] == 1
+        assert payload["total_frames"] == 2
+        assert payload["peak_persons"] == 1
+        # The heuristic smoother reclassifies synthetic keypoints, so the exact
+        # label isn't stable — assert it's one of the four canonical buckets.
+        assert payload["dominant_activity"] in {"sitting", "standing", "walking", "running"}
+        assert set(payload["person_minutes"]) == {"sitting", "standing", "walking", "running"}
+        assert fake_detector.detect.call_count == 2
+
+    def test_progress_callback_reaches_100_for_json_mode(self, mocker):
+        from pathlib import Path
+
+        from pipeline.analyze import run_full_video_to_json
+
+        fake_frame = np.zeros((40, 60, 3), dtype=np.uint8)
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            side_effect=[iter([(0.0, fake_frame), (1.0, fake_frame)])],
+        )
+        fake_detector = MagicMock()
+        fake_detector.detect.return_value = []
+        mocker.patch(
+            "pipeline.analyze.load_pose_model",
+            return_value=fake_detector,
+        )
+
+        seen: list[int] = []
+        run_full_video_to_json([Path("a.mp4")], progress=seen.append)
+
+        assert seen[-1] == 100
+        assert seen == sorted(seen)

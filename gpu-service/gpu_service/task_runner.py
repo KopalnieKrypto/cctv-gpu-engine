@@ -8,7 +8,7 @@ Sequence:
 3. Run the YOLO + VLM pipeline on the concatenated chunks. Pipeline
    progress callbacks bubble through to :class:`TaskRegistry` so the
    gpu-agent's ``/status/:id`` polls see live progress.
-4. PUT the rendered HTML to ``result_presigned_url``.
+4. PUT the canonical result.json (issue #72) to ``result_presigned_url``.
 5. Flip registry to ``state: completed``.
 
 Collaborators are injected:
@@ -17,7 +17,7 @@ Collaborators are injected:
 * ``concat(inputs: list[Path], output: Path)`` is a function — production
   wraps ffmpeg, tests pass a noop closure.
 * ``pipeline(chunks: list[Path], progress: Callable[[int], None]) -> bytes``
-  matches ``pipeline.analyze.run_full_video_to_html``'s signature.
+  matches ``pipeline.analyze.run_full_video_to_json``'s signature.
 """
 
 from __future__ import annotations
@@ -81,8 +81,8 @@ def run_task(
         def progress_cb(pct: int) -> None:
             registry.set_progress(task_id, progress=pct / 100.0)
 
-        html = pipeline(pipeline_inputs, progress_cb)
-        http.upload(result_url, html)
+        result_bytes = pipeline(pipeline_inputs, progress_cb)
+        http.upload(result_url, result_bytes)
         registry.set_completed(task_id)
     except Exception as e:
         registry.set_failed(task_id, error=f"{type(e).__name__}: {e}")

@@ -15,7 +15,7 @@ The R2 key conventions follow SPEC §6.2:
 
     surveillance-jobs/{job_id}/status.json
     surveillance-jobs/{job_id}/input/chunk_001.mp4
-    surveillance-jobs/{job_id}/output/report.html
+    surveillance-jobs/{job_id}/output/result.json  (issue #72 — was report.html)
 
 There is no retry logic in this layer — issue #5 deferred upload retry to a
 follow-up (see ``CLAUDE.md`` TODO). Network errors propagate to the worker,
@@ -67,7 +67,9 @@ class R2Client:
 
     @staticmethod
     def _report_key(job_id: str) -> str:
-        return f"{JOBS_PREFIX}/{job_id}/output/report.html"
+        # Canonical structured artifact (issue #72) — the platform renders
+        # this JSON natively; the engine no longer emits HTML here.
+        return f"{JOBS_PREFIX}/{job_id}/output/result.json"
 
     # ----- worker-facing API -----
 
@@ -170,24 +172,25 @@ class R2Client:
         return key
 
     def get_report(self, job_id: str) -> bytes:
-        """Read the report.html the worker wrote for ``job_id`` from R2.
+        """Read the canonical result.json the worker wrote for ``job_id`` from R2.
 
-        Returns the raw bytes for the client-agent to proxy back to the
-        operator's browser. Reports are small (a few MB — vendored Chart.js
-        + base64 frames) so the whole-buffer read is fine; multipart
-        streaming is reserved for the *upload* path where files are 100x
-        larger. Errors propagate so the caller (web UI) can translate to 404.
+        Returns the raw bytes for the caller to consume. Artifacts are small
+        (structured data + base64 JPEG frames) so the whole-buffer read is
+        fine; multipart streaming is reserved for the *upload* path where
+        input files are 100x larger. Errors propagate so the caller can
+        translate to 404.
         """
         obj = self._s3.get_object(Bucket=self._bucket, Key=self._report_key(job_id))
         return obj["Body"].read()
 
-    def upload_report(self, job_id: str, html: bytes) -> str:
+    def upload_report(self, job_id: str, body: bytes) -> str:
+        """Upload the canonical result.json artifact (issue #72) and return its key."""
         key = self._report_key(job_id)
         self._s3.put_object(
             Bucket=self._bucket,
             Key=key,
-            Body=html,
-            ContentType="text/html; charset=utf-8",
+            Body=body,
+            ContentType="application/json",
         )
         return key
 

@@ -6,10 +6,13 @@ Two modes:
   one frame at ``T`` seconds and prints a JSON document to stdout. Useful as
   a smoke-test for the GPU stack on a fresh machine.
 
-* **Full-video** (issue #4) — ``--output report.html`` streams the entire
+* **Full-video** (issue #4) — ``--output result.json`` streams the entire
   video at 1 fps via ffmpeg, runs pose inference on every frame, aggregates
   the detections into a :class:`pipeline.aggregator.ReportData`, and writes
-  a self-contained HTML report (vendored Chart.js, base64 keyframes).
+  the canonical structured ``result.json`` artifact (issue #72) that the
+  platform renders natively. ``--format html`` still writes the legacy
+  self-contained HTML report (vendored Chart.js, base64 keyframes) for
+  debugging, but it is no longer the canonical output.
 
 The two modes share the same model loader and Detection objects so any GPU
 issue (missing CUDA EP, silent CPU fallback) raises the same RuntimeError
@@ -24,10 +27,11 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from pipeline.aggregator import Aggregator
+from pipeline.aggregator import Aggregator, ReportData
 from pipeline.frame_extractor import extract_frame_at
 from pipeline.pose_detector import load_pose_model
 from pipeline.postprocessing import Detection
+from pipeline.report_json import render_report_json
 from pipeline.report_renderer import render_report
 from pipeline.video_frames import iter_frames
 
@@ -41,16 +45,17 @@ DEFAULT_FPS = 1
 PROGRESS_FRAME_INTERVAL = 3
 
 
-def run_full_video_to_html(
+def _analyze_to_report_data(
     chunks: list[Path],
     progress: Callable[[int], None] | None = None,
     model_path: str = "models/yolo11s-pose.onnx",
     fps: int = DEFAULT_FPS,
     classifier: str = "heuristic",
-) -> bytes:
-    """Run YOLO-pose pipeline across one or more MP4 chunks.
+) -> ReportData:
+    """Run YOLO-pose pipeline across one or more MP4 chunks → :class:`ReportData`.
 
-    Returns the standalone HTML report as bytes (no disk write). Multiple
+    Shared core of :func:`run_full_video_to_json` (canonical artifact) and
+    :func:`run_full_video_to_html` (debug-only standalone HTML). Multiple
     chunks are processed sequentially through a shared :class:`Aggregator`,
     with timestamps offset so each chunk continues from where the previous
     left off (so ``video_duration_s`` reflects the full concatenated video).
@@ -153,8 +158,57 @@ def run_full_video_to_html(
             if progress is not None:
                 progress(int((chunk_index + 1) / len(chunks) * 100))
 
-    report_data = aggregator.build_report_data()
-    return render_report(report_data).encode("utf-8")
+    return aggregator.build_report_data()
+
+
+def run_full_video_to_json(
+    chunks: list[Path],
+    progress: Callable[[int], None] | None = None,
+    model_path: str = "models/yolo11s-pose.onnx",
+    fps: int = DEFAULT_FPS,
+    classifier: str = "heuristic",
+) -> bytes:
+    """Run the pipeline and return the canonical ``result.json`` bytes (issue #72).
+
+    This is the primary job artifact — the bytes the gpu-agent uploads. The
+    platform renders it natively in React, so the JSON is pure data (base64
+    JPEG keyframes, no brand/i18n/presentation strings). See
+    :func:`_analyze_to_report_data` for the ``progress``/``classifier`` contract.
+    """
+    return render_report_json(
+        _analyze_to_report_data(
+            chunks,
+            progress=progress,
+            model_path=model_path,
+            fps=fps,
+            classifier=classifier,
+        )
+    )
+
+
+def run_full_video_to_html(
+    chunks: list[Path],
+    progress: Callable[[int], None] | None = None,
+    model_path: str = "models/yolo11s-pose.onnx",
+    fps: int = DEFAULT_FPS,
+    classifier: str = "heuristic",
+) -> bytes:
+    """Run the pipeline and return a standalone HTML report as bytes.
+
+    Debug-only since issue #72: the canonical artifact is now
+    :func:`run_full_video_to_json`. The Jinja/Chart.js report is kept behind
+    the CLI ``--format html`` flag for local inspection but is no longer what
+    the worker/gpu-agent upload.
+    """
+    return render_report(
+        _analyze_to_report_data(
+            chunks,
+            progress=progress,
+            model_path=model_path,
+            fps=fps,
+            classifier=classifier,
+        )
+    ).encode("utf-8")
 
 
 def _detection_to_dict(det: Detection) -> dict:
@@ -183,7 +237,8 @@ def _build_parser() -> argparse.ArgumentParser:
     mode.add_argument(
         "--output",
         type=str,
-        help="Full-video mode: path to write the standalone HTML report",
+        help="Full-video mode: path to write the canonical result.json artifact "
+        "(or the standalone HTML report with --format html)",
     )
     parser.add_argument(
         "--model",
@@ -202,6 +257,13 @@ def _build_parser() -> argparse.ArgumentParser:
         default="heuristic",
         help="Activity classifier: heuristic (fast, geometric rules) "
         "or vlm (Qwen2.5-VL, higher accuracy, default: heuristic)",
+    )
+    parser.add_argument(
+        "--format",
+        choices=["json", "html"],
+        default="json",
+        help="Full-video output format: json (canonical result.json artifact, "
+        "default) or html (debug-only standalone report)",
     )
     return parser
 
@@ -227,8 +289,9 @@ def _run_single_frame(args: argparse.Namespace) -> int:
 
 
 def _run_full_video(args: argparse.Namespace) -> int:
+    render = run_full_video_to_html if args.format == "html" else run_full_video_to_json
     try:
-        html = run_full_video_to_html(
+        payload = render(
             chunks=[Path(args.video)],
             model_path=args.model,
             fps=args.fps,
@@ -240,8 +303,8 @@ def _run_full_video(args: argparse.Namespace) -> int:
 
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_bytes(html)
-    print(f"wrote report to {out_path}", file=sys.stderr)
+    out_path.write_bytes(payload)
+    print(f"wrote {args.format} report to {out_path}", file=sys.stderr)
     return 0
 
 

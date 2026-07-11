@@ -235,38 +235,38 @@ def test_upload_input_chunk_streams_fileobj_via_upload_fileobj() -> None:
     s3.put_object.assert_not_called()
 
 
-def test_get_report_returns_html_bytes_from_output_report_html_key() -> None:
-    """``get_report`` reads the report HTML the worker wrote to R2 and
-    returns its raw bytes — used by the client-agent's report viewer.
+def test_get_report_returns_bytes_from_output_result_json_key() -> None:
+    """``get_report`` reads the canonical result.json the worker wrote to R2
+    and returns its raw bytes.
 
-    Hits the SPEC §6.2 key ``surveillance-jobs/{job_id}/output/report.html``.
-    Reports are small enough (vendored Chart.js + base64 frames, a few MB)
-    that an in-memory read is fine — no streaming required here.
+    Hits the issue #72 key ``surveillance-jobs/{job_id}/output/result.json``.
+    Artifacts are small enough (structured data + base64 JPEG frames) that an
+    in-memory read is fine — no streaming required here.
     """
     s3 = MagicMock()
     s3.get_object.return_value = {
-        "Body": MagicMock(read=MagicMock(return_value=b"<html>report</html>"))
+        "Body": MagicMock(read=MagicMock(return_value=b'{"schema_version": 1}'))
     }
     client = _make_client(s3)
 
     body = client.get_report("j1")
 
-    assert body == b"<html>report</html>"
+    assert body == b'{"schema_version": 1}'
     s3.get_object.assert_called_once_with(
-        Bucket="surveillance-data", Key="surveillance-jobs/j1/output/report.html"
+        Bucket="surveillance-data", Key="surveillance-jobs/j1/output/result.json"
     )
 
 
-def test_upload_report_uses_output_report_html_key_and_returns_it() -> None:
+def test_upload_report_uses_output_result_json_key_and_returns_it() -> None:
     s3 = MagicMock()
     client = _make_client(s3)
 
-    key = client.upload_report("j1", b"<html>r</html>")
+    key = client.upload_report("j1", b'{"schema_version": 1}')
 
-    assert key == "surveillance-jobs/j1/output/report.html"
+    assert key == "surveillance-jobs/j1/output/result.json"
     s3.put_object.assert_called_once()
     kwargs = s3.put_object.call_args.kwargs
     assert kwargs["Bucket"] == "surveillance-data"
-    assert kwargs["Key"] == "surveillance-jobs/j1/output/report.html"
-    assert kwargs["ContentType"] == "text/html; charset=utf-8"
-    assert kwargs["Body"] == b"<html>r</html>"
+    assert kwargs["Key"] == "surveillance-jobs/j1/output/result.json"
+    assert kwargs["ContentType"] == "application/json"
+    assert kwargs["Body"] == b'{"schema_version": 1}'

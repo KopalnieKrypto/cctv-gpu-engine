@@ -97,9 +97,9 @@ class InMemoryR2:
             downloaded.append(path)
         return downloaded
 
-    def upload_report(self, job_id: str, html: bytes) -> str:
-        key = f"surveillance-jobs/{job_id}/output/report.html"
-        self._objects[key] = html
+    def upload_report(self, job_id: str, body: bytes) -> str:
+        key = f"surveillance-jobs/{job_id}/output/result.json"
+        self._objects[key] = body
         return key
 
     # ----- test setup helpers -----
@@ -150,7 +150,7 @@ def test_processes_pending_job_end_to_end(tmp_path: Path) -> None:
 
     def fake_pipeline(chunks: list[Path], progress: ProgressCallback) -> bytes:
         received_chunks.extend(chunks)
-        return b"<html>fake report body</html>"
+        return b'{"schema_version": 1, "fake": "result"}'
 
     result = process_job(
         client=r2,
@@ -167,7 +167,7 @@ def test_processes_pending_job_end_to_end(tmp_path: Path) -> None:
     assert final["status"] == "completed"
     assert final["worker_id"] == "worker-1"
     assert final["progress_pct"] == 100
-    assert final["report_key"] == "surveillance-jobs/job-abc/output/report.html"
+    assert final["report_key"] == "surveillance-jobs/job-abc/output/result.json"
     assert final["error"] is None
     assert final["updated_at"] == "2026-04-07T10:00:05Z"
 
@@ -176,7 +176,7 @@ def test_processes_pending_job_end_to_end(tmp_path: Path) -> None:
     assert len(received_chunks) == 1
     assert received_chunks[0].name == "chunk_001.mp4"
     assert received_chunks[0].read_bytes() == b"fake mp4 bytes for chunk_001.mp4"
-    assert r2.get_object(final["report_key"]) == b"<html>fake report body</html>"
+    assert r2.get_object(final["report_key"]) == b'{"schema_version": 1, "fake": "result"}'
 
 
 def test_two_workers_one_job_only_one_processes(tmp_path: Path) -> None:

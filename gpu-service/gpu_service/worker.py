@@ -11,7 +11,7 @@ The R2 client interface the worker depends on:
 * ``get_status(job_id) -> dict | None``
 * ``put_status(job_id, status) -> None``
 * ``download_chunks(job_id, dest: Path) -> list[Path]``
-* ``upload_report(job_id, html: bytes) -> str``  (returns the R2 key)
+* ``upload_report(job_id, body: bytes) -> str``  (returns the R2 key)
 
 The pipeline interface is::
 
@@ -52,7 +52,7 @@ class R2ClientLike(Protocol):
     def get_status(self, job_id: str) -> dict[str, Any] | None: ...
     def put_status(self, job_id: str, status: dict[str, Any]) -> None: ...
     def download_chunks(self, job_id: str, dest: Path) -> list[Path]: ...
-    def upload_report(self, job_id: str, html: bytes) -> str: ...
+    def upload_report(self, job_id: str, body: bytes) -> str: ...
 
 
 def _utc_now_iso() -> str:
@@ -147,8 +147,8 @@ def process_job(
         client.put_status(job_id, current)
 
     try:
-        html = pipeline(chunks, report_progress)
-        report_key = client.upload_report(job_id, html)
+        result_bytes = pipeline(chunks, report_progress)
+        report_key = client.upload_report(job_id, result_bytes)
     except Exception as exc:  # noqa: BLE001 — pipeline crash → record + survive
         return _fail_job(client, job_id, status, f"{type(exc).__name__}: {exc}", now)
 
@@ -249,7 +249,7 @@ def main(argv: list[str] | None = None) -> int:
 
     Reads R2 + worker config from the environment (SPEC §10.1), constructs a
     real :class:`R2Client` and a pipeline closure that defers to
-    :func:`pipeline.analyze.run_full_video_to_html` (lazy-imported so unit
+    :func:`pipeline.analyze.run_full_video_to_json` (lazy-imported so unit
     tests don't pull onnxruntime), then hands off to :func:`worker_loop`.
 
     Returns ``0`` on clean exit, ``2`` if any required env var is missing.
@@ -295,9 +295,11 @@ def main(argv: list[str] | None = None) -> int:
 
     def pipeline(chunks: list[Path], progress: ProgressCallback) -> bytes:
         # Lazy import: keeps the unit-test path free of onnxruntime / GPU deps.
-        from pipeline.analyze import run_full_video_to_html
+        # Canonical artifact is result.json (issue #72) — the platform renders
+        # it natively; the worker no longer emits HTML.
+        from pipeline.analyze import run_full_video_to_json
 
-        return run_full_video_to_html(
+        return run_full_video_to_json(
             chunks,
             progress=progress,
             model_path=model_path,

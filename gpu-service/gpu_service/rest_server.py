@@ -87,10 +87,12 @@ def _warm_up_pipeline(model_path: str, classifier: str) -> PipelineFn:
     Imported lazily so unit tests on macOS never touch onnxruntime-gpu.
     """
     # Lazy imports — these modules pull onnxruntime-gpu and torch (cu128).
-    from pipeline.analyze import run_full_video_to_html
+    # Canonical artifact is result.json (issue #72); the gpu-agent uploads
+    # these bytes to the presigned result URL for the platform to render.
+    from pipeline.analyze import run_full_video_to_json
 
     def pipeline_fn(chunks: list[Path], progress: Callable[[int], None]) -> bytes:
-        return run_full_video_to_html(
+        return run_full_video_to_json(
             chunks=chunks,
             progress=progress,
             model_path=model_path,
