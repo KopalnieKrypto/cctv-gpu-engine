@@ -92,6 +92,84 @@ class TestMakeDispatcher:
         assert registry.get("b") == {"state": "completed"}
 
 
+class TestMainServing:
+    """``main`` must serve the gpu-agent REST contract through waitress, not
+    Flask's Werkzeug dev server (issue #63).
+
+    Werkzeug's ``app.run`` is single-process, has weaker slow-client / timeout
+    handling, and prints a "do not use in production" banner — yet it was the
+    server on the one port a production gpu-agent depends on. waitress is
+    already a dependency (``client_agent.appliance`` serves through it), so the
+    fix is wiring, not a new import.
+    """
+
+    def _stub_heavy_deps(self, mocker, tmp_path, monkeypatch):
+        monkeypatch.setenv("WORKDIR", str(tmp_path))
+        monkeypatch.setenv("CLASSIFIER", "vlm")
+        monkeypatch.setenv("VRAM_BUDGET_MB", "4096")
+        mocker.patch("gpu_service.rest_server.preflight_or_exit")
+        mocker.patch("gpu_service.rest_server._warm_up_pipeline")
+        mocker.patch("gpu_service.rest_server.signal.signal")
+        fake_app = MagicMock()
+        mocker.patch("gpu_service.rest_server.create_app", return_value=fake_app)
+        mocker.patch("gpu_service.rest_server.PresignedHttpClient")
+        mocker.patch("gpu_service.rest_server.ThreadPoolExecutor")
+        fake_serve = mocker.patch("gpu_service.rest_server.serve")
+        return fake_app, fake_serve
+
+    def test_main_serves_via_waitress(self, mocker, tmp_path, monkeypatch):
+        from gpu_service.rest_server import main
+
+        fake_app, fake_serve = self._stub_heavy_deps(mocker, tmp_path, monkeypatch)
+        monkeypatch.setenv("REST_PORT", "5003")
+
+        main()
+
+        # Served through waitress with the built app on the contract port.
+        fake_serve.assert_called_once()
+        args, kwargs = fake_serve.call_args
+        served_app = kwargs.get("app", args[0] if args else None)
+        assert served_app is fake_app
+        assert kwargs.get("host") == "0.0.0.0"
+        assert kwargs.get("port") == 5003
+        # And the Werkzeug dev server is never touched.
+        fake_app.run.assert_not_called()
+
+    def test_sigterm_still_flips_running_tasks(self, mocker, tmp_path, monkeypatch):
+        """The SIGTERM contract must survive the switch to waitress: the
+        handler main() installs still flips in-flight tasks to failed and
+        exits 0 (the signal arrives on the main thread, so sys.exit unwinds
+        waitress.serve exactly as it unwound app.run)."""
+        import signal as _signal
+
+        from gpu_service.rest_api import TaskRegistry
+        from gpu_service.rest_server import main
+
+        self._stub_heavy_deps(mocker, tmp_path, monkeypatch)
+
+        # Capture the handlers main() installs instead of clobbering pytest's.
+        handlers: dict[int, object] = {}
+        mocker.patch(
+            "gpu_service.rest_server.signal.signal",
+            side_effect=lambda sig, h: handlers.__setitem__(sig, h),
+        )
+        # Real registry so we can assert the state transition, captured here.
+        real_registry = TaskRegistry()
+        mocker.patch("gpu_service.rest_server.TaskRegistry", return_value=real_registry)
+
+        main()
+
+        # An in-flight task exists when docker-stop delivers SIGTERM.
+        real_registry.set_running("job-1", progress=0.5)
+        sigterm_handler = handlers[_signal.SIGTERM]
+
+        with pytest.raises(SystemExit) as exc_info:
+            sigterm_handler(_signal.SIGTERM, None)
+
+        assert exc_info.value.code == 0
+        assert real_registry.get("job-1") == {"state": "failed", "error": "terminated"}
+
+
 class TestMainPreflight:
     """``gpu_service.rest_server.main`` VRAM preflight (issue #43).
 
@@ -104,19 +182,22 @@ class TestMainPreflight:
     def _stub_heavy_deps(self, mocker, tmp_path, monkeypatch):
         monkeypatch.setenv("WORKDIR", str(tmp_path))
         monkeypatch.setenv("CLASSIFIER", "vlm")
-        # Stub everything that would otherwise touch GPU / network / signals.
+        # Stub everything that would otherwise touch GPU / network / signals /
+        # bind a port. waitress.serve is stubbed so main() returns instead of
+        # blocking in the WSGI loop (issue #63).
         warmup = mocker.patch("gpu_service.rest_server._warm_up_pipeline")
         mocker.patch("gpu_service.rest_server.signal.signal")
         fake_app = MagicMock()
         mocker.patch("gpu_service.rest_server.create_app", return_value=fake_app)
         mocker.patch("gpu_service.rest_server.PresignedHttpClient")
         mocker.patch("gpu_service.rest_server.ThreadPoolExecutor")
-        return warmup, fake_app
+        fake_serve = mocker.patch("gpu_service.rest_server.serve")
+        return warmup, fake_app, fake_serve
 
     def test_main_runs_preflight_before_warm_up_pipeline(self, mocker, tmp_path, monkeypatch):
         from gpu_service.rest_server import main
 
-        warmup, fake_app = self._stub_heavy_deps(mocker, tmp_path, monkeypatch)
+        warmup, fake_app, fake_serve = self._stub_heavy_deps(mocker, tmp_path, monkeypatch)
         monkeypatch.setenv("VRAM_BUDGET_MB", "4096")
 
         call_order: list[str] = []
@@ -130,7 +211,8 @@ class TestMainPreflight:
 
         # Preflight first, then warmup. Anything else is a regression.
         assert call_order == ["preflight", "warmup"]
-        fake_app.run.assert_called_once()
+        fake_serve.assert_called_once()
+        fake_app.run.assert_not_called()
 
     def test_main_passes_classifier_and_env_override_to_preflight(
         self, mocker, tmp_path, monkeypatch
@@ -155,7 +237,7 @@ class TestMainPreflight:
 
         from gpu_service.rest_server import main
 
-        warmup, fake_app = self._stub_heavy_deps(mocker, tmp_path, monkeypatch)
+        warmup, fake_app, fake_serve = self._stub_heavy_deps(mocker, tmp_path, monkeypatch)
 
         def fake_preflight(**kwargs):
             print("VRAM_PREFLIGHT_FAIL test-injected", file=_sys.stderr, flush=True)
@@ -168,4 +250,5 @@ class TestMainPreflight:
 
         assert exc_info.value.code == 2
         warmup.assert_not_called()
+        fake_serve.assert_not_called()
         fake_app.run.assert_not_called()

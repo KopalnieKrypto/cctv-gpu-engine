@@ -27,6 +27,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Protocol
 
+from waitress import serve
+
 from gpu_service.ffmpeg_concat import ffmpeg_concat
 from gpu_service.http_client import PresignedHttpClient
 from gpu_service.rest_api import (
@@ -156,7 +158,12 @@ def main() -> int:
 
     app = create_app(readiness=readiness, registry=registry, dispatch=dispatch)
     logger.info("serving REST contract on :%d", port)
-    app.run(host="0.0.0.0", port=port, threaded=True)
+    # Production WSGI server (waitress), not Werkzeug's dev server (issue #63).
+    # The gpu-agent depends on this port; the dev server is single-process with
+    # weaker slow-client/timeout handling and a noisy warning banner. waitress
+    # runs in the main thread so the SIGTERM handler above still fires here —
+    # sys.exit(0) unwinds serve() the same way it unwound app.run().
+    serve(app, host="0.0.0.0", port=port)
     return 0
 
 
