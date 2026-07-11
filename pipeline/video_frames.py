@@ -21,10 +21,17 @@ from __future__ import annotations
 
 import json
 import subprocess
+import tempfile
 from collections.abc import Iterator
 from pathlib import Path
+from typing import BinaryIO
 
 import numpy as np
+
+# Cap the amount of ffmpeg stderr echoed into a RuntimeError. The sink itself
+# is unbounded on disk (never blocks the writer), but a decode-error storm can
+# be megabytes — only the tail carries the actionable failure line.
+_STDERR_TAIL_BYTES = 8192
 
 
 def _probe_dimensions(video_path: str | Path) -> tuple[int, int]:
@@ -57,15 +64,9 @@ def _probe_dimensions(video_path: str | Path) -> tuple[int, int]:
     return int(streams[0]["width"]), int(streams[0]["height"])
 
 
-def iter_frames(
-    video_path: str | Path,
-    fps: int = 1,
-) -> Iterator[tuple[float, np.ndarray]]:
-    """Yield ``(timestamp_s, frame_bgr)`` for every frame at ``fps``."""
-    width, height = _probe_dimensions(video_path)
-    frame_size = width * height * 3  # bgr24
-
-    cmd = [
+def _build_ffmpeg_cmd(video_path: str | Path, fps: int) -> list[str]:
+    """Assemble the streaming ffmpeg command (extracted for testability)."""
+    return [
         "ffmpeg",
         "-hide_banner",
         "-loglevel",
@@ -80,12 +81,47 @@ def iter_frames(
         "rawvideo",
         "-",
     ]
+
+
+def _read_stderr_tail(sink: BinaryIO) -> str:
+    """Return the last ``_STDERR_TAIL_BYTES`` of the ffmpeg stderr sink.
+
+    The sink is a regular file (seekable), so we seek near the end rather
+    than load a potentially multi-MB decode-error dump into memory.
+    """
+    try:
+        sink.seek(0, 2)  # SEEK_END
+        size = sink.tell()
+        sink.seek(max(0, size - _STDERR_TAIL_BYTES))
+        data = sink.read() or b""
+    except Exception:  # pragma: no cover - best effort diagnostics
+        return ""
+    return data.decode("utf-8", errors="replace").strip()
+
+
+def iter_frames(
+    video_path: str | Path,
+    fps: int = 1,
+) -> Iterator[tuple[float, np.ndarray]]:
+    """Yield ``(timestamp_s, frame_bgr)`` for every frame at ``fps``."""
+    width, height = _probe_dimensions(video_path)
+    frame_size = width * height * 3  # bgr24
+
+    cmd = _build_ffmpeg_cmd(video_path, fps)
+    # Redirect stderr to a real temp file, not a PIPE. A corrupt surveillance
+    # MP4 makes ffmpeg emit repeated decode-error lines; with stderr=PIPE and
+    # only stdout being drained, the ~64 KiB pipe buffer fills, ffmpeg blocks
+    # on its stderr write, stops producing stdout, and our read() blocks
+    # forever (issue #60). A temp file never applies backpressure to the
+    # writer, so the frame loop can always make progress.
+    stderr_sink = tempfile.TemporaryFile()
     proc = subprocess.Popen(  # noqa: S603
         cmd,
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stderr=stderr_sink,
     )
     if proc.stdout is None:  # pragma: no cover - defensive
+        stderr_sink.close()
         raise RuntimeError("ffmpeg subprocess produced no stdout pipe")
 
     index = 0
@@ -106,14 +142,11 @@ def iter_frames(
         except Exception:  # pragma: no cover - best effort
             pass
         rc = proc.wait()
-        if rc != 0:
-            stderr_bytes = b""
-            if proc.stderr is not None:
-                try:
-                    stderr_bytes = proc.stderr.read() or b""
-                except Exception:  # pragma: no cover - best effort
-                    stderr_bytes = b""
-            stderr = stderr_bytes.decode("utf-8", errors="replace").strip()
-            raise RuntimeError(
-                f"ffmpeg failed (exit {rc}) streaming frames from {video_path}: {stderr}"
-            )
+        try:
+            if rc != 0:
+                stderr = _read_stderr_tail(stderr_sink)
+                raise RuntimeError(
+                    f"ffmpeg failed (exit {rc}) streaming frames from {video_path}: {stderr}"
+                )
+        finally:
+            stderr_sink.close()
