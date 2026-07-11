@@ -103,23 +103,35 @@ def _analyze_to_report_data(
                 detections = detector.detect(frame)
 
                 if detections:
-                    # Displacement check: is the person moving?
-                    det = detections[0]
-                    cx, cy = bbox_center(det)
-                    bbox_h = det.bbox[3] - det.bbox[1]
-                    is_moving = False
-                    if prev_centers and bbox_h > 1e-6:
-                        px, py = prev_centers[0]
-                        norm_disp = math.hypot(cx - px, cy - py) / bbox_h
-                        is_moving = norm_disp > DISPLACEMENT_WALK_THRESHOLD
+                    # Per-person walking decision via nearest-center matching
+                    # (issue #64). NMS orders detections by confidence, which is
+                    # not stable across frames, so pairing detections[0] with
+                    # prev_centers[0] compared different people and flipped the
+                    # branch at random in multi-person scenes. Match each
+                    # detection to its *nearest* previous center instead — the
+                    # same order-independent approach ActivitySmoother uses.
+                    #
+                    # The VLM classifies the whole frame (no per-person crops —
+                    # deferred with full tracking, #32), so its single
+                    # sitting/standing label is shared by every non-moving
+                    # person. It is computed lazily and at most once per frame
+                    # (skipped entirely when everyone is walking), so cost is
+                    # unchanged from the old frame-level call.
+                    vlm_label: str | None = None
+                    for det in detections:
+                        cx, cy = bbox_center(det)
+                        bbox_h = det.bbox[3] - det.bbox[1]
+                        is_moving = False
+                        if prev_centers and bbox_h > 1e-6:
+                            nearest = min(math.hypot(cx - px, cy - py) for px, py in prev_centers)
+                            is_moving = nearest / bbox_h > DISPLACEMENT_WALK_THRESHOLD
 
-                    if is_moving:
-                        for d in detections:
-                            d.activity = "walking"
-                    else:
-                        activity = vlm.classify_frame(frame)
-                        for d in detections:
-                            d.activity = activity
+                        if is_moving:
+                            det.activity = "walking"
+                        else:
+                            if vlm_label is None:
+                                vlm_label = vlm.classify_frame(frame)
+                            det.activity = vlm_label
 
                     prev_centers = [bbox_center(d) for d in detections]
                 else:

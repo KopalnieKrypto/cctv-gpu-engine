@@ -380,6 +380,137 @@ class TestRunFullVideoToHtml:
             run_full_video_to_html([Path("a.mp4")])
 
 
+def _person_at(cx: float, cy: float, h: float = 400.0, w: float = 200.0) -> Detection:
+    """A Detection whose bbox is centered on (cx, cy) with the given size.
+
+    bbox height fixes the displacement normalization: with h=400 and
+    DISPLACEMENT_WALK_THRESHOLD=0.05, a center move > 20px reads as walking.
+    """
+    x1, x2 = cx - w / 2, cx + w / 2
+    y1, y2 = cy - h / 2, cy + h / 2
+    kps = [Keypoint(x=cx, y=cy, vis=0.95) for _ in range(17)]
+    det = Detection(bbox=[x1, y1, x2, y2], confidence=0.9, keypoints=kps)
+    det.activity = "standing"
+    return det
+
+
+class TestVlmPerPersonDisplacement:
+    """VLM-hybrid path must decide walking per person via nearest-center
+    matching, not by comparing detections[0] to prev_centers[0] (issue #64).
+
+    NMS sorts detections by confidence (postprocessing), which is not stable
+    across frames — person A can be index 0 in frame N and index 1 in frame
+    N+1. The old code paired ``detections[0]`` with ``prev_centers[0]`` and
+    then applied the single frame-level outcome to *every* detection, so in a
+    multi-person scene the walking/VLM branch flipped at random and everyone
+    got one blanket label.
+
+    These tests drive ``run_full_video_to_html`` with a fake detector + fake
+    VLM. Because the pipeline mutates ``det.activity`` in place on the very
+    objects the fake detector returns, we hold references to the frame-1
+    detections and read their labels back after the run.
+    """
+
+    def _run_two_person_swap(self, mocker):
+        """Frame 0 establishes centers; frame 1 keeps P1 stationary, moves P2
+        far, and swaps detection order. Returns (p1_frame1, p2_frame1) with
+        their post-run activity labels set by the pipeline."""
+        from pathlib import Path
+
+        from pipeline.analyze import run_full_video_to_html
+
+        fake_frame = np.zeros((40, 60, 3), dtype=np.uint8)
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            return_value=iter([(0.0, fake_frame), (1.0, fake_frame)]),
+        )
+
+        # Frame 0: P1 @ (200,400), P2 @ (1000,400).
+        p1_f0 = _person_at(200, 400)
+        p2_f0 = _person_at(1000, 400)
+        # Frame 1: P1 stays at (200,400); P2 moves to (1100,400) (100px > 20px
+        # threshold → walking). Detection order is SWAPPED (P2 first) to expose
+        # the index-based pairing bug.
+        p1_f1 = _person_at(200, 400)
+        p2_f1 = _person_at(1100, 400)
+
+        fake_detector = MagicMock()
+        fake_detector.detect.side_effect = [[p1_f0, p2_f0], [p2_f1, p1_f1]]
+        mocker.patch("pipeline.analyze.load_pose_model", return_value=fake_detector)
+
+        fake_vlm = MagicMock()
+        fake_vlm.classify_frame.return_value = "sitting"
+        mocker.patch("pipeline.vlm_classifier.VLMClassifier", return_value=fake_vlm)
+
+        run_full_video_to_html([Path("v.mp4")], classifier="vlm")
+        return p1_f1, p2_f1
+
+    def test_vlm_displacement_uses_nearest_center_matching(self, mocker):
+        """Stationary P1 must NOT be marked walking even though the detection
+        order swapped and P2 moved — the moving check pairs by nearest center."""
+        p1_f1, _p2_f1 = self._run_two_person_swap(mocker)
+        assert p1_f1.activity != "walking", (
+            "stationary P1 was mislabeled 'walking' — displacement pairing is "
+            "still index-based (detections[0] vs prev_centers[0]) instead of "
+            "nearest-center, so a swap in NMS order flips the branch."
+        )
+        # It should get the VLM's sitting/standing label instead.
+        assert p1_f1.activity == "sitting"
+
+    def test_vlm_per_person_labels_in_multi_person_frame(self, mocker):
+        """A multi-person frame must not get one blanket label: the moving
+        person is 'walking' while the stationary one keeps the VLM label."""
+        p1_f1, p2_f1 = self._run_two_person_swap(mocker)
+        assert p2_f1.activity == "walking"
+        assert p1_f1.activity == "sitting"
+        assert {p1_f1.activity, p2_f1.activity} == {"sitting", "walking"}, (
+            "both people got the same blanket label — the frame-level outcome "
+            "is still applied to every detection instead of per person."
+        )
+
+    def test_single_person_scene_behaviour_unchanged(self, mocker):
+        """No regression for single-person scenes (the common case): a lone
+        moving person is 'walking'; a lone stationary person gets the VLM
+        label. With one detection, nearest-center == the old index-0 pairing,
+        so this path is behaviourally identical to before the fix."""
+        from pathlib import Path
+
+        from pipeline.analyze import run_full_video_to_html
+
+        fake_frame = np.zeros((40, 60, 3), dtype=np.uint8)
+
+        # --- lone stationary person → VLM label ---
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            return_value=iter([(0.0, fake_frame), (1.0, fake_frame)]),
+        )
+        still_f0 = _person_at(500, 400)
+        still_f1 = _person_at(500, 400)
+        det_still = MagicMock()
+        det_still.detect.side_effect = [[still_f0], [still_f1]]
+        mocker.patch("pipeline.analyze.load_pose_model", return_value=det_still)
+        fake_vlm = MagicMock()
+        fake_vlm.classify_frame.return_value = "sitting"
+        mocker.patch("pipeline.vlm_classifier.VLMClassifier", return_value=fake_vlm)
+
+        run_full_video_to_html([Path("v.mp4")], classifier="vlm")
+        assert still_f1.activity == "sitting"
+
+        # --- lone moving person → walking (VLM not consulted for it) ---
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            return_value=iter([(0.0, fake_frame), (1.0, fake_frame)]),
+        )
+        move_f0 = _person_at(500, 400)
+        move_f1 = _person_at(700, 400)  # 200px >> 20px threshold
+        det_move = MagicMock()
+        det_move.detect.side_effect = [[move_f0], [move_f1]]
+        mocker.patch("pipeline.analyze.load_pose_model", return_value=det_move)
+
+        run_full_video_to_html([Path("v.mp4")], classifier="vlm")
+        assert move_f1.activity == "walking"
+
+
 class TestRunFullVideoToJson:
     """Canonical structured artifact (issue #72) — the bytes the gpu-agent uploads.
 
