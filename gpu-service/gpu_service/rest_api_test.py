@@ -233,6 +233,62 @@ class TestAnalyzeAsyncDispatch:
         assert dispatched == []
 
 
+class TestQueuedState:
+    """Issue #59 — an accepted task must be observable as ``queued`` the
+    instant ``/analyze`` returns 202, not only once the single-worker
+    executor picks it up. Otherwise a task queued behind a 20-minute VLM
+    job 404s for the whole duration and the gpu-agent re-dispatches it.
+    """
+
+    def test_status_is_queued_immediately_after_accept(self) -> None:
+        # Dispatcher records the payload but never runs it — simulates the
+        # executor queue backed up behind a long-running task.
+        dispatched: list = []
+        client, _ = _make_client(dispatcher=lambda payload: dispatched.append(payload))
+
+        client.post("/analyze", json=_valid_payload())
+        response = client.get(f"/status/{VALID_TASK_ID}")
+
+        assert response.status_code == 200
+        assert response.get_json() == {"state": "queued"}
+
+    def test_queued_transitions_to_running(self) -> None:
+        # Inline "executor": the dispatcher runs the task immediately, so
+        # run_task's first action (set_running) overwrites the queued entry.
+        readiness = Readiness()
+        readiness.mark_ready()
+        registry = TaskRegistry()
+        app = create_app(
+            readiness=readiness,
+            registry=registry,
+            dispatch=lambda payload: registry.set_running(payload["task_id"], progress=0.25),
+        )
+        client = app.test_client()
+
+        client.post("/analyze", json=_valid_payload())
+        response = client.get(f"/status/{VALID_TASK_ID}")
+
+        assert response.status_code == 200
+        assert response.get_json() == {"state": "running", "progress": 0.25}
+
+    def test_duplicate_task_id_is_idempotent(self) -> None:
+        # A gpu-agent retry (or warm-container reuse) may POST the same
+        # task_id twice. The second POST must not enqueue a second
+        # run_task — otherwise a 20-minute VLM job runs twice.
+        dispatched: list = []
+        client, _ = _make_client(dispatcher=lambda payload: dispatched.append(payload))
+        payload = _valid_payload()
+
+        first = client.post("/analyze", json=payload)
+        second = client.post("/analyze", json=payload)
+
+        assert first.status_code == 202
+        assert second.status_code == 202
+        assert second.get_json() == {"accepted": True, "task_id": VALID_TASK_ID}
+        # Enqueued exactly once despite two accepted POSTs.
+        assert len(dispatched) == 1
+
+
 class TestSigtermCleanup:
     def test_running_tasks_flipped_to_failed_with_terminated_error(self) -> None:
         # gpu-agent calls `docker stop` (SIGTERM) when the job completes
@@ -254,3 +310,18 @@ class TestSigtermCleanup:
         # Already-completed and already-failed are untouched.
         assert registry.get("done-1") == {"state": "completed"}
         assert registry.get("already-failed") == {"state": "failed", "error": "boom"}
+
+    def test_sigterm_fails_queued_tasks_too(self) -> None:
+        # Issue #59: a task still sitting in the executor queue (never
+        # started) must also flip to failed on docker-stop — otherwise the
+        # gpu-agent sees a queued task vanish with no terminal state.
+        from gpu_service.rest_api import terminate_running_tasks
+
+        registry = TaskRegistry()
+        registry.set_queued("queued-1")
+        registry.set_running("running-1", progress=0.5)
+
+        terminate_running_tasks(registry)
+
+        assert registry.get("queued-1") == {"state": "failed", "error": "terminated"}
+        assert registry.get("running-1") == {"state": "failed", "error": "terminated"}

@@ -63,6 +63,10 @@ class TaskRegistry:
             entry = self._states.get(task_id)
             return dict(entry) if entry is not None else None
 
+    def set_queued(self, task_id: str) -> None:
+        with self._lock:
+            self._states[task_id] = {"state": "queued"}
+
     def set_running(self, task_id: str, progress: float = 0.0) -> None:
         with self._lock:
             self._states[task_id] = {"state": "running", "progress": progress}
@@ -85,15 +89,28 @@ class TaskRegistry:
         with self._lock:
             return [tid for tid, st in self._states.items() if st.get("state") == "running"]
 
+    def active_task_ids(self) -> list[str]:
+        """Tasks that have no terminal state yet — queued *or* running.
+
+        A ``queued`` task (accepted but not yet picked up by the single
+        executor) is just as much in-flight as a running one; a SIGTERM
+        sweep must fail both so nothing is left without a terminal state.
+        """
+        with self._lock:
+            return [
+                tid for tid, st in self._states.items() if st.get("state") in ("queued", "running")
+            ]
+
 
 def terminate_running_tasks(registry: TaskRegistry) -> None:
-    """Flip every running task to ``state: failed, error: terminated``.
+    """Flip every in-flight task to ``state: failed, error: terminated``.
 
     Invoked from a SIGTERM handler when the gpu-agent docker-stops the
-    container. Tasks that completed cleanly stay completed; tasks that
-    already failed keep their original error.
+    container. Both queued and running tasks are swept; tasks that
+    completed cleanly stay completed; tasks that already failed keep their
+    original error.
     """
-    for task_id in registry.running_task_ids():
+    for task_id in registry.active_task_ids():
         registry.set_failed(task_id, error="terminated")
 
 
@@ -161,8 +178,17 @@ def create_app(
         except TenantPrefixError as e:
             return jsonify({"error": f"tenant prefix check failed: {e}"}), 400
 
+        task_id = payload["task_id"]
+        # Idempotency: a gpu-agent retry (or warm-container reuse) may POST
+        # the same task_id while it is still queued/running. Accept it again
+        # (202) but do not re-dispatch — otherwise a long VLM job runs twice.
+        existing = registry.get(task_id)
+        if existing is not None and existing.get("state") in ("queued", "running"):
+            return jsonify({"accepted": True, "task_id": task_id}), 202
+
+        registry.set_queued(task_id)
         dispatch(payload)
-        return jsonify({"accepted": True, "task_id": payload["task_id"]}), 202
+        return jsonify({"accepted": True, "task_id": task_id}), 202
 
     @app.get("/status/<task_id>")
     def status(task_id: str):  # type: ignore[unused-ignore]
