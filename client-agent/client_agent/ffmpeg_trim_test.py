@@ -19,6 +19,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 from client_agent.buffer import BufferChunk
 
 
@@ -159,7 +161,6 @@ def test_trim_empty_chunks_raises_value_error(tmp_path: Path) -> None:
     """Empty buffer should be caught by the poller before getting here,
     but the guard turns a misuse into a clean exception instead of an
     ffmpeg argv error that is much harder to read in journald."""
-    import pytest
 
     from client_agent.ffmpeg_trim import trim_and_concat
 
@@ -212,3 +213,122 @@ def test_concat_listfile_cleaned_up(tmp_path: Path) -> None:
     )
 
     assert list(out_dir.glob("*.concat.txt")) == []
+
+
+# ----- 5. single-chunk trim raises on non-zero ffmpeg exit -----
+
+
+def _failing_result(stderr: str):
+    """A subprocess-run-shaped result with a non-zero exit and stderr,
+    matching what ``subprocess.run(..., text=True)`` returns on failure."""
+
+    class _R:
+        returncode = 1
+        stdout = ""
+
+    _R.stderr = stderr
+    return _R()
+
+
+def test_single_chunk_trim_raises_on_ffmpeg_failure(tmp_path: Path) -> None:
+    """A failed single-chunk trim (unreadable chunk, ENOSPC) currently
+    returns normally with no/partial output, so the poller proceeds to
+    upload a missing/truncated file. Mirror ``ffmpeg_concat``'s contract:
+    a non-zero ffmpeg exit raises ``RuntimeError`` carrying stderr (#57)."""
+    from client_agent.ffmpeg_trim import trim_and_concat
+
+    t10 = datetime(2026, 5, 15, 10, 0, 0, tzinfo=UTC)
+    chunk_path = tmp_path / "chunk_001.mp4"
+    chunk_path.write_bytes(b"fake")
+    chunk = _chunk(chunk_path, end=t10 + timedelta(hours=1))
+    output = tmp_path / "out.mp4"
+
+    def runner(cmd, **kwargs):
+        return _failing_result("Invalid data found when processing input")
+
+    with pytest.raises(RuntimeError, match="Invalid data found when processing input"):
+        trim_and_concat(
+            chunks=[chunk],
+            start=t10 + timedelta(minutes=15),
+            end=t10 + timedelta(minutes=45),
+            output=output,
+            runner=runner,
+        )
+
+
+# ----- 6. multi-chunk (concat) trim raises on non-zero ffmpeg exit -----
+
+
+def test_multi_chunk_trim_raises_on_ffmpeg_failure(tmp_path: Path) -> None:
+    """Same contract on the concat branch — a bad concat list or an
+    unreadable member chunk must raise, not silently produce nothing.
+    The temp concat list is still cleaned up on the failure path (#51)."""
+    from client_agent.ffmpeg_trim import trim_and_concat
+
+    t10 = datetime(2026, 5, 15, 10, 0, 0, tzinfo=UTC)
+    c1_path = tmp_path / "chunk_001.mp4"
+    c1_path.write_bytes(b"fake1")
+    c2_path = tmp_path / "chunk_002.mp4"
+    c2_path.write_bytes(b"fake2")
+    out_dir = tmp_path / "trim-out"
+    out_dir.mkdir()
+    output = out_dir / "out.mp4"
+
+    def runner(cmd, **kwargs):
+        return _failing_result("Impossible to open concat list")
+
+    with pytest.raises(RuntimeError, match="Impossible to open concat list"):
+        trim_and_concat(
+            chunks=[
+                _chunk(c1_path, end=t10 + timedelta(hours=1)),
+                _chunk(c2_path, end=t10 + timedelta(hours=2)),
+            ],
+            start=t10 + timedelta(minutes=45),
+            end=t10 + timedelta(minutes=75),
+            output=output,
+            runner=runner,
+        )
+
+    # No temp concat list left behind even though the run failed.
+    assert list(out_dir.glob("*.concat.txt")) == []
+
+
+# ----- 7. -ss clamped to zero when the window starts before the chunk -----
+
+
+def test_ss_clamped_to_zero_when_window_precedes_chunk(tmp_path: Path) -> None:
+    """When the task window starts before the first chunk's (mtime-inferred)
+    start, the raw offset ``start - chunk.start`` is negative — ffmpeg
+    rejects or misbehaves on a negative ``-ss``. The offset must clamp to
+    0 so the trim starts at the chunk head (#57)."""
+    from client_agent.ffmpeg_trim import trim_and_concat
+
+    t10 = datetime(2026, 5, 15, 10, 0, 0, tzinfo=UTC)
+    chunk_path = tmp_path / "chunk_001.mp4"
+    chunk_path.write_bytes(b"fake")
+    chunk = _chunk(chunk_path, end=t10 + timedelta(hours=1))  # chunk.start = 10:00
+    output = tmp_path / "out.mp4"
+    calls: list[list[str]] = []
+
+    def runner(cmd, **kwargs):
+        calls.append(cmd)
+
+        class _R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        output.write_bytes(b"fake-trimmed")
+        return _R()
+
+    # Window starts 5 min *before* the chunk (09:55) → raw ss would be -300.
+    trim_and_concat(
+        chunks=[chunk],
+        start=t10 - timedelta(minutes=5),
+        end=t10 + timedelta(minutes=45),
+        output=output,
+        runner=runner,
+    )
+
+    cmd = calls[0]
+    assert cmd[cmd.index("-ss") + 1] == "0"

@@ -45,7 +45,10 @@ def trim_and_concat(
 
     if len(chunks) == 1:
         chunk = chunks[0]
-        ss = int((start - chunk.start).total_seconds())
+        # Clamp to 0: when the task window starts before the chunk's
+        # (mtime-inferred) start, the raw offset is negative and ffmpeg
+        # rejects/misbehaves on a negative -ss. Start at the chunk head.
+        ss = max(0, int((start - chunk.start).total_seconds()))
         to = int((end - chunk.start).total_seconds())
         cmd = [
             "ffmpeg",
@@ -59,14 +62,22 @@ def trim_and_concat(
             "copy",
             str(output),
         ]
-        runner(cmd, capture_output=True, text=True)
+        _check(runner(cmd, capture_output=True, text=True))
         return
 
     # Multi-chunk: write a concat-demuxer file list next to the output, then
     # invoke ffmpeg once with -f concat. Offsets are relative to the first
     # chunk's start so the virtual concatenated stream is sliced consistently.
+    #
+    # Tolerance note (#57): the offset math assumes a *gapless* concat —
+    # ``first.start + elapsed``. Recorder respawns or camera dropouts can
+    # leave gaps between chunks, which shift the slice later by the total gap
+    # duration. For the 1 fps pose sampler a few seconds of drift is
+    # invisible at the report layer; a task spanning a multi-minute recorder
+    # outage would need offsets derived from cumulative chunk durations
+    # instead (deferred — no such footage in the current test corpus).
     first = chunks[0]
-    ss = int((start - first.start).total_seconds())
+    ss = max(0, int((start - first.start).total_seconds()))
     to = int((end - first.start).total_seconds())
     # ``delete=False`` so ffmpeg can reopen the list by name; we own the
     # cleanup ourselves in the ``finally`` below. Without it every multi-
@@ -98,7 +109,25 @@ def trim_and_concat(
             "copy",
             str(output),
         ]
-        runner(cmd, capture_output=True, text=True)
+        _check(runner(cmd, capture_output=True, text=True))
     finally:
         list_file.close()
         Path(list_file.name).unlink(missing_ok=True)
+
+
+def _check(result: Any) -> None:
+    """Raise on a non-zero ffmpeg exit, mirroring :func:`ffmpeg_concat`.
+
+    Without this, a failed trim (unreadable chunk, ENOSPC, bad concat
+    list) returns normally with no output file or a truncated one, and
+    the poller then uploads a missing/partial MP4 as a success (#57).
+    The ``runner`` is ``subprocess.run(..., text=True)`` in production so
+    ``stderr`` is a ``str``; bytes are decoded defensively for other
+    runners."""
+    returncode = getattr(result, "returncode", 0)
+    if returncode == 0:
+        return
+    stderr = getattr(result, "stderr", "") or ""
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode("utf-8", errors="replace")
+    raise RuntimeError(f"ffmpeg trim exited {returncode}: {stderr}")

@@ -505,6 +505,60 @@ def test_trim_failure_marks_task_failed(tmp_path: Path) -> None:
     assert failed_call[2] is not None  # operator-facing error present
 
 
+# ----- 5d-bis. real trim raising on ffmpeg exit reaches platform as failed (#57) -----
+
+
+def test_trim_failure_reaches_platform_as_failed(tmp_path: Path) -> None:
+    """Composition test wiring #57 into #54: the *real* ``trim_and_concat``
+    (not a hand-rolled exploding fake) is given a runner that returns a
+    non-zero ffmpeg exit. trim must raise (the #57 fix), and the poller must
+    funnel that into ``status=failed`` — never emitting ``uploading`` for a
+    trim that produced no mp4, and never invoking the uploader."""
+    from client_agent.ffmpeg_trim import trim_and_concat
+    from client_agent.poller import TaskPoller
+
+    t10 = datetime(2026, 5, 15, 10, 0, 0, tzinfo=UTC)
+    chunk = BufferChunk(path=tmp_path / "chunk_001.mp4", start=t10, end=t10 + timedelta(hours=1))
+    chunk.path.write_bytes(b"fake")
+    platform = FakePlatform(
+        next_tasks=[
+            Task(
+                id="task-trim-exit1",
+                camera_id="cam-1",
+                start_time=t10 + timedelta(minutes=15),
+                end_time=t10 + timedelta(minutes=45),
+            )
+        ]
+    )
+    buffer = FakeBuffer(chunks_by_camera={"cam-1": [chunk]})
+
+    def failing_runner(cmd, **kwargs):
+        class _R:
+            returncode = 1
+            stdout = ""
+            stderr = "Invalid data found when processing input"
+
+        return _R()
+
+    uploader = FakeUploader()
+    poller = TaskPoller(
+        platform=platform,
+        buffer=buffer,
+        trim_fn=trim_and_concat,
+        output_dir=tmp_path / "out",
+        uploader=uploader,
+        runner=failing_runner,
+    )
+    handled = poller.run_once()
+
+    assert handled is True
+    # recording → failed; uploading never reached (trim produced no mp4).
+    assert [call[1] for call in platform.status_calls] == ["recording", "failed"]
+    assert platform.status_calls[-1][2] is not None  # operator-facing error present
+    # The uploader was never asked to upload a missing/partial file.
+    assert uploader.upload_calls == []
+
+
 # ----- 5e. uploader raises → task marked failed (belt-and-suspenders, #54) -----
 
 
