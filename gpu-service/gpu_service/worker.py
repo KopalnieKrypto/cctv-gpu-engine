@@ -29,6 +29,7 @@ alongside each job.
 from __future__ import annotations
 
 import logging
+import shutil
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -79,6 +80,19 @@ def _fail_job(
     return "failed"
 
 
+def _cleanup_job_dir(job_dir: Path) -> None:
+    """Remove the per-job workdir once the job is done (issue #55).
+
+    Best-effort: a cleanup failure (read-only volume, a file still held open)
+    is logged but must never propagate — turning a completed/failed job into
+    an exception would kill the poll loop and leave the outcome unrecorded.
+    """
+    try:
+        shutil.rmtree(job_dir)
+    except Exception:  # noqa: BLE001 — cleanup errors must not mask the job outcome
+        logger.warning("failed to remove job dir %s", job_dir, exc_info=True)
+
+
 def process_job(
     client: R2ClientLike,
     job_id: str,
@@ -115,57 +129,63 @@ def process_job(
     status["updated_at"] = now()
     client.put_status(job_id, status)
 
-    # Download all chunks into a job-scoped subdir of workdir.
+    # Download all chunks into a job-scoped subdir of workdir. The job dir is
+    # torn down in the `finally` on every outcome (issue #55): on the polling
+    # worker WORKDIR is a *persisted* named volume, so leftover input chunks
+    # (tens of GB per job) would otherwise accumulate until the disk fills.
     job_dir = workdir / job_id
     input_dir = job_dir / "input"
     input_dir.mkdir(parents=True, exist_ok=True)
     try:
-        chunks = client.download_chunks(job_id, input_dir)
-    except Exception as exc:  # noqa: BLE001 — translate any download error into failed
-        return _fail_job(client, job_id, status, f"download error: {exc}", now)
+        try:
+            chunks = client.download_chunks(job_id, input_dir)
+        except Exception as exc:  # noqa: BLE001 — translate any download error into failed
+            return _fail_job(client, job_id, status, f"download error: {exc}", now)
 
-    if not chunks:
-        return _fail_job(
-            client,
-            job_id,
-            status,
-            "no input chunks downloaded from R2 (missing or empty input/ prefix)",
-            now,
-        )
+        if not chunks:
+            return _fail_job(
+                client,
+                job_id,
+                status,
+                "no input chunks downloaded from R2 (missing or empty input/ prefix)",
+                now,
+            )
 
-    aggregator = MetricsAggregator()
+        aggregator = MetricsAggregator()
 
-    def report_progress(pct: int) -> None:
-        current = client.get_status(job_id)
-        if current is None:
-            return
+        def report_progress(pct: int) -> None:
+            current = client.get_status(job_id)
+            if current is None:
+                return
+            if metrics_collector is not None:
+                aggregator.add(metrics_collector.sample())
+                current["metrics"] = aggregator.summary()
+            current["progress_pct"] = pct
+            current["updated_at"] = now()
+            client.put_status(job_id, current)
+
+        try:
+            result_bytes = pipeline(chunks, report_progress)
+            report_key = client.upload_report(job_id, result_bytes)
+        except Exception as exc:  # noqa: BLE001 — pipeline crash → record + survive
+            return _fail_job(client, job_id, status, f"{type(exc).__name__}: {exc}", now)
+
+        final = client.get_status(job_id) or status
+        final["status"] = "completed"
+        final["progress_pct"] = 100
+        final["report_key"] = report_key
+        final["error"] = None
         if metrics_collector is not None:
+            # Final post-pipeline sample so the recorded peak reflects the full
+            # job duration even if the last chunk's progress(100) call already
+            # fired before we got here.
             aggregator.add(metrics_collector.sample())
-            current["metrics"] = aggregator.summary()
-        current["progress_pct"] = pct
-        current["updated_at"] = now()
-        client.put_status(job_id, current)
-
-    try:
-        result_bytes = pipeline(chunks, report_progress)
-        report_key = client.upload_report(job_id, result_bytes)
-    except Exception as exc:  # noqa: BLE001 — pipeline crash → record + survive
-        return _fail_job(client, job_id, status, f"{type(exc).__name__}: {exc}", now)
-
-    final = client.get_status(job_id) or status
-    final["status"] = "completed"
-    final["progress_pct"] = 100
-    final["report_key"] = report_key
-    final["error"] = None
-    if metrics_collector is not None:
-        # Final post-pipeline sample so the recorded peak reflects the full
-        # job duration even if the last chunk's progress(100) call already
-        # fired before we got here.
-        aggregator.add(metrics_collector.sample())
-        final["metrics"] = aggregator.summary()
-    final["updated_at"] = now()
-    client.put_status(job_id, final)
-    return "completed"
+            final["metrics"] = aggregator.summary()
+        final["updated_at"] = now()
+        client.put_status(job_id, final)
+        return "completed"
+    finally:
+        _cleanup_job_dir(job_dir)
 
 
 def worker_loop(

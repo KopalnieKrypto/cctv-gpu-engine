@@ -147,9 +147,13 @@ def test_processes_pending_job_end_to_end(tmp_path: Path) -> None:
     _seed_pending_job(r2, "job-abc", ["chunk_001.mp4"])
 
     received_chunks: list[Path] = []
+    received_bytes: list[bytes] = []
 
     def fake_pipeline(chunks: list[Path], progress: ProgressCallback) -> bytes:
         received_chunks.extend(chunks)
+        # Read the chunk content here, while the file still exists: the per-job
+        # workdir is torn down once process_job returns (issue #55).
+        received_bytes.extend(c.read_bytes() for c in chunks)
         return b'{"schema_version": 1, "fake": "result"}'
 
     result = process_job(
@@ -175,7 +179,7 @@ def test_processes_pending_job_end_to_end(tmp_path: Path) -> None:
     # uploaded report bytes must be exactly what the pipeline produced.
     assert len(received_chunks) == 1
     assert received_chunks[0].name == "chunk_001.mp4"
-    assert received_chunks[0].read_bytes() == b"fake mp4 bytes for chunk_001.mp4"
+    assert received_bytes[0] == b"fake mp4 bytes for chunk_001.mp4"
     assert r2.get_object(final["report_key"]) == b'{"schema_version": 1, "fake": "result"}'
 
 
@@ -522,6 +526,103 @@ def test_process_job_works_without_collector(tmp_path: Path) -> None:
     final = r2.get_status("job-no-metrics")
     assert final is not None
     assert "metrics" not in final
+
+
+def test_completed_job_removes_job_dir(tmp_path: Path) -> None:
+    """Issue #55 — a completed job leaves no per-job files behind.
+
+    ``process_job`` downloads input chunks into ``workdir/{job_id}/input/``.
+    On the polling worker ``WORKDIR`` is a *persisted* named volume, so those
+    chunks (tens of GB for an 8h job) accumulate forever. After a ``completed``
+    outcome the entire ``workdir/{job_id}`` tree must be gone.
+    """
+    r2 = InMemoryR2()
+    _seed_pending_job(r2, "job-clean", ["chunk_001.mp4"])
+
+    def fake_pipeline(chunks: list[Path], progress: ProgressCallback) -> bytes:
+        # The chunk file exists on disk while the pipeline runs...
+        assert chunks[0].exists()
+        return b'{"schema_version": 1, "ok": true}'
+
+    result = process_job(
+        client=r2,
+        job_id="job-clean",
+        worker_id="worker-1",
+        pipeline=fake_pipeline,
+        workdir=tmp_path,
+        now=lambda: "2026-07-11T10:00:00Z",
+    )
+
+    assert result == "completed"
+    # ...but is cleaned up once the job finishes.
+    assert not (tmp_path / "job-clean").exists()
+
+
+def test_failed_job_removes_job_dir(tmp_path: Path) -> None:
+    """Issue #55 — a failed job also leaves no per-job files behind.
+
+    When the pipeline crashes the outcome is ``failed`` and the chunks stay in
+    R2's ``input/`` prefix, so nothing local is worth keeping. The per-job
+    workdir must be removed on the failure path too, not just the happy path.
+    """
+    r2 = InMemoryR2()
+    _seed_pending_job(r2, "job-boom", ["chunk_001.mp4"])
+
+    def exploding_pipeline(chunks: list[Path], progress: ProgressCallback) -> bytes:
+        raise RuntimeError("CUDA out of memory")
+
+    result = process_job(
+        client=r2,
+        job_id="job-boom",
+        worker_id="worker-1",
+        pipeline=exploding_pipeline,
+        workdir=tmp_path,
+        now=lambda: "2026-07-11T10:00:00Z",
+    )
+
+    assert result == "failed"
+    assert not (tmp_path / "job-boom").exists()
+
+
+def test_cleanup_failure_does_not_mask_job_outcome(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Issue #55 — a cleanup error is logged but never changes the outcome.
+
+    If ``shutil.rmtree`` fails (e.g. a read-only volume, a file held open) the
+    job's real outcome must still be returned: a ``completed`` job must not turn
+    into an exception that escapes ``process_job`` and kills the poll loop. The
+    failure is logged so an operator can see the workdir is leaking.
+    """
+    r2 = InMemoryR2()
+    _seed_pending_job(r2, "job-stuck", ["chunk_001.mp4"])
+
+    def fake_pipeline(chunks: list[Path], progress: ProgressCallback) -> bytes:
+        return b'{"schema_version": 1, "ok": true}'
+
+    def boom_rmtree(*args: Any, **kwargs: Any) -> None:
+        raise PermissionError("read-only file system")
+
+    # Filesystem boundary: simulate rmtree failing for the per-job workdir.
+    monkeypatch.setattr("gpu_service.worker.shutil.rmtree", boom_rmtree)
+
+    with caplog.at_level("WARNING"):
+        result = process_job(
+            client=r2,
+            job_id="job-stuck",
+            worker_id="worker-1",
+            pipeline=fake_pipeline,
+            workdir=tmp_path,
+            now=lambda: "2026-07-11T10:00:00Z",
+        )
+
+    # Real outcome survives the cleanup failure...
+    assert result == "completed"
+    assert r2.get_status("job-stuck")["status"] == "completed"
+    # ...and the operator gets a warning naming the workdir that wasn't removed.
+    assert any("job-stuck" in record.getMessage() for record in caplog.records)
 
 
 class TestMainCli:
