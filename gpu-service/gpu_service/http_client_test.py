@@ -97,6 +97,24 @@ class TestPresignedHttpClientUpload:
         assert captured["data"] == b"<html>ok</html>"
         assert captured["method"] == "PUT"
 
+    def test_puts_json_content_type_header(self) -> None:
+        # REST mode PUTs the canonical result.json (#72); the object should
+        # carry application/json content-type metadata instead of urllib's
+        # default application/x-www-form-urlencoded (#75).
+        captured: dict = {}
+
+        def opener(request):
+            # urllib capitalizes only the first letter of a header key, so the
+            # stored key is "Content-type".
+            captured["content_type"] = request.get_header("Content-type")
+            return _FakeResponse(b"", status=200)
+
+        client = PresignedHttpClient(opener=opener, sleep=_no_sleep)
+
+        client.upload("https://r2.example.com/put/result.json", b'{"ok":true}')
+
+        assert captured["content_type"] == "application/json"
+
     def test_raises_on_non_2xx_response(self) -> None:
         opener = MagicMock(return_value=_FakeResponse(b"forbidden", status=403))
         client = PresignedHttpClient(opener=opener, sleep=_no_sleep)

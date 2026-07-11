@@ -63,7 +63,17 @@ class PresignedHttpClient:
 
     def upload(self, url: str, body: bytes) -> None:
         def _op() -> None:
-            request = urllib.request.Request(url, data=body, method="PUT")
+            # REST mode PUTs the canonical result.json (#72). Tag the object
+            # with application/json so R2 stores correct content-type metadata
+            # instead of urllib's default application/x-www-form-urlencoded
+            # (#75). The presigned PUT doesn't sign content-type, so this is
+            # safe metadata-only cleanup.
+            request = urllib.request.Request(
+                url,
+                data=body,
+                method="PUT",
+                headers={"Content-Type": "application/json"},
+            )
             with self._opener(request) as response:
                 # Drain the body so the connection can be reused / closed
                 # cleanly on R2's side.
