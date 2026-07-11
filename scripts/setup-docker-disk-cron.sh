@@ -70,8 +70,9 @@ EOF
 
 install_user() {
   local tmp; tmp="$(mktemp)"
-  # drop any previous managed entry (dedupe), keep everything else, append a fresh one
-  { crontab -l 2>/dev/null || true; } | grep -vF "$MARKER" > "$tmp"
+  # drop any previous managed entry (dedupe), keep everything else, append a fresh one.
+  # grep -v exits 1 when it selects no lines (empty crontab) — guard it so `set -e` survives.
+  { crontab -l 2>/dev/null || true; } | { grep -vF "$MARKER" || true; } > "$tmp"
   printf '0 4 * * 0 %s # %s\n' "$CRON_CMD" "$MARKER" >> "$tmp"
   crontab "$tmp"
   rm -f "$tmp"
