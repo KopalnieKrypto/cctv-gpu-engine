@@ -102,6 +102,11 @@ class InMemoryR2:
         self._objects[key] = body
         return key
 
+    def upload_detections(self, job_id: str, body: bytes) -> str:
+        key = f"surveillance-jobs/{job_id}/output/detections.jsonl"
+        self._objects[key] = body
+        return key
+
     # ----- test setup helpers -----
 
     def put_chunk(self, job_id: str, chunk_name: str, data: bytes) -> None:
@@ -181,6 +186,44 @@ def test_processes_pending_job_end_to_end(tmp_path: Path) -> None:
     assert received_chunks[0].name == "chunk_001.mp4"
     assert received_bytes[0] == b"fake mp4 bytes for chunk_001.mp4"
     assert r2.get_object(final["report_key"]) == b'{"schema_version": 1, "fake": "result"}'
+
+
+def test_dump_detections_uploads_jsonl_beside_result(tmp_path: Path) -> None:
+    """Issue #35 — with dump_detections on, the worker uploads the per-frame
+    JSONL the pipeline wrote to the job's R2 output prefix, next to result.json.
+
+    The pipeline is handed the dump path as a third argument (opt-in contract:
+    tests that don't enable dumping keep the 2-arg pipeline). Here the fake
+    pipeline writes the file, and we assert the worker read it back and
+    uploaded it via ``upload_detections``.
+    """
+    r2 = InMemoryR2()
+    _seed_pending_job(r2, "job-dump", ["chunk_001.mp4"])
+
+    def fake_pipeline(
+        chunks: list[Path], progress: ProgressCallback, dump_detections: Path
+    ) -> bytes:
+        dump_detections.write_text('{"frame_idx": 0, "person_count": 0, "persons": []}\n')
+        return b'{"schema_version": 1}'
+
+    result = process_job(
+        client=r2,
+        job_id="job-dump",
+        worker_id="worker-1",
+        pipeline=fake_pipeline,
+        workdir=tmp_path,
+        now=lambda: "2026-04-07T10:00:05Z",
+        dump_detections=True,
+    )
+
+    assert result == "completed"
+    body = r2.get_object("surveillance-jobs/job-dump/output/detections.jsonl")
+    assert body is not None
+    assert body.decode() == '{"frame_idx": 0, "person_count": 0, "persons": []}\n'
+    # The primary artifact is still uploaded.
+    assert (
+        r2.get_object("surveillance-jobs/job-dump/output/result.json") == b'{"schema_version": 1}'
+    )
 
 
 def test_two_workers_one_job_only_one_processes(tmp_path: Path) -> None:
@@ -435,6 +478,33 @@ def test_worker_loop_processes_pending_then_sleeps(tmp_path: Path) -> None:
     assert r2.get_status("job-1")["status"] == "completed"
     assert r2.get_status("job-2")["status"] == "completed"
     assert sleep_calls == [7.5]
+
+
+def test_worker_loop_forwards_dump_detections_flag(tmp_path: Path) -> None:
+    """worker_loop must forward dump_detections to process_job (issue #35),
+    so a production loop with dumping on archives detections.jsonl per job."""
+    r2 = InMemoryR2()
+    _seed_pending_job(r2, "job-d", ["chunk_001.mp4"])
+
+    def fake_pipeline(
+        chunks: list[Path], progress: ProgressCallback, dump_detections: Path
+    ) -> bytes:
+        dump_detections.write_text('{"frame_idx": 0}\n')
+        return b'{"schema_version": 1}'
+
+    worker_loop(
+        client=r2,
+        worker_id="worker-1",
+        pipeline=fake_pipeline,
+        workdir=tmp_path,
+        sleep=lambda _s: None,
+        max_iterations=1,
+        now=lambda: "2026-04-07T10:00:00Z",
+        dump_detections=True,
+    )
+
+    assert r2.get_status("job-d")["status"] == "completed"
+    assert r2.get_object("surveillance-jobs/job-d/output/detections.jsonl") == b'{"frame_idx": 0}\n'
 
 
 def test_process_job_records_metrics_when_collector_provided(tmp_path: Path) -> None:

@@ -511,6 +511,193 @@ class TestVlmPerPersonDisplacement:
         assert move_f1.activity == "walking"
 
 
+class TestDumpDetections:
+    """Opt-in per-frame JSONL archive (issue #35).
+
+    The aggregator only keeps a bounded keyframe buffer (#49), so the full
+    per-frame detection stream is streamed to disk *during* the run, not
+    reconstructed afterwards. Boundary mocks (ffmpeg iterator + model loader)
+    match the rest of the suite; the dump-writing code path runs for real.
+    """
+
+    def test_run_full_video_to_json_writes_one_jsonl_line_per_frame(self, mocker, tmp_path):
+        from pathlib import Path
+
+        from pipeline.analyze import run_full_video_to_json
+
+        fake_frame = np.zeros((40, 60, 3), dtype=np.uint8)
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            return_value=iter([(0.0, fake_frame), (1.0, fake_frame), (2.0, fake_frame)]),
+        )
+        fake_detector = MagicMock()
+        fake_detector.detect.return_value = [_detection(activity="walking", confidence=0.87)]
+        mocker.patch("pipeline.analyze.load_pose_model", return_value=fake_detector)
+
+        dump_path = tmp_path / "detections.jsonl"
+        run_full_video_to_json([Path("v.mp4")], dump_detections=dump_path)
+
+        lines = dump_path.read_text(encoding="utf-8").splitlines()
+        assert len(lines) == 3  # one line per processed frame
+
+        records = [json.loads(line) for line in lines]
+        # frame_idx is 0-based and monotonic across the whole video.
+        assert [r["frame_idx"] for r in records] == [0, 1, 2]
+        # timestamps mirror the frames fed in.
+        assert [r["timestamp_s"] for r in records] == [0.0, 1.0, 2.0]
+        assert all(r["person_count"] == 1 for r in records)
+        person = records[0]["persons"][0]
+        assert person["confidence"] == pytest.approx(0.87, abs=1e-5)
+        assert len(person["keypoints"]) == 17
+
+    def test_dump_is_opt_in_no_file_written_by_default(self, mocker, tmp_path):
+        """Default (no dump_detections) writes nothing — backward compatible."""
+        from pathlib import Path
+
+        from pipeline.analyze import run_full_video_to_json
+
+        fake_frame = np.zeros((40, 60, 3), dtype=np.uint8)
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            return_value=iter([(0.0, fake_frame), (1.0, fake_frame)]),
+        )
+        fake_detector = MagicMock()
+        fake_detector.detect.return_value = [_detection(activity="walking")]
+        mocker.patch("pipeline.analyze.load_pose_model", return_value=fake_detector)
+
+        raw = run_full_video_to_json([Path("v.mp4")])  # no dump_detections
+
+        # Result artifact still produced; no stray files created in the cwd-adjacent tmp.
+        assert isinstance(raw, bytes) and len(raw) > 0
+        assert list(tmp_path.iterdir()) == []
+
+    def test_cli_dump_detections_writes_jsonl_alongside_result(self, mocker, tmp_path):
+        """`--dump-detections PATH` writes a well-formed JSONL beside result.json."""
+        fake_frame = np.zeros((40, 60, 3), dtype=np.uint8)
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            return_value=iter([(0.0, fake_frame), (1.0, fake_frame)]),
+        )
+        fake_detector = MagicMock()
+        fake_detector.detect.return_value = [_detection(activity="walking")]
+        mocker.patch("pipeline.analyze.load_pose_model", return_value=fake_detector)
+
+        result_path = tmp_path / "result.json"
+        dump_path = tmp_path / "detections.jsonl"
+        exit_code = main(
+            [
+                "video.mp4",
+                "--output",
+                str(result_path),
+                "--dump-detections",
+                str(dump_path),
+                "--model",
+                "models/yolo11n-pose.onnx",
+            ]
+        )
+
+        assert exit_code == 0
+        assert result_path.exists()
+        assert dump_path.exists()
+        lines = dump_path.read_text(encoding="utf-8").splitlines()
+        assert len(lines) == 2
+        records = [json.loads(line) for line in lines]
+        assert [r["frame_idx"] for r in records] == [0, 1]
+        assert all(r["person_count"] == 1 for r in records)
+
+    def test_vlm_path_dumps_per_person_activities(self, mocker, tmp_path):
+        """The VLM branch must dump too, capturing the per-person activity
+        the pipeline assigns (walking vs the VLM's sitting/standing label)."""
+        from pathlib import Path
+
+        from pipeline.analyze import run_full_video_to_json
+
+        fake_frame = np.zeros((40, 60, 3), dtype=np.uint8)
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            return_value=iter([(0.0, fake_frame), (1.0, fake_frame)]),
+        )
+        # Frame 0: lone person, no prior center → stationary → VLM label.
+        # Frame 1: same person moved far → walking.
+        det = MagicMock()
+        det.detect.side_effect = [[_person_at(500, 400)], [_person_at(700, 400)]]
+        mocker.patch("pipeline.analyze.load_pose_model", return_value=det)
+        fake_vlm = MagicMock()
+        fake_vlm.classify_frame.return_value = "sitting"
+        mocker.patch("pipeline.vlm_classifier.VLMClassifier", return_value=fake_vlm)
+
+        dump_path = tmp_path / "detections.jsonl"
+        run_full_video_to_json([Path("v.mp4")], classifier="vlm", dump_detections=dump_path)
+
+        records = [json.loads(line) for line in dump_path.read_text().splitlines()]
+        assert len(records) == 2
+        assert records[0]["persons"][0]["activity"] == "sitting"
+        assert records[1]["persons"][0]["activity"] == "walking"
+
+
+class TestDumpDetectionsIntegration:
+    """End-to-end dump over a real 5-second fixture video (issue #35 AC).
+
+    Only the GPU model is stubbed — ffmpeg frame extraction (``iter_frames``)
+    runs for real, so this exercises the actual streaming loop that writes the
+    JSONL, not a fully-mocked stand-in. Skipped where ffmpeg/ffprobe aren't on
+    PATH (the gpu-service unit suite runs on hosts without them).
+    """
+
+    def _make_fixture(self, path, seconds: int = 5) -> None:
+        import subprocess
+
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                f"color=c=black:s=64x48:d={seconds}",
+                "-pix_fmt",
+                "yuv420p",
+                str(path),
+            ],
+            check=True,
+        )
+
+    def test_five_second_fixture_produces_wellformed_jsonl(self, mocker, tmp_path):
+        import shutil
+
+        if not (shutil.which("ffmpeg") and shutil.which("ffprobe")):
+            pytest.skip("ffmpeg/ffprobe not on PATH")
+
+        from pipeline.analyze import run_full_video_to_json
+
+        video = tmp_path / "fixture.mp4"
+        self._make_fixture(video, seconds=5)
+
+        # Real ffmpeg extraction; only the pose model is stubbed to yield one
+        # person per frame so the dump has content to serialize.
+        fake_detector = MagicMock()
+        fake_detector.detect.return_value = [_detection(activity="standing")]
+        mocker.patch("pipeline.analyze.load_pose_model", return_value=fake_detector)
+
+        dump_path = tmp_path / "detections.jsonl"
+        run_full_video_to_json([video], fps=1, dump_detections=dump_path)
+
+        lines = dump_path.read_text(encoding="utf-8").splitlines()
+        # A 5 s clip at 1 fps yields a handful of frames; be strict on the
+        # invariants, lenient on the exact count (ffmpeg fps-filter edges).
+        assert len(lines) >= 3
+        records = [json.loads(line) for line in lines]  # every line is valid JSON
+        assert [r["frame_idx"] for r in records] == list(range(len(records)))
+        timestamps = [r["timestamp_s"] for r in records]
+        assert timestamps == sorted(timestamps)
+        for r in records:
+            assert r["person_count"] == len(r["persons"])
+            assert len(r["persons"][0]["keypoints"]) == 17
+            assert set(r) == {"timestamp_s", "frame_idx", "person_count", "persons"}
+
+
 class TestRunFullVideoToJson:
     """Canonical structured artifact (issue #72) — the bytes the gpu-agent uploads.
 

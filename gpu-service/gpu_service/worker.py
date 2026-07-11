@@ -54,6 +54,7 @@ class R2ClientLike(Protocol):
     def put_status(self, job_id: str, status: dict[str, Any]) -> None: ...
     def download_chunks(self, job_id: str, dest: Path) -> list[Path]: ...
     def upload_report(self, job_id: str, body: bytes) -> str: ...
+    def upload_detections(self, job_id: str, body: bytes) -> str: ...
 
 
 def _utc_now_iso() -> str:
@@ -105,6 +106,7 @@ def process_job(
     workdir: Path,
     now: NowFn = _utc_now_iso,
     metrics_collector: MetricsCollector | None = None,
+    dump_detections: bool = False,
 ) -> str:
     """Run a single job's lifecycle. Returns the final outcome.
 
@@ -122,6 +124,14 @@ def process_job(
     plus one final sample taken right before the ``completed`` write. ``None``
     keeps the original (metrics-free) status payload — preserved for tests
     and any future caller that doesn't need telemetry.
+
+    When ``dump_detections`` is true (issue #35), the pipeline is called with a
+    third argument — a per-job ``detections.jsonl`` path inside the workdir —
+    and, on success, that file is uploaded beside ``result.json`` in the job's
+    R2 output prefix via ``client.upload_detections``. The upload is
+    best-effort: this archive is a debugging aid, so a failure to upload it
+    never turns an otherwise-completed job into a failure. ``False`` (default)
+    keeps the original 2-argument pipeline call untouched.
     """
     status = client.get_status(job_id)
     if status is None or status.get("status") != "pending":
@@ -173,11 +183,23 @@ def process_job(
             current["updated_at"] = now()
             client.put_status(job_id, current)
 
+        dump_path = job_dir / "detections.jsonl" if dump_detections else None
         try:
-            result_bytes = pipeline(chunks, report_progress)
+            if dump_path is not None:
+                result_bytes = pipeline(chunks, report_progress, dump_path)
+            else:
+                result_bytes = pipeline(chunks, report_progress)
             report_key = client.upload_report(job_id, result_bytes)
         except Exception as exc:  # noqa: BLE001 — pipeline crash → record + survive
             return _fail_job(client, job_id, status, f"{type(exc).__name__}: {exc}", now)
+
+        # Per-frame archive (issue #35) — supplementary, so best-effort: a
+        # failure here must never demote a job whose result.json already landed.
+        if dump_path is not None and dump_path.exists():
+            try:
+                client.upload_detections(job_id, dump_path.read_bytes())
+            except Exception:  # noqa: BLE001 — supplementary artifact, never fatal
+                logger.warning("failed to upload detections.jsonl for %s", job_id, exc_info=True)
 
         final = client.get_status(job_id) or status
         final["status"] = "completed"
@@ -210,6 +232,7 @@ def worker_loop(
     max_iterations: int | None = None,
     now: NowFn = _utc_now_iso,
     metrics_collector: MetricsCollector | None = None,
+    dump_detections: bool = False,
 ) -> None:
     """Long-running poll loop: discover pending jobs, process them, sleep.
 
@@ -241,6 +264,7 @@ def worker_loop(
                     workdir=workdir,
                     now=now,
                     metrics_collector=metrics_collector,
+                    dump_detections=dump_detections,
                 )
             except Exception:
                 # Defense in depth — process_job already records failures into
@@ -325,10 +349,15 @@ def main(argv: list[str] | None = None) -> int:
 
     model_path = os.environ.get("MODEL_PATH", "models/yolo11s-pose.onnx")
 
-    def pipeline(chunks: list[Path], progress: ProgressCallback) -> bytes:
+    def pipeline(
+        chunks: list[Path],
+        progress: ProgressCallback,
+        dump_detections: Path | None = None,
+    ) -> bytes:
         # Lazy import: keeps the unit-test path free of onnxruntime / GPU deps.
         # Canonical artifact is result.json (issue #72) — the platform renders
-        # it natively; the worker no longer emits HTML.
+        # it natively; the worker no longer emits HTML. ``dump_detections`` (set
+        # by process_job when enabled) also streams the per-frame archive (#35).
         from pipeline.analyze import run_full_video_to_json
 
         return run_full_video_to_json(
@@ -336,6 +365,7 @@ def main(argv: list[str] | None = None) -> int:
             progress=progress,
             model_path=model_path,
             classifier=classifier,
+            dump_detections=dump_detections,
         )
 
     workdir.mkdir(parents=True, exist_ok=True)
@@ -373,6 +403,9 @@ def main(argv: list[str] | None = None) -> int:
         workdir=workdir,
         poll_interval_s=poll_interval_s,
         metrics_collector=metrics_collector,
+        # Always archive per-frame detections (issue #35) so post-hoc
+        # "why did the system score X?" questions never force a re-run.
+        dump_detections=True,
     )
     return 0
 

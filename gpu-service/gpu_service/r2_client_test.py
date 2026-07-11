@@ -274,6 +274,22 @@ def test_upload_report_uses_output_result_json_key_and_returns_it() -> None:
     assert kwargs["Body"] == b'{"schema_version": 1}'
 
 
+def test_upload_detections_uses_output_detections_jsonl_key_and_returns_it() -> None:
+    """Issue #35 — per-frame archive lands beside result.json in the job prefix."""
+    s3 = MagicMock()
+    client = _make_client(s3)
+
+    key = client.upload_detections("j1", b'{"frame_idx": 0}\n')
+
+    assert key == "surveillance-jobs/j1/output/detections.jsonl"
+    s3.put_object.assert_called_once()
+    kwargs = s3.put_object.call_args.kwargs
+    assert kwargs["Bucket"] == "surveillance-data"
+    assert kwargs["Key"] == "surveillance-jobs/j1/output/detections.jsonl"
+    assert kwargs["ContentType"] == "application/x-ndjson"
+    assert kwargs["Body"] == b'{"frame_idx": 0}\n'
+
+
 # ----- Issue #61 part 1: retry with backoff (SPEC §8.2) -----
 
 

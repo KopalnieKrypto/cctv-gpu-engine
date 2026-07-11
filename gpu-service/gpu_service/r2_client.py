@@ -109,6 +109,13 @@ class R2Client:
         # this JSON natively; the engine no longer emits HTML here.
         return f"{JOBS_PREFIX}/{job_id}/output/result.json"
 
+    @staticmethod
+    def _detections_key(job_id: str) -> str:
+        # Per-frame raw-detections archive (issue #35) — sits beside
+        # result.json so post-hoc "why did the system score X?" questions
+        # never force an expensive pipeline re-run.
+        return f"{JOBS_PREFIX}/{job_id}/output/detections.jsonl"
+
     # ----- worker-facing API -----
 
     def list_pending_job_ids(self) -> list[str]:
@@ -236,6 +243,19 @@ class R2Client:
                 Key=key,
                 Body=body,
                 ContentType="application/json",
+            )
+        )
+        return key
+
+    def upload_detections(self, job_id: str, body: bytes) -> str:
+        """Upload the per-frame detections.jsonl archive (issue #35) and return its key."""
+        key = self._detections_key(job_id)
+        _with_retry(
+            lambda: self._s3.put_object(
+                Bucket=self._bucket,
+                Key=key,
+                Body=body,
+                ContentType="application/x-ndjson",
             )
         )
         return key

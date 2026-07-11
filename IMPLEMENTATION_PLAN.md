@@ -230,6 +230,26 @@ Pattern: identical to `infra/ai-test/docker-compose.yml`.
 4. Report appears in client-agent UI
 5. Verify report quality matches Phase 1 local test
 
+### 3.4 Validation evidence — archive per-frame detections (issue #35)
+
+**Every validation run whose results are cited in `jobs/raport-zleceniodawca.md`
+MUST archive the per-frame `detections.jsonl` artifact alongside `result.json`.**
+
+- The R2 worker produces it automatically (always-on): it lands at
+  `surveillance-jobs/{job_id}/output/detections.jsonl` next to `result.json`.
+- For a local/manual validation run, pass `--dump-detections <path.jsonl>` to
+  `python -m pipeline.analyze` (full-video mode) and commit/attach the file with
+  the report.
+- Schema: one JSON object per frame —
+  `{timestamp_s, frame_idx, person_count, persons:[{bbox, confidence, activity,
+  keypoints:[{x,y,vis}×17]}]}`.
+
+Rationale: without the raw per-frame detections, every follow-up question
+("what was the confidence on that bench false-positive?") forces an expensive
+pipeline re-run that may not even reproduce the original behaviour — exactly the
+failure mode hit in the Andrew Ng round-7 review. The HTML report / `result.json`
+alone cannot answer those questions.
+
 ## Phase 4: Integration Path (future, not prototype)
 
 When validated, integrate as new `problem_type: 'surveillance_analysis'`:

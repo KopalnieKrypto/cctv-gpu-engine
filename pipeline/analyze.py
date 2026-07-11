@@ -28,9 +28,9 @@ from collections.abc import Callable
 from pathlib import Path
 
 from pipeline.aggregator import Aggregator, ReportData
+from pipeline.detections_dump import detection_to_dict
 from pipeline.frame_extractor import extract_frame_at
 from pipeline.pose_detector import load_pose_model
-from pipeline.postprocessing import Detection
 from pipeline.report_json import render_report_json
 from pipeline.report_renderer import render_report
 from pipeline.video_frames import iter_frames
@@ -51,6 +51,7 @@ def _analyze_to_report_data(
     model_path: str = "models/yolo11s-pose.onnx",
     fps: int = DEFAULT_FPS,
     classifier: str = "heuristic",
+    dump_detections: Path | None = None,
 ) -> ReportData:
     """Run YOLO-pose pipeline across one or more MP4 chunks → :class:`ReportData`.
 
@@ -71,6 +72,12 @@ def _analyze_to_report_data(
     monotonically non-decreasing) but still tick the worker's telemetry
     sampler — without them, gpu_service.metrics.MetricsAggregator only sees
     chunk boundaries and ``gpu_util_peak`` is sampled outside the hot path.
+    ``dump_detections`` — if given, one JSONL line per processed frame is
+    streamed to this path (issue #35). The aggregator only keeps a bounded
+    keyframe buffer (#49), so this raw per-frame archive can't be
+    reconstructed afterwards — it must be written inside the loop. Opt-in;
+    ``None`` (default) writes nothing. See :mod:`pipeline.detections_dump`.
+
     The pipeline ``RuntimeError`` (e.g. CUDA missing) is *not* caught here;
     callers (CLI, gpu-service worker) decide how to react.
     """
@@ -81,94 +88,100 @@ def _analyze_to_report_data(
         ActivitySmoother,
         bbox_center,
     )
+    from pipeline.detections_dump import DetectionsDumpWriter
 
     detector = load_pose_model(model_path)
     aggregator = Aggregator(fps=fps)
 
-    # --- VLM hybrid path ---------------------------------------------------
-    if classifier == "vlm":
-        from pipeline.vlm_classifier import VLMClassifier
+    with DetectionsDumpWriter(dump_detections) as dump:
+        # --- VLM hybrid path -----------------------------------------------
+        if classifier == "vlm":
+            from pipeline.vlm_classifier import VLMClassifier
 
-        vlm = VLMClassifier()
-        prev_centers: list[tuple[float, float]] = []
+            vlm = VLMClassifier()
+            prev_centers: list[tuple[float, float]] = []
 
-        time_offset = 0.0
-        step = 1.0 / fps
-        frames_since_progress = 0
-        for chunk_index, chunk in enumerate(chunks):
-            chunk_start_pct = int(chunk_index / len(chunks) * 100)
-            last_ts = time_offset
-            for timestamp_s, frame in iter_frames(str(chunk), fps=fps):
-                shifted = timestamp_s + time_offset
-                detections = detector.detect(frame)
+            time_offset = 0.0
+            step = 1.0 / fps
+            frames_since_progress = 0
+            for chunk_index, chunk in enumerate(chunks):
+                chunk_start_pct = int(chunk_index / len(chunks) * 100)
+                last_ts = time_offset
+                for timestamp_s, frame in iter_frames(str(chunk), fps=fps):
+                    shifted = timestamp_s + time_offset
+                    detections = detector.detect(frame)
 
-                if detections:
-                    # Per-person walking decision via nearest-center matching
-                    # (issue #64). NMS orders detections by confidence, which is
-                    # not stable across frames, so pairing detections[0] with
-                    # prev_centers[0] compared different people and flipped the
-                    # branch at random in multi-person scenes. Match each
-                    # detection to its *nearest* previous center instead — the
-                    # same order-independent approach ActivitySmoother uses.
-                    #
-                    # The VLM classifies the whole frame (no per-person crops —
-                    # deferred with full tracking, #32), so its single
-                    # sitting/standing label is shared by every non-moving
-                    # person. It is computed lazily and at most once per frame
-                    # (skipped entirely when everyone is walking), so cost is
-                    # unchanged from the old frame-level call.
-                    vlm_label: str | None = None
-                    for det in detections:
-                        cx, cy = bbox_center(det)
-                        bbox_h = det.bbox[3] - det.bbox[1]
-                        is_moving = False
-                        if prev_centers and bbox_h > 1e-6:
-                            nearest = min(math.hypot(cx - px, cy - py) for px, py in prev_centers)
-                            is_moving = nearest / bbox_h > DISPLACEMENT_WALK_THRESHOLD
+                    if detections:
+                        # Per-person walking decision via nearest-center matching
+                        # (issue #64). NMS orders detections by confidence, which is
+                        # not stable across frames, so pairing detections[0] with
+                        # prev_centers[0] compared different people and flipped the
+                        # branch at random in multi-person scenes. Match each
+                        # detection to its *nearest* previous center instead — the
+                        # same order-independent approach ActivitySmoother uses.
+                        #
+                        # The VLM classifies the whole frame (no per-person crops —
+                        # deferred with full tracking, #32), so its single
+                        # sitting/standing label is shared by every non-moving
+                        # person. It is computed lazily and at most once per frame
+                        # (skipped entirely when everyone is walking), so cost is
+                        # unchanged from the old frame-level call.
+                        vlm_label: str | None = None
+                        for det in detections:
+                            cx, cy = bbox_center(det)
+                            bbox_h = det.bbox[3] - det.bbox[1]
+                            is_moving = False
+                            if prev_centers and bbox_h > 1e-6:
+                                nearest = min(
+                                    math.hypot(cx - px, cy - py) for px, py in prev_centers
+                                )
+                                is_moving = nearest / bbox_h > DISPLACEMENT_WALK_THRESHOLD
 
-                        if is_moving:
-                            det.activity = "walking"
-                        else:
-                            if vlm_label is None:
-                                vlm_label = vlm.classify_frame(frame)
-                            det.activity = vlm_label
+                            if is_moving:
+                                det.activity = "walking"
+                            else:
+                                if vlm_label is None:
+                                    vlm_label = vlm.classify_frame(frame)
+                                det.activity = vlm_label
 
-                    prev_centers = [bbox_center(d) for d in detections]
-                else:
-                    prev_centers = []
+                        prev_centers = [bbox_center(d) for d in detections]
+                    else:
+                        prev_centers = []
 
-                aggregator.add_frame(timestamp_s=shifted, frame=frame, detections=detections)
-                last_ts = shifted
-                frames_since_progress += 1
-                if progress is not None and frames_since_progress >= PROGRESS_FRAME_INTERVAL:
-                    frames_since_progress = 0
-                    progress(chunk_start_pct)
-            time_offset = last_ts + step
-            if progress is not None:
-                progress(int((chunk_index + 1) / len(chunks) * 100))
+                    aggregator.add_frame(timestamp_s=shifted, frame=frame, detections=detections)
+                    dump.write_frame(shifted, detections)
+                    last_ts = shifted
+                    frames_since_progress += 1
+                    if progress is not None and frames_since_progress >= PROGRESS_FRAME_INTERVAL:
+                        frames_since_progress = 0
+                        progress(chunk_start_pct)
+                time_offset = last_ts + step
+                if progress is not None:
+                    progress(int((chunk_index + 1) / len(chunks) * 100))
 
-    # --- Heuristic path (original) -----------------------------------------
-    else:
-        smoother = ActivitySmoother()
-        time_offset = 0.0
-        step = 1.0 / fps
-        frames_since_progress = 0
-        for chunk_index, chunk in enumerate(chunks):
-            chunk_start_pct = int(chunk_index / len(chunks) * 100)
-            last_ts = time_offset
-            for timestamp_s, frame in iter_frames(str(chunk), fps=fps):
-                shifted = timestamp_s + time_offset
-                detections = detector.detect(frame)
-                detections = smoother.smooth(detections)
-                aggregator.add_frame(timestamp_s=shifted, frame=frame, detections=detections)
-                last_ts = shifted
-                frames_since_progress += 1
-                if progress is not None and frames_since_progress >= PROGRESS_FRAME_INTERVAL:
-                    frames_since_progress = 0
-                    progress(chunk_start_pct)
-            time_offset = last_ts + step
-            if progress is not None:
-                progress(int((chunk_index + 1) / len(chunks) * 100))
+        # --- Heuristic path (original) -------------------------------------
+        else:
+            smoother = ActivitySmoother()
+            time_offset = 0.0
+            step = 1.0 / fps
+            frames_since_progress = 0
+            for chunk_index, chunk in enumerate(chunks):
+                chunk_start_pct = int(chunk_index / len(chunks) * 100)
+                last_ts = time_offset
+                for timestamp_s, frame in iter_frames(str(chunk), fps=fps):
+                    shifted = timestamp_s + time_offset
+                    detections = detector.detect(frame)
+                    detections = smoother.smooth(detections)
+                    aggregator.add_frame(timestamp_s=shifted, frame=frame, detections=detections)
+                    dump.write_frame(shifted, detections)
+                    last_ts = shifted
+                    frames_since_progress += 1
+                    if progress is not None and frames_since_progress >= PROGRESS_FRAME_INTERVAL:
+                        frames_since_progress = 0
+                        progress(chunk_start_pct)
+                time_offset = last_ts + step
+                if progress is not None:
+                    progress(int((chunk_index + 1) / len(chunks) * 100))
 
     return aggregator.build_report_data()
 
@@ -179,13 +192,15 @@ def run_full_video_to_json(
     model_path: str = "models/yolo11s-pose.onnx",
     fps: int = DEFAULT_FPS,
     classifier: str = "heuristic",
+    dump_detections: Path | None = None,
 ) -> bytes:
     """Run the pipeline and return the canonical ``result.json`` bytes (issue #72).
 
     This is the primary job artifact — the bytes the gpu-agent uploads. The
     platform renders it natively in React, so the JSON is pure data (base64
     JPEG keyframes, no brand/i18n/presentation strings). See
-    :func:`_analyze_to_report_data` for the ``progress``/``classifier`` contract.
+    :func:`_analyze_to_report_data` for the
+    ``progress``/``classifier``/``dump_detections`` contract.
     """
     return render_report_json(
         _analyze_to_report_data(
@@ -194,6 +209,7 @@ def run_full_video_to_json(
             model_path=model_path,
             fps=fps,
             classifier=classifier,
+            dump_detections=dump_detections,
         )
     )
 
@@ -204,6 +220,7 @@ def run_full_video_to_html(
     model_path: str = "models/yolo11s-pose.onnx",
     fps: int = DEFAULT_FPS,
     classifier: str = "heuristic",
+    dump_detections: Path | None = None,
 ) -> bytes:
     """Run the pipeline and return a standalone HTML report as bytes.
 
@@ -219,19 +236,9 @@ def run_full_video_to_html(
             model_path=model_path,
             fps=fps,
             classifier=classifier,
+            dump_detections=dump_detections,
         )
     ).encode("utf-8")
-
-
-def _detection_to_dict(det: Detection) -> dict:
-    return {
-        "bbox": [float(v) for v in det.bbox],
-        "confidence": float(det.confidence),
-        "activity": det.activity,
-        "keypoints": [
-            {"x": float(kp.x), "y": float(kp.y), "vis": float(kp.vis)} for kp in det.keypoints
-        ],
-    }
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -277,6 +284,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Full-video output format: json (canonical result.json artifact, "
         "default) or html (debug-only standalone report)",
     )
+    parser.add_argument(
+        "--dump-detections",
+        type=str,
+        default=None,
+        metavar="PATH.jsonl",
+        help="Full-video mode: also archive raw per-frame detections as JSONL "
+        "at PATH (one line per frame; opt-in, for post-hoc analysis). "
+        "Default: off.",
+    )
     return parser
 
 
@@ -293,7 +309,7 @@ def _run_single_frame(args: argparse.Namespace) -> int:
         "video": args.video,
         "timestamp_s": args.timestamp,
         "person_count": len(detections),
-        "persons": [_detection_to_dict(d) for d in detections],
+        "persons": [detection_to_dict(d) for d in detections],
     }
     json.dump(payload, sys.stdout)
     sys.stdout.write("\n")
@@ -302,12 +318,14 @@ def _run_single_frame(args: argparse.Namespace) -> int:
 
 def _run_full_video(args: argparse.Namespace) -> int:
     render = run_full_video_to_html if args.format == "html" else run_full_video_to_json
+    dump_path = Path(args.dump_detections) if args.dump_detections else None
     try:
         payload = render(
             chunks=[Path(args.video)],
             model_path=args.model,
             fps=args.fps,
             classifier=args.classifier,
+            dump_detections=dump_path,
         )
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
