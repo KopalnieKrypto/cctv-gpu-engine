@@ -76,10 +76,38 @@ RUN apt-mark unhold libcudnn9-cuda-12 \
 # VLM classifier deps (Qwen2.5-VL-3B). PyTorch cu128 required for Blackwell
 # sm_120 support. Installed via uv pip into the managed venv — uv handles
 # onnxruntime + core deps, then adds the VLM layer on top.
+#
+# PINNED for reproducibility (issue #62). The rest of the image goes to great
+# lengths to pin (uv.lock --frozen, uv 0.5.11, YOLO weights by URL + sha256);
+# an unpinned VLM stack undoes that — `transformers` has shipped breaking
+# Qwen2.5-VL changes across minor versions (the exact symbols
+# pipeline/vlm_classifier.py imports), so an unrelated rebuild could silently
+# pull a new wheel and break — or change the outputs of — the classifier, with
+# nothing in CI to catch it (CI builds the image but never runs VLM inference).
+#
+# The ARGs below are the single source of truth for the pins and match the
+# versions verified working in the deployed gpu-service:latest image on
+# cctv-vps. tests/build_config_test.py::TestGpuServiceVlmPins asserts every
+# spec carries `==` and that these ARG values equal the known-good versions.
+#
+# To bump a pin:
+#   1. Edit the relevant ARG below (one place).
+#   2. Update EXPECTED_VLM_PINS in tests/build_config_test.py to match.
+#   3. Rebuild the image on a GPU host and run `make test-gpu` (cctv-vps).
+#   4. Run the VLM smoke test: `uv run python scripts/test_vlm_classifier.py`.
+#   5. Confirm the classifier output is unchanged, then commit the new pins.
+ARG TORCH_VERSION=2.11.0+cu128
+ARG TORCHVISION_VERSION=0.26.0+cu128
+ARG TRANSFORMERS_VERSION=5.13.0
+ARG ACCELERATE_VERSION=1.14.0
+ARG QWEN_VL_UTILS_VERSION=0.0.14
 RUN uv pip install --python /app/.venv/bin/python --no-cache \
-        torch torchvision --index-url https://download.pytorch.org/whl/cu128 \
+        torch==${TORCH_VERSION} torchvision==${TORCHVISION_VERSION} \
+        --index-url https://download.pytorch.org/whl/cu128 \
     && uv pip install --python /app/.venv/bin/python --no-cache \
-        transformers accelerate qwen-vl-utils
+        transformers==${TRANSFORMERS_VERSION} \
+        accelerate==${ACCELERATE_VERSION} \
+        qwen-vl-utils==${QWEN_VL_UTILS_VERSION}
 
 # Application code. The package is hyphen-named on disk but Python imports it
 # as `gpu_service` — the `gpu-service/gpu_service/` layout makes that work

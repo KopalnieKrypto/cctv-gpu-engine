@@ -568,6 +568,146 @@ class TestGpuServiceDockerfileBundlesModel:
         )
 
 
+def _vlm_pip_install_commands() -> list[str]:
+    """Return each ``uv pip install ...`` command from the gpu-service Dockerfile.
+
+    Collapses backslash-newline continuations so a multi-line RUN becomes one
+    logical line, then splits chained ``... && uv pip install ...`` recipes so
+    each install invocation is returned separately.
+    """
+    text = GPU_SERVICE_DOCKERFILE.read_text()
+    collapsed = re.sub(r"\\\n", " ", text)
+    commands: list[str] = []
+    for line in collapsed.splitlines():
+        for part in line.split("&&"):
+            part = part.strip()
+            if part.startswith("RUN"):
+                part = part[len("RUN") :].strip()
+            if part.startswith("uv pip install"):
+                commands.append(part)
+    return commands
+
+
+# Flags in a `uv pip install` line that consume the following token as their
+# value (so that token is NOT a package spec).
+_VALUE_FLAGS = {"--python", "--index-url", "--extra-index-url", "-p", "-r"}
+
+
+def _packages_in_command(cmd: str) -> list[str]:
+    """Extract the package specs from a single ``uv pip install`` command.
+
+    Drops the ``uv pip install`` prefix, flags (and their values), and URLs;
+    what remains are the package specifiers (e.g. ``torch==2.11.0+cu128``).
+    """
+    tokens = cmd.split()
+    assert tokens[:3] == ["uv", "pip", "install"], f"unexpected command: {cmd!r}"
+    tokens = tokens[3:]
+    packages: list[str] = []
+    skip_next = False
+    for tok in tokens:
+        if skip_next:
+            skip_next = False
+            continue
+        if tok in _VALUE_FLAGS:
+            skip_next = True
+            continue
+        if tok.startswith("-"):
+            continue  # boolean flag like --no-cache (or --flag=value)
+        if "://" in tok:
+            continue  # a bare index/URL argument
+        packages.append(tok)
+    return packages
+
+
+def _spec_name(spec: str) -> str:
+    """Package name from a PEP 508-ish spec (``torch==2.11.0`` -> ``torch``)."""
+    head = spec.split("[", 1)[0]
+    for op in ("==", ">=", "<=", "!=", "~=", ">", "<"):
+        if op in head:
+            return head.split(op, 1)[0].strip()
+    return head.strip()
+
+
+class TestGpuServiceVlmPins:
+    """The VLM stack in the gpu-service image must be fully pinned (issue #62).
+
+    Everything else in the image is pinned for reproducibility (uv.lock with
+    ``--frozen``, the uv binary at 0.5.11, YOLO weights by URL + sha256), but
+    the VLM layer historically installed ``torch torchvision`` and
+    ``transformers accelerate qwen-vl-utils`` with no version constraints.
+    ``transformers`` in particular has shipped breaking Qwen2.5-VL changes
+    across minor versions (the exact symbols ``pipeline/vlm_classifier.py``
+    imports), so any unrelated rebuild could silently pull a new wheel and
+    break — or silently change the outputs of — the VLM classifier, with
+    nothing in CI to catch it.
+
+    These assertions parse the Dockerfile's ``uv pip install`` lines the same
+    way :class:`TestGpuServiceDockerfileBundlesModel` parses the model pin.
+    """
+
+    # Source of truth: the versions verified working in the deployed
+    # gpu-service:latest image on cctv-vps (captured 2026-07-11 via
+    # `docker run --rm --entrypoint python <image> -c "from importlib.metadata
+    # import version; ..."`). Bump these together with a `make test-gpu` +
+    # `scripts/test_vlm_classifier.py` smoke run — see the Dockerfile comment.
+    EXPECTED_VLM_PINS = {
+        "TORCH_VERSION": "2.11.0+cu128",
+        "TORCHVISION_VERSION": "0.26.0+cu128",
+        "TRANSFORMERS_VERSION": "5.13.0",
+        "ACCELERATE_VERSION": "1.14.0",
+        "QWEN_VL_UTILS_VERSION": "0.0.14",
+    }
+
+    VLM_PACKAGES = {"torch", "torchvision", "transformers", "accelerate", "qwen-vl-utils"}
+
+    def test_vlm_layer_packages_are_pinned(self):
+        """Every package spec in every ``uv pip install`` line must carry an
+        exact ``==`` pin, and all five VLM packages must be present."""
+        cmds = _vlm_pip_install_commands()
+        assert cmds, (
+            "gpu-service/Dockerfile has no `uv pip install` line — the VLM "
+            "layer install went missing (issue #62 tracks pinning it)."
+        )
+        specs = [s for cmd in cmds for s in _packages_in_command(cmd)]
+        assert specs, "parsed no package specs from the VLM `uv pip install` lines"
+
+        for spec in specs:
+            assert "==" in spec, (
+                f"VLM package spec {spec!r} is not pinned with `==`. Every "
+                f"package in the gpu-service Dockerfile's `uv pip install` "
+                f"lines must be version-pinned (issue #62) — an unpinned "
+                f"transformers/torch can silently break the VLM classifier on "
+                f"the next rebuild."
+            )
+            version_part = spec.split("==", 1)[1]
+            assert version_part, f"VLM package spec {spec!r} has an empty version after `==`"
+
+        names = {_spec_name(s) for s in specs}
+        missing = self.VLM_PACKAGES - names
+        assert not missing, (
+            f"VLM packages not installed/pinned in the Dockerfile: {sorted(missing)}. "
+            f"Expected all of {sorted(self.VLM_PACKAGES)}."
+        )
+
+    def test_vlm_pins_match_known_good_versions(self):
+        """Pins must live in one place (Dockerfile ARGs) and equal the
+        versions verified working on cctv-vps — so a bump is a single,
+        reviewable edit cross-checked here (same pattern as the sha256 pin)."""
+        text = GPU_SERVICE_DOCKERFILE.read_text()
+        for arg, expected in self.EXPECTED_VLM_PINS.items():
+            m = re.search(rf"ARG\s+{arg}\s*=\s*(\S+)", text)
+            assert m, (
+                f"gpu-service/Dockerfile has no `ARG {arg}=...` — the VLM pins "
+                f"must live in single-source ARGs (issue #62). If you moved "
+                f"them to a requirements file, update this test."
+            )
+            assert m.group(1) == expected, (
+                f"VLM pin drift: `ARG {arg}={m.group(1)}` but the version "
+                f"verified working on cctv-vps is {expected!r}. Bump both "
+                f"together after a `make test-gpu` + VLM smoke run."
+            )
+
+
 class TestRuffJobScope:
     """Issue #15: the CI ruff job must lint the same Python source tree that
     the local pre-commit hook covers, otherwise a contributor who bypasses
