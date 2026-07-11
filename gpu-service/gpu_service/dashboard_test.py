@@ -387,3 +387,120 @@ def test_handler_get_unknown_path_returns_404() -> None:
 
     assert status == 404
     assert b"not found" in body
+
+
+# ----- issue #58: cross-component contract — worker-written status renders a duration -----
+
+
+class WorkerAndDashboardR2:
+    """Dual-surface R2 fake: satisfies the *worker's* write path AND the
+    *dashboard's* read path. A status.json produced by ``process_job`` is fed
+    straight into ``list_jobs`` here, so a producer/consumer field drift
+    (worker stops writing ``started_at``/``completed_at``) fails this test —
+    something the two components' single-sided fakes can't catch (#58).
+
+    ``get_status`` returns a fresh copy per call (mirroring R2's
+    deserialize-per-GET), so the worker's read-mutate-write cycle behaves as
+    it does against real R2.
+    """
+
+    def __init__(self) -> None:
+        self._status: dict[str, dict[str, Any]] = {}
+
+    # ----- worker write path -----
+
+    def get_status(self, job_id: str) -> dict[str, Any] | None:
+        import copy
+
+        raw = self._status.get(job_id)
+        return copy.deepcopy(raw) if raw is not None else None
+
+    def put_status(self, job_id: str, status: dict[str, Any]) -> None:
+        import copy
+
+        self._status[job_id] = copy.deepcopy(status)
+
+    def download_chunks(self, job_id: str, dest: Any) -> list[Any]:
+        from pathlib import Path
+
+        dest = Path(dest)
+        dest.mkdir(parents=True, exist_ok=True)
+        chunk = dest / "chunk_001.mp4"
+        chunk.write_bytes(b"fake mp4")
+        return [chunk]
+
+    def upload_report(self, job_id: str, body: bytes) -> str:
+        return f"surveillance-jobs/{job_id}/output/result.json"
+
+    # ----- dashboard read path -----
+
+    def list_all_job_statuses(self) -> list[tuple[str, dict[str, Any]]]:
+        import copy
+
+        return [(jid, copy.deepcopy(s)) for jid, s in self._status.items()]
+
+
+def test_duration_renders_for_worker_shaped_status(tmp_path: Any) -> None:
+    """Contract test: run a job through the real ``process_job`` code path,
+    then feed the resulting status into ``list_jobs``. The dashboard must
+    compute a non-None duration — proving the worker writes the exact
+    ``started_at``/``completed_at`` keys the dashboard reads (#58)."""
+    from gpu_service.worker import process_job
+
+    r2 = WorkerAndDashboardR2()
+    r2.put_status(
+        "job-dur",
+        {
+            "job_id": "job-dur",
+            "status": "pending",
+            "created_at": "2026-04-08T10:00:00Z",
+            "updated_at": "2026-04-08T10:00:00Z",
+            "worker_id": None,
+            "progress_pct": 0,
+            "error": None,
+        },
+    )
+
+    # Injected clock advances 1 s per call, so completed_at > started_at and
+    # the computed duration is strictly positive.
+    ticks = {"n": 0}
+
+    def clock() -> str:
+        ticks["n"] += 1
+        return f"2026-04-08T10:00:{ticks['n']:02d}Z"
+
+    result = process_job(
+        client=r2,
+        job_id="job-dur",
+        worker_id="worker-1",
+        pipeline=lambda chunks, progress: b'{"ok": true}',
+        workdir=tmp_path,
+        now=clock,
+    )
+    assert result == "completed"
+
+    jobs = {j.job_id: j for j in list_jobs(r2)}
+    assert jobs["job-dur"].status == "completed"
+    assert jobs["job-dur"].duration_s is not None
+    assert jobs["job-dur"].duration_s > 0
+
+
+def test_duration_renders_em_dash_for_legacy_status_without_timestamps() -> None:
+    """Old jobs written before #58 have no ``started_at``/``completed_at``.
+    The dashboard must still render them gracefully — duration_s stays None
+    (the template shows an em-dash) rather than crashing."""
+    fake = FakeR2(
+        [
+            (
+                "legacy-job",
+                {
+                    "status": "completed",
+                    "updated_at": "2026-03-01T09:00:00Z",
+                    "report_key": "surveillance-jobs/legacy-job/output/result.json",
+                },
+            )
+        ]
+    )
+    [job] = list_jobs(fake)
+    assert job.status == "completed"
+    assert job.duration_s is None

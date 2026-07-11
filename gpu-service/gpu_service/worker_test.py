@@ -798,3 +798,103 @@ class TestMainCli:
         # Fail-fast: never reached the loop or constructed a client
         loop_mock.assert_not_called()
         r2_ctor.assert_not_called()
+
+
+# ----- issue #58: worker writes started_at / completed_at for the dashboard -----
+
+
+class RecordingR2(InMemoryR2):
+    """InMemoryR2 that also records a deep-copied snapshot of every
+    ``put_status`` payload, so a test can assert what the *first* (claim)
+    and *last* (terminal) writes actually contained — not just the final
+    server state."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.writes: list[dict[str, Any]] = []
+
+    def put_status(self, job_id: str, status: dict[str, Any]) -> None:
+        import copy
+
+        self.writes.append(copy.deepcopy(status))
+        super().put_status(job_id, status)
+
+
+def test_claim_write_includes_started_at(tmp_path: Path) -> None:
+    """The dashboard computes job duration from ``started_at`` — but nothing
+    ever wrote it (#58). The claim write (pending → processing) must stamp
+    ``started_at`` with ``now()`` so the clock starts when work begins."""
+    r2 = RecordingR2()
+    _seed_pending_job(r2, "job-start", ["chunk_001.mp4"])
+    r2.writes.clear()  # drop the seed write so writes[0] is the claim
+
+    def fake_pipeline(chunks: list[Path], progress: ProgressCallback) -> bytes:
+        return b'{"ok": true}'
+
+    process_job(
+        client=r2,
+        job_id="job-start",
+        worker_id="worker-1",
+        pipeline=fake_pipeline,
+        workdir=tmp_path,
+        now=lambda: "2026-04-08T10:00:05Z",
+    )
+
+    # First write is the claim: status flips to processing and carries started_at.
+    first = r2.writes[0]
+    assert first["status"] == "processing"
+    assert first["started_at"] == "2026-04-08T10:00:05Z"
+
+
+def test_final_write_includes_completed_at(tmp_path: Path) -> None:
+    """The terminal ``completed`` write must stamp ``completed_at`` so the
+    dashboard can render a real duration (started_at → completed_at)."""
+    r2 = RecordingR2()
+    _seed_pending_job(r2, "job-done", ["chunk_001.mp4"])
+
+    def fake_pipeline(chunks: list[Path], progress: ProgressCallback) -> bytes:
+        return b'{"ok": true}'
+
+    result = process_job(
+        client=r2,
+        job_id="job-done",
+        worker_id="worker-1",
+        pipeline=fake_pipeline,
+        workdir=tmp_path,
+        now=lambda: "2026-04-08T10:07:30Z",
+    )
+
+    assert result == "completed"
+    final = r2.get_status("job-done")
+    assert final is not None
+    assert final["status"] == "completed"
+    assert final["completed_at"] == "2026-04-08T10:07:30Z"
+    # started_at survives the mid-flight progress/final re-reads.
+    assert final["started_at"] == "2026-04-08T10:07:30Z"
+
+
+def test_failed_write_includes_completed_at(tmp_path: Path) -> None:
+    """A failed job's duration is still diagnostic (how long before it died),
+    so the ``failed`` terminal write must also carry ``completed_at`` — and
+    ``started_at`` from the claim (#58)."""
+    r2 = RecordingR2()
+    _seed_pending_job(r2, "job-boom", ["chunk_001.mp4"])
+
+    def exploding_pipeline(chunks: list[Path], progress: ProgressCallback) -> bytes:
+        raise RuntimeError("cuda oom")
+
+    result = process_job(
+        client=r2,
+        job_id="job-boom",
+        worker_id="worker-1",
+        pipeline=exploding_pipeline,
+        workdir=tmp_path,
+        now=lambda: "2026-04-08T10:02:00Z",
+    )
+
+    assert result == "failed"
+    final = r2.get_status("job-boom")
+    assert final is not None
+    assert final["status"] == "failed"
+    assert final["completed_at"] == "2026-04-08T10:02:00Z"
+    assert final["started_at"] == "2026-04-08T10:02:00Z"

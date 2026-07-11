@@ -76,6 +76,10 @@ def _fail_job(
     failed["status"] = "failed"
     failed["error"] = error
     failed["updated_at"] = now()
+    # A failed job's duration is still diagnostic (how long before it died),
+    # so stamp completed_at too — the dashboard reads it (#58). started_at was
+    # written on claim before any failure path is reachable.
+    failed["completed_at"] = failed["updated_at"]
     client.put_status(job_id, failed)
     return "failed"
 
@@ -127,6 +131,11 @@ def process_job(
     status["status"] = "processing"
     status["worker_id"] = worker_id
     status["updated_at"] = now()
+    # Start the duration clock at claim time. The dashboard computes
+    # completed_at − started_at; nothing wrote started_at before (#58). It
+    # survives the mid-flight progress/final re-reads because those mutate the
+    # latest server copy, which already carries it.
+    status["started_at"] = status["updated_at"]
     client.put_status(job_id, status)
 
     # Download all chunks into a job-scoped subdir of workdir. The job dir is
@@ -182,6 +191,9 @@ def process_job(
             aggregator.add(metrics_collector.sample())
             final["metrics"] = aggregator.summary()
         final["updated_at"] = now()
+        # Stop the duration clock — the dashboard renders completed_at −
+        # started_at (#58).
+        final["completed_at"] = final["updated_at"]
         client.put_status(job_id, final)
         return "completed"
     finally:
