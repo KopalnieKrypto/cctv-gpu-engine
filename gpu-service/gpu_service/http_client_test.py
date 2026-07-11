@@ -87,6 +87,7 @@ class TestPresignedHttpClientUpload:
             captured["url"] = request.full_url
             captured["data"] = request.data
             captured["method"] = request.get_method()
+            captured["content_type"] = request.get_header("Content-type")
             return _FakeResponse(b"", status=200)
 
         client = PresignedHttpClient(opener=opener, sleep=_no_sleep)
@@ -96,6 +97,7 @@ class TestPresignedHttpClientUpload:
         assert captured["url"] == "https://r2.example.com/put/report.html"
         assert captured["data"] == b"<html>ok</html>"
         assert captured["method"] == "PUT"
+        assert captured["content_type"] == "application/json"
 
     def test_raises_on_non_2xx_response(self) -> None:
         opener = MagicMock(return_value=_FakeResponse(b"forbidden", status=403))

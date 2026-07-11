@@ -63,7 +63,12 @@ class PresignedHttpClient:
 
     def upload(self, url: str, body: bytes) -> None:
         def _op() -> None:
-            request = urllib.request.Request(url, data=body, method="PUT")
+            request = urllib.request.Request(
+                url,
+                data=body,
+                method="PUT",
+                headers={"Content-Type": "application/json"},
+            )
             with self._opener(request) as response:
                 # Drain the body so the connection can be reused / closed
                 # cleanly on R2's side.
