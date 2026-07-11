@@ -1,7 +1,7 @@
 """Keyframe annotation: bounding box, COCO skeleton overlay, activity label.
 
 Used by the report renderer to overlay detections on top of selected
-keyframes before they are encoded as base64 PNG. The annotator is
+keyframes before they are encoded as base64 JPEG. The annotator is
 GPU-independent — pure OpenCV draw calls on a numpy frame.
 """
 

@@ -5,9 +5,16 @@ string using a Jinja2 template. The output:
 
 * embeds the vendored Chart.js bundle inline (no ``<script src=>``),
 * annotates each keyframe with bbox + skeleton + activity label,
-* encodes annotated keyframes as base64 PNG inside ``<img>`` data URLs,
+* encodes annotated keyframes as base64 JPEG inside ``<img>`` data URLs,
 
 so the resulting file works offline in any modern browser.
+
+Keyframes are JPEG (issue #65), not PNG: PNG is lossless and on photographic
+1080p surveillance frames it runs ~an order of magnitude larger than JPEG
+q=85 (calibrated on real footage: ~6.6x, and ~7.6x on synthetic 1080p),
+before base64's +33%. q=85 is the standard choice for camera frames and keeps
+skeleton overlays legible; the canonical ``result.json`` artifact
+(``report_json.py``) already encodes its keyframes the same way.
 """
 
 from __future__ import annotations
@@ -25,6 +32,12 @@ _TEMPLATE_DIR = Path(__file__).parent
 _TEMPLATE_NAME = "report_template.html"
 _VENDOR_CHARTJS = _TEMPLATE_DIR / "vendor" / "chart.umd.min.js"
 
+# JPEG quality for base64-embedded keyframes (issue #65). 85 is the standard
+# photographic sweet spot — near-lossless to the eye, keeps skeleton overlays
+# legible, ~an order of magnitude smaller than lossless PNG. Bump with care:
+# lower loses overlay legibility, higher balloons the report.
+JPEG_QUALITY = 85
+
 
 def _load_chartjs_source() -> str:
     if not _VENDOR_CHARTJS.exists():
@@ -35,11 +48,11 @@ def _load_chartjs_source() -> str:
     return _VENDOR_CHARTJS.read_text(encoding="utf-8")
 
 
-def _encode_keyframe_to_base64_png(frame_bgr) -> str:
+def _encode_keyframe_to_base64_jpeg(frame_bgr) -> str:
     annotated = frame_bgr  # caller pre-annotates
-    ok, buf = cv2.imencode(".png", annotated)
+    ok, buf = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
     if not ok:
-        raise RuntimeError("cv2.imencode failed for keyframe PNG encoding")
+        raise RuntimeError("cv2.imencode failed for keyframe JPEG encoding")
     return base64.b64encode(buf.tobytes()).decode("ascii")
 
 
@@ -70,7 +83,7 @@ def render_report(data: ReportData) -> str:
                 "timestamp_s": kf.timestamp_s,
                 "person_count": kf.person_count,
                 "activities": activities,
-                "b64": _encode_keyframe_to_base64_png(annotated),
+                "b64": _encode_keyframe_to_base64_jpeg(annotated),
             }
         )
 
