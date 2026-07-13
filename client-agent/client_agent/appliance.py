@@ -712,12 +712,19 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         from client_agent.discovery import (
             discover_cameras,
+            make_ffmpeg_path_prober,
             make_real_rtsp_scan,
             make_real_tuya_scan,
+            rtsp_probe_paths,
         )
 
         env_snapshot = dict(os.environ)
         creds_resolver = lambda ip: resolve_camera_credentials(ip, env_snapshot)  # noqa: E731
+        # Stage 2.5 (issue #74): candidate RTSP paths for probing fingerprint
+        # dead-ends. Seeded from RTSP_KNOWN_URLS (operator's confirmed cameras)
+        # + RTSP_PROBE_PATHS + built-in defaults. Built once from the boot env
+        # snapshot; the prober forks ffmpeg to confirm each candidate opens.
+        rtsp_path_prober = make_ffmpeg_path_prober(rtsp_probe_paths(env_snapshot))
 
         # Discovery timeout bumped to 15s (default is 5s): a /24 RTSP port
         # scan of 254 IPs × 4 ports = 1016 TCP connects needs more headroom
@@ -730,7 +737,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             return discover_cameras(
                 timeout=15.0,
                 credentials_resolver=creds_resolver,
-                rtsp_scan_fn=make_real_rtsp_scan(creds_resolver),
+                rtsp_scan_fn=make_real_rtsp_scan(creds_resolver, path_prober=rtsp_path_prober),
                 # Stage 3 (issue #38): Tuya local broadcast — catches
                 # Setti+/Tapo/Tuya IPCs that don't expose ONVIF and ship
                 # with RTSP disabled by default. Purely passive listening,

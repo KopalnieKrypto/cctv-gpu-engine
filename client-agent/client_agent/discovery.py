@@ -19,9 +19,12 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Callable, Mapping
+import subprocess
+import time
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from urllib.parse import urlparse
+from typing import Any
+from urllib.parse import quote, urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -181,6 +184,30 @@ _VENDOR_RTSP_PATHS = {
 }
 
 
+def build_rtsp_url(
+    ip: str,
+    port: int,
+    path: str,
+    credentials: tuple[str, str] | None,
+) -> str:
+    """Assemble ``rtsp://[user:pass@]ip:port{path}`` with creds URL-encoded.
+
+    The single place that stitches host/port/path/creds into an RTSP URL, so
+    the vendor-template path and the probe path can't drift on encoding.
+    ``credentials=None`` produces a bare ``rtsp://host:port/path`` (no
+    ``user:pass@``). Special characters in user/password are percent-encoded
+    (``quote(safe='')``) so passwords with ``@``/``:``/``/``/``#`` don't break
+    URL parsing downstream — ffmpeg treats a raw ``#`` as a fragment delimiter
+    and silently drops the rest of the URL (confirmed on the operator's LAN:
+    the camera password starts with ``#``)."""
+    if credentials is not None:
+        user, password = credentials
+        userinfo = f"{quote(user, safe='')}:{quote(password, safe='')}@"
+    else:
+        userinfo = ""
+    return f"rtsp://{userinfo}{ip}:{port}{path}"
+
+
 def rtsp_template_for_vendor(
     vendor: str,
     ip: str,
@@ -199,15 +226,8 @@ def rtsp_template_for_vendor(
     Special characters in the password are URL-encoded so passwords with
     ``@``/``:``/``/`` don't break URL parsing downstream (ffmpeg, the
     recorder, etc.)."""
-    from urllib.parse import quote
-
     path = _VENDOR_RTSP_PATHS.get(vendor, "/")
-    if credentials is not None:
-        user, password = credentials
-        userinfo = f"{quote(user, safe='')}:{quote(password, safe='')}@"
-    else:
-        userinfo = ""
-    return f"rtsp://{userinfo}{ip}:{port}{path}"
+    return build_rtsp_url(ip, port, path, credentials)
 
 
 def strip_credentials_from_url(url: str) -> str:
@@ -255,7 +275,6 @@ def inject_credentials(url: str, credentials: tuple[str, str] | None) -> str:
     parsed = urlparse(url)
     if parsed.username or parsed.password or not parsed.hostname:
         return url
-    from urllib.parse import quote
 
     user, password = credentials
     userinfo = f"{quote(user, safe='')}:{quote(password, safe='')}@"
@@ -623,22 +642,50 @@ def _build_rtsp_scan_camera(
     port: int,
     vendor: str,
     credentials: tuple[str, str] | None,
+    *,
+    resolved_path: str | None = None,
 ) -> DiscoveredCamera:
     """Build a Stage-2 :class:`DiscoveredCamera` from a vendor fingerprint.
 
+    ``resolved_path`` (issue #74): the RTSP path that Stage-2.5 probing
+    proved *actually streams* on this camera (validated by a full ffmpeg
+    open — see :func:`make_ffmpeg_path_prober`). When present it wins over
+    every fingerprint branch, because an empirically-opened path beats a
+    guessed one. The emitted ``rtsp_url`` is **credential-free** (bare
+    ``rtsp://ip:port{path}``): the platform stores stream URLs without
+    creds (#22) and the recorder/snapshot paths re-attach them from
+    ``cameras.env`` at open time via :func:`inject_credentials`. This is
+    what turns the operator's 6 white-label IPCs (192.168.88.83-88, no
+    ``Server:`` header → fingerprint ``Unknown``) from ``needs_manual_url``
+    dead-ends into recordable cameras that share the confirmed sibling's
+    ``/unicast/c1/s0/live`` path.
+
     Issue #37: when ``vendor == "Unknown"`` (both the RTSP Server header and
-    the proprietary-port fingerprint failed), the camera's RTSP path is
-    almost certainly per-device — Tuya/Setti+/AnyKa cloud-paired IPCs
-    generate an opaque token URL surfaced only in the vendor app. Returning
-    ``rtsp://...:554/`` here makes ffmpeg silently 404 and gives the
-    operator no signal that the URL is wrong, so we instead emit an empty
-    ``rtsp_url`` + ``needs_manual_url=True`` and a verbose vendor string
-    that the UI can render alongside a "paste the URL from the vendor app"
-    hint.
+    the proprietary-port fingerprint failed) *and* probing found nothing,
+    the camera's RTSP path is per-device — Tuya/Setti+/AnyKa cloud-paired
+    IPCs generate an opaque token URL surfaced only in the vendor app.
+    Returning ``rtsp://...:554/`` here makes ffmpeg silently 404 and gives
+    the operator no signal that the URL is wrong, so we instead emit an
+    empty ``rtsp_url`` + ``needs_manual_url=True`` and a verbose vendor
+    string that the UI can render alongside a "paste the URL from the
+    vendor app" hint.
 
     Known vendors (Hikvision/Dahua/Axis/Reolink/Foscam) keep the previous
     behavior: a vendor-specific URL pre-filled via
     :func:`rtsp_template_for_vendor`, ``needs_manual_url=False``."""
+    if resolved_path is not None:
+        return DiscoveredCamera(
+            ip=ip,
+            port=port,
+            # A confirmed-streaming Unknown-vendor camera is no longer a
+            # "paste the URL yourself" case; relabel so the UI stops nagging.
+            vendor=vendor if vendor != "Unknown" else "Generic IP camera (RTSP-probed)",
+            model="",
+            rtsp_url=build_rtsp_url(ip, port, resolved_path, None),
+            snapshot_url=None,
+            discovery_method="rtsp-probe",
+            needs_manual_url=False,
+        )
     if vendor == "Unknown":
         return DiscoveredCamera(
             ip=ip,
@@ -659,6 +706,208 @@ def _build_rtsp_scan_camera(
         snapshot_url=None,
         discovery_method="rtsp-scan",
     )
+
+
+# ===== Stage 2.5: RTSP path probing (issue #74) =====
+#
+# Stage 2 fingerprints a camera's vendor from its RTSP ``Server:`` header or a
+# proprietary management port, then guesses ONE path from a per-vendor table.
+# That fails for the huge class of white-label IPCs (AnyKa/XiongMai/generic
+# HEVC boxes) that emit NO ``Server:`` header and open no proprietary port:
+# they collapse to ``Unknown`` → ``needs_manual_url`` even though :554 is open
+# and streaming. Stage 2.5 closes that gap by *trying* a curated + operator-
+# seedable list of candidate paths and keeping the first that a full ffmpeg
+# open confirms actually streams.
+
+_DEFAULT_RTSP_PROBE_PATHS: tuple[str, ...] = (
+    # ``/unicast/c1/s0/live`` (main) / ``…/s1/live`` (sub) is the confirmed
+    # path on the operator's LAN batch (192.168.88.83-89, HEVC 4K white-label
+    # IPCs). First so a camera that ignores the path — some of this batch
+    # answer ANY path with the same stream — resolves to the sensible one.
+    "/unicast/c1/s0/live",
+    "/unicast/c1/s1/live",
+    # Common vendor mains, in case probing runs against a fingerprint miss.
+    "/Streaming/Channels/101",  # Hikvision main
+    "/cam/realmonitor?channel=1&subtype=0",  # Dahua main
+    "/h264Preview_01_main",  # Reolink main
+    "/videoMain",  # Foscam / Netwave
+    # Generic white-label / XiongMai / AnyKa shapes.
+    "/live/ch00_0",
+    "/live/0/main",
+    "/live/main",
+    "/ch0_0.h264",
+    "/11",
+    "/onvif1",
+    "/stream1",
+    "/video1",
+    "/live",
+)
+"""Ordered candidate RTSP paths tried by Stage-2.5 probing. Order matters:
+the FIRST path that opens wins, so the most-likely / most-canonical paths lead
+(cameras that ignore the requested path resolve to the first candidate)."""
+
+
+def _paths_from_known_urls(raw: str) -> list[str]:
+    """Extract each ``path[?query]`` from a comma/whitespace-separated list of
+    full RTSP URLs (the ``RTSP_KNOWN_URLS`` env).
+
+    The operator pastes a *confirmed-working* URL (e.g. their one ready
+    camera, ``rtsp://192.168.88.89:554/unicast/c1/s0/live``); we lift its
+    path so sibling cameras on the same batch are probed with the exact path
+    that already works, before any built-in guess. Bare-root (``/``) and
+    empty paths are dropped — they carry no signal."""
+    paths: list[str] = []
+    for token in re.split(r"[,\s]+", raw.strip()):
+        if not token:
+            continue
+        parsed = urlparse(token)
+        path = parsed.path or ""
+        if parsed.query:
+            path = f"{path}?{parsed.query}"
+        if path and path != "/":
+            paths.append(path)
+    return paths
+
+
+def rtsp_probe_paths(env: Mapping[str, str]) -> list[str]:
+    """Ordered, de-duplicated candidate RTSP paths for Stage-2.5 probing.
+
+    Priority (first wins, so operator signal beats built-in guesses):
+
+    1. Paths lifted from ``RTSP_KNOWN_URLS`` — the operator's confirmed
+       cameras. Highest trust: a path already proven on this LAN.
+    2. ``RTSP_PROBE_PATHS`` — a comma/space-separated list of extra paths
+       the operator wants tried (leading ``/`` optional).
+    3. :data:`_DEFAULT_RTSP_PROBE_PATHS` — the built-in curated fallback.
+
+    De-dup preserves first occurrence so a path named in ``RTSP_KNOWN_URLS``
+    is tried before the same path buried in the defaults."""
+    ordered: list[str] = list(_paths_from_known_urls(env.get("RTSP_KNOWN_URLS", "")))
+    for token in re.split(r"[,\s]+", env.get("RTSP_PROBE_PATHS", "").strip()):
+        if token:
+            ordered.append(token if token.startswith("/") else f"/{token}")
+    ordered.extend(_DEFAULT_RTSP_PROBE_PATHS)
+
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for path in ordered:
+        if path not in seen:
+            seen.add(path)
+            deduped.append(path)
+    return deduped
+
+
+# ``(ip, port, credentials) -> working_path | None`` — the injectable Stage-2.5
+# prober. Real impl is :func:`make_ffmpeg_path_prober`; tests pass a fake so no
+# ffmpeg forks and no packets leave the box.
+PathProbeFn = Callable[[str, int, "tuple[str, str] | None"], "str | None"]
+
+
+def _ffmpeg_can_open(url: str, *, runner: Callable[..., Any], timeout: float) -> bool:
+    """True iff ffmpeg can fully open ``url`` and read ≥1s of it.
+
+    A full open (DESCRIBE→SETUP→PLAY→read a packet) is the *only* reliable
+    RTSP validity signal for this camera class: a raw ``DESCRIBE`` probe is
+    useless because some firmwares (192.168.88.83-88 on the operator's LAN)
+    answer ``200 OK`` to DESCRIBE for ANY path, including nonsense ones —
+    verified on the real cameras. ffmpeg also handles Digest/Basic auth and
+    HEVC natively, so a pass here guarantees the recorder (same ffmpeg
+    stream-copy) can open it too. Any failure mode — non-zero exit, timeout,
+    ffmpeg missing — is a clean ``False``."""
+    try:
+        result = runner(
+            ["ffmpeg", "-rtsp_transport", "tcp", "-i", url, "-t", "1", "-f", "null", "-"],
+            timeout=timeout,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.TimeoutExpired:
+        return False
+    except (OSError, ValueError) as exc:  # ffmpeg not installed / bad argv
+        logger.debug("ffmpeg path-probe of %s could not run: %s", url, exc)
+        return False
+    return result.returncode == 0
+
+
+def make_ffmpeg_path_prober(
+    paths: Sequence[str],
+    *,
+    runner: Callable[..., Any] = subprocess.run,
+    per_path_timeout: float = 6.0,
+) -> PathProbeFn:
+    """Build a :class:`PathProbeFn` that returns the first ``path`` in ``paths``
+    that yields a real, openable stream on ``ip:port`` with ``credentials``.
+
+    ``runner`` is the ``subprocess.run``-shaped boundary (production wires
+    ``subprocess.run``; tests inject a fake), so the unit tests never fork
+    ffmpeg. ``per_path_timeout`` bounds each open so one wedged candidate
+    can't stall discovery — the total is bounded by
+    ``len(paths) × per_path_timeout`` in the pathological all-fail case, which
+    the caller further bounds with a per-IP negative-result cooldown."""
+
+    def _probe(ip: str, port: int, credentials: tuple[str, str] | None) -> str | None:
+        for path in paths:
+            url = build_rtsp_url(ip, port, path, credentials)
+            if _ffmpeg_can_open(url, runner=runner, timeout=per_path_timeout):
+                logger.info("rtsp path probe: %s:%s → %s", ip, port, path)
+                return path
+        return None
+
+    return _probe
+
+
+# Per-IP resolution memory, process-lifetime. ``_RESOLVED_PATH_CACHE`` holds
+# confirmed paths so a resolved camera is never re-probed (steady-state
+# heartbeats cost zero ffmpeg forks). ``_PROBE_NEGATIVE_UNTIL`` holds a
+# monotonic deadline per IP that failed to resolve, so a :554 host with no
+# working candidate (e.g. an RTSP-speaking non-camera) isn't re-probed across
+# the full candidate list every 30s heartbeat — only after the cooldown.
+_RESOLVED_PATH_CACHE: dict[str, str] = {}
+_PROBE_NEGATIVE_UNTIL: dict[str, float] = {}
+_PROBE_NEGATIVE_COOLDOWN_S = 600.0
+
+
+def reset_rtsp_path_cache() -> None:
+    """Clear the Stage-2.5 probe memory (both the positive cache and the
+    negative-cooldown map). For tests, and for an operator who wants the next
+    discovery cycle to re-probe from scratch after re-cabling cameras."""
+    _RESOLVED_PATH_CACHE.clear()
+    _PROBE_NEGATIVE_UNTIL.clear()
+
+
+def _resolve_probe_path(
+    ip: str,
+    port: int,
+    credentials: tuple[str, str] | None,
+    *,
+    path_prober: PathProbeFn,
+    cache: dict[str, str],
+    negative_until: dict[str, float],
+    now: float,
+    cooldown_s: float = _PROBE_NEGATIVE_COOLDOWN_S,
+) -> str | None:
+    """Cache-and-cooldown wrapper around ``path_prober`` (pure / injectable).
+
+    * Cached success → return it, no probing.
+    * Inside the negative cooldown window → skip probing, return ``None``.
+    * Otherwise probe: a hit is cached forever and clears any cooldown; a miss
+      opens a fresh cooldown so the expensive full-list probe doesn't repeat
+      every heartbeat.
+
+    All state (``cache``/``negative_until``/``now``) is injected so the caller
+    owns lifetime and tests stay hermetic."""
+    cached = cache.get(ip)
+    if cached is not None:
+        return cached
+    if negative_until.get(ip, 0.0) > now:
+        return None
+    path = path_prober(ip, port, credentials)
+    if path is not None:
+        cache[ip] = path
+        negative_until.pop(ip, None)
+    else:
+        negative_until[ip] = now + cooldown_s
+    return path
 
 
 _TUYA_VENDOR_LABEL = "Tuya (Setti+/Tapo/Vstarcam/…)"
@@ -750,6 +999,7 @@ def make_real_rtsp_scan(
     credentials_resolver: CredentialsResolver,
     *,
     subnet: str | None = None,
+    path_prober: PathProbeFn | None = None,
 ) -> RtspScanFn:
     """Factory that binds a :class:`RtspScanFn` to a credentials resolver.
 
@@ -757,6 +1007,15 @@ def make_real_rtsp_scan(
     inline. Defining the scan as a closure keeps :func:`discover_cameras`'s
     signature simple and the resolver injection consistent with Stage 1
     (where ``discover_cameras`` calls the resolver directly).
+
+    ``path_prober`` (issue #74) enables Stage 2.5: for a camera that
+    fingerprints as ``Unknown`` (no ``Server:`` header, no proprietary port —
+    the white-label-IPC dead-end that used to yield ``needs_manual_url``), the
+    prober tries a candidate path list and, on a full-open hit, the camera is
+    emitted with the confirmed URL instead. ``None`` (the default) keeps the
+    pre-#74 behavior. Results are cached per-IP (module-level) so steady-state
+    heartbeats don't re-probe; misses back off for
+    ``_PROBE_NEGATIVE_COOLDOWN_S``.
 
     Subnet defaults to whatever :func:`_local_ipv4_subnet` detects; pass
     explicitly for tests or non-/24 deployments. Returns an empty list
@@ -782,7 +1041,23 @@ def make_real_rtsp_scan(
             if vendor == "Unknown":
                 vendor = guess_vendor_from_open_ports(open_ports)
             creds = credentials_resolver(ip)
-            cams.append(_build_rtsp_scan_camera(ip, 554, vendor, creds))
+            # Stage 2.5: only probe the fingerprint dead-ends. Known vendors
+            # keep their fast template path — no per-heartbeat ffmpeg forks —
+            # and probing exists precisely to rescue the ``Unknown`` case.
+            resolved_path: str | None = None
+            if vendor == "Unknown" and path_prober is not None:
+                resolved_path = _resolve_probe_path(
+                    ip,
+                    554,
+                    creds,
+                    path_prober=path_prober,
+                    cache=_RESOLVED_PATH_CACHE,
+                    negative_until=_PROBE_NEGATIVE_UNTIL,
+                    now=time.monotonic(),
+                )
+            cams.append(
+                _build_rtsp_scan_camera(ip, 554, vendor, creds, resolved_path=resolved_path)
+            )
         return cams
 
     return _scan

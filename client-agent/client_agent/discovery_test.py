@@ -1199,3 +1199,357 @@ def test_real_probe_silences_wsdiscovery_daemon_noise(monkeypatch, caplog) -> No
     caplog.clear()
     logging.getLogger("daemon").warning("could not find handler for: _handle_resolve")
     assert not any("_handle_resolve" in r.getMessage() for r in caplog.records)
+
+
+# ===== Stage 2.5: RTSP path probing (issue #74) =====
+
+
+class _FakeRun:
+    """A ``subprocess.run``-shaped fake for the ffmpeg path prober.
+
+    ``ok_urls`` is the set of URLs it pretends ffmpeg opened successfully
+    (returncode 0); everything else returns 1. Records every argv it saw so a
+    test can assert the exact ffmpeg command shape."""
+
+    def __init__(self, ok_urls: set[str]) -> None:
+        self.ok_urls = ok_urls
+        self.calls: list[list[str]] = []
+
+    def __call__(self, argv, **kwargs):
+        self.calls.append(argv)
+        url = argv[argv.index("-i") + 1]
+
+        class _Result:
+            returncode = 0 if url in self.ok_urls else 1
+
+        return _Result()
+
+
+def test_build_rtsp_url_bare_when_no_credentials() -> None:
+    """``credentials=None`` → no ``user:pass@``. The probe path emits bare URLs
+    (creds re-injected at record time per #22)."""
+    from client_agent.discovery import build_rtsp_url
+
+    assert build_rtsp_url("192.168.88.83", 554, "/unicast/c1/s0/live", None) == (
+        "rtsp://192.168.88.83:554/unicast/c1/s0/live"
+    )
+
+
+def test_build_rtsp_url_encodes_hash_password() -> None:
+    """The operator's real camera password starts with ``#`` — a raw ``#`` makes
+    ffmpeg treat the rest of the URL as a fragment and drop it. ``quote(safe='')``
+    must encode it to ``%23`` (this was the actual bug that made every manual URL
+    test fail before encoding)."""
+    from client_agent.discovery import build_rtsp_url
+
+    assert build_rtsp_url(
+        "192.168.88.89", 554, "/unicast/c1/s0/live", ("admin", "#J2Zxs9b0iMP")
+    ) == ("rtsp://admin:%23J2Zxs9b0iMP@192.168.88.89:554/unicast/c1/s0/live")
+
+
+def test_rtsp_template_for_vendor_unchanged_after_build_rtsp_url_refactor() -> None:
+    """No-regression: the vendor template now delegates to ``build_rtsp_url`` but
+    must still produce byte-identical output for every existing call site."""
+    from client_agent.discovery import rtsp_template_for_vendor
+
+    assert rtsp_template_for_vendor("Hikvision", "10.0.0.2", 554, ("admin", "Pass")) == (
+        "rtsp://admin:Pass@10.0.0.2:554/Streaming/Channels/101"
+    )
+    assert rtsp_template_for_vendor("Unknown", "10.0.0.9", 554, ("u", "p")) == (
+        "rtsp://u:p@10.0.0.9:554/"
+    )
+
+
+def test_paths_from_known_urls_extracts_path_and_query() -> None:
+    """``RTSP_KNOWN_URLS`` carries full working URLs; we lift just the path
+    (with query) so siblings are probed with the exact confirmed path."""
+    from client_agent.discovery import _paths_from_known_urls
+
+    raw = (
+        "rtsp://admin:x@192.168.88.89:554/unicast/c1/s0/live, "
+        "rtsp://10.0.0.5:554/cam/realmonitor?channel=1&subtype=0"
+    )
+    assert _paths_from_known_urls(raw) == [
+        "/unicast/c1/s0/live",
+        "/cam/realmonitor?channel=1&subtype=0",
+    ]
+
+
+def test_paths_from_known_urls_drops_bare_root_and_empty() -> None:
+    """A bare-root or path-less URL carries no probing signal — drop it so it
+    doesn't crowd out the real candidates."""
+    from client_agent.discovery import _paths_from_known_urls
+
+    assert _paths_from_known_urls("rtsp://1.2.3.4:554/  rtsp://5.6.7.8:554") == []
+    assert _paths_from_known_urls("") == []
+
+
+def test_rtsp_probe_paths_priority_known_then_extra_then_defaults() -> None:
+    """Ordering is load-bearing: the first path that opens wins, so the
+    operator's confirmed path must lead. ``RTSP_KNOWN_URLS`` → ``RTSP_PROBE_PATHS``
+    → built-in defaults, de-duped preserving first occurrence."""
+    from client_agent.discovery import rtsp_probe_paths
+
+    env = {
+        "RTSP_KNOWN_URLS": "rtsp://192.168.88.89:554/unicast/c1/s0/live",
+        "RTSP_PROBE_PATHS": "custom/path, /another",
+    }
+    paths = rtsp_probe_paths(env)
+    assert paths[0] == "/unicast/c1/s0/live"
+    assert "/custom/path" in paths  # leading slash added
+    assert "/another" in paths
+    # De-dup: /unicast/c1/s0/live is also a default, must appear once.
+    assert paths.count("/unicast/c1/s0/live") == 1
+    # Defaults still present at the tail.
+    assert "/Streaming/Channels/101" in paths
+
+
+def test_rtsp_probe_paths_defaults_only_when_env_empty() -> None:
+    """No env config → just the built-in curated list, unchanged order."""
+    from client_agent.discovery import _DEFAULT_RTSP_PROBE_PATHS, rtsp_probe_paths
+
+    assert rtsp_probe_paths({}) == list(_DEFAULT_RTSP_PROBE_PATHS)
+
+
+def test_ffmpeg_prober_returns_first_openable_path() -> None:
+    """The prober returns the first candidate whose ffmpeg open succeeds — even
+    if an earlier candidate failed. This is what pins the sibling cameras to a
+    real streaming path."""
+    from client_agent.discovery import build_rtsp_url, make_ffmpeg_path_prober
+
+    creds = ("admin", "#J2Zxs9b0iMP")
+    good = build_rtsp_url("192.168.88.83", 554, "/unicast/c1/s0/live", creds)
+    runner = _FakeRun(ok_urls={good})
+    prober = make_ffmpeg_path_prober(
+        ["/Streaming/Channels/101", "/unicast/c1/s0/live", "/live"], runner=runner
+    )
+
+    assert prober("192.168.88.83", 554, creds) == "/unicast/c1/s0/live"
+    # Stopped at the first success — the third candidate was never tried.
+    assert len(runner.calls) == 2
+
+
+def test_ffmpeg_prober_returns_none_when_nothing_opens() -> None:
+    """All candidates fail → ``None``, so the camera falls back to the
+    ``needs_manual_url`` row instead of a confidently-broken URL."""
+    from client_agent.discovery import make_ffmpeg_path_prober
+
+    prober = make_ffmpeg_path_prober(["/a", "/b"], runner=_FakeRun(ok_urls=set()))
+    assert prober("10.0.0.9", 554, ("u", "p")) is None
+
+
+def test_ffmpeg_prober_builds_full_open_command() -> None:
+    """The probe command must be a full open (``-t 1 -f null -``), not a bare
+    DESCRIBE: some firmwares 200-OK a DESCRIBE for ANY path, so only a full
+    open distinguishes a real stream (verified on 192.168.88.83)."""
+    from client_agent.discovery import build_rtsp_url, make_ffmpeg_path_prober
+
+    creds = ("admin", "p")
+    good = build_rtsp_url("10.0.0.5", 554, "/unicast/c1/s0/live", creds)
+    runner = _FakeRun(ok_urls={good})
+    make_ffmpeg_path_prober(["/unicast/c1/s0/live"], runner=runner)("10.0.0.5", 554, creds)
+
+    argv = runner.calls[0]
+    assert argv[0] == "ffmpeg"
+    assert "-rtsp_transport" in argv and "tcp" in argv
+    assert argv[-3:] == ["-f", "null", "-"]
+    assert "-t" in argv and argv[argv.index("-t") + 1] == "1"
+
+
+def test_ffmpeg_can_open_false_on_timeout_and_missing_binary() -> None:
+    """A wedged candidate (TimeoutExpired) or a missing ffmpeg (OSError) must be
+    a clean ``False``, never an exception that sinks the whole scan."""
+    import subprocess
+
+    from client_agent.discovery import _ffmpeg_can_open
+
+    def timeout_runner(argv, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=argv, timeout=kwargs.get("timeout", 1))
+
+    def missing_runner(argv, **kwargs):
+        raise FileNotFoundError("ffmpeg")
+
+    assert _ffmpeg_can_open("rtsp://x/y", runner=timeout_runner, timeout=1.0) is False
+    assert _ffmpeg_can_open("rtsp://x/y", runner=missing_runner, timeout=1.0) is False
+
+
+def test_build_rtsp_scan_camera_resolved_path_emits_working_bare_url() -> None:
+    """A probe-resolved Unknown-vendor camera stops being ``needs_manual_url``:
+    it gets a credential-free working URL, the ``rtsp-probe`` method tag, and a
+    relabelled vendor so the UI stops nagging for a manual URL."""
+    from client_agent.discovery import _build_rtsp_scan_camera
+
+    cam = _build_rtsp_scan_camera(
+        ip="192.168.88.83",
+        port=554,
+        vendor="Unknown",
+        credentials=("admin", "#J2Zxs9b0iMP"),
+        resolved_path="/unicast/c1/s0/live",
+    )
+    assert cam.needs_manual_url is False
+    # Bare URL — creds re-injected at record time (#22), never pushed to platform.
+    assert cam.rtsp_url == "rtsp://192.168.88.83:554/unicast/c1/s0/live"
+    assert "admin" not in cam.rtsp_url
+    assert cam.discovery_method == "rtsp-probe"
+    assert "RTSP-probed" in cam.vendor
+
+
+def test_build_rtsp_scan_camera_resolved_path_overrides_unknown_manual_branch() -> None:
+    """No-regression sanity: without ``resolved_path`` an Unknown vendor still
+    yields the ``needs_manual_url`` row; supplying it flips the same inputs to a
+    working camera."""
+    from client_agent.discovery import _build_rtsp_scan_camera
+
+    manual = _build_rtsp_scan_camera("192.168.88.84", 554, "Unknown", ("admin", "p"))
+    assert manual.needs_manual_url is True and manual.rtsp_url == ""
+
+    fixed = _build_rtsp_scan_camera(
+        "192.168.88.84", 554, "Unknown", ("admin", "p"), resolved_path="/unicast/c1/s0/live"
+    )
+    assert fixed.needs_manual_url is False
+    assert fixed.rtsp_url == "rtsp://192.168.88.84:554/unicast/c1/s0/live"
+
+
+def test_resolve_probe_path_caches_success_and_skips_reprobe() -> None:
+    """A resolved path is cached forever: a second call with a prober that would
+    now raise proves the cache short-circuited it (steady-state = zero forks)."""
+    from client_agent.discovery import _resolve_probe_path
+
+    cache: dict[str, str] = {}
+    negative: dict[str, float] = {}
+    calls = {"n": 0}
+
+    def prober(ip, port, creds):
+        calls["n"] += 1
+        return "/unicast/c1/s0/live"
+
+    got = _resolve_probe_path(
+        "192.168.88.83",
+        554,
+        ("admin", "p"),
+        path_prober=prober,
+        cache=cache,
+        negative_until=negative,
+        now=100.0,
+    )
+    assert got == "/unicast/c1/s0/live"
+    assert cache["192.168.88.83"] == "/unicast/c1/s0/live"
+
+    def exploding_prober(ip, port, creds):
+        raise AssertionError("must not re-probe a cached IP")
+
+    again = _resolve_probe_path(
+        "192.168.88.83",
+        554,
+        ("admin", "p"),
+        path_prober=exploding_prober,
+        cache=cache,
+        negative_until=negative,
+        now=200.0,
+    )
+    assert again == "/unicast/c1/s0/live"
+    assert calls["n"] == 1
+
+
+def test_resolve_probe_path_miss_opens_cooldown_then_retries_after_it() -> None:
+    """A miss backs off: the prober is NOT re-run within the cooldown window,
+    but IS after it elapses — so a full-list probe can't repeat every heartbeat
+    on a :554 host that never resolves, yet a transiently-offline camera still
+    gets a later chance."""
+    from client_agent.discovery import _resolve_probe_path
+
+    cache: dict[str, str] = {}
+    negative: dict[str, float] = {}
+    calls = {"n": 0}
+
+    def prober(ip, port, creds):
+        calls["n"] += 1
+        return None
+
+    assert (
+        _resolve_probe_path(
+            "10.0.0.9",
+            554,
+            None,
+            path_prober=prober,
+            cache=cache,
+            negative_until=negative,
+            now=1000.0,
+            cooldown_s=600.0,
+        )
+        is None
+    )
+    assert calls["n"] == 1
+    assert negative["10.0.0.9"] == 1600.0
+
+    # Inside the window → skipped.
+    assert (
+        _resolve_probe_path(
+            "10.0.0.9",
+            554,
+            None,
+            path_prober=prober,
+            cache=cache,
+            negative_until=negative,
+            now=1500.0,
+            cooldown_s=600.0,
+        )
+        is None
+    )
+    assert calls["n"] == 1
+
+    # After the window → probed again.
+    assert (
+        _resolve_probe_path(
+            "10.0.0.9",
+            554,
+            None,
+            path_prober=prober,
+            cache=cache,
+            negative_until=negative,
+            now=1700.0,
+            cooldown_s=600.0,
+        )
+        is None
+    )
+    assert calls["n"] == 2
+
+
+def test_reset_rtsp_path_cache_clears_both_maps() -> None:
+    """The operator-facing reset must clear positive AND negative memory so the
+    next cycle re-probes everything from scratch."""
+    from client_agent.discovery import (
+        _PROBE_NEGATIVE_UNTIL,
+        _RESOLVED_PATH_CACHE,
+        reset_rtsp_path_cache,
+    )
+
+    _RESOLVED_PATH_CACHE["1.2.3.4"] = "/x"
+    _PROBE_NEGATIVE_UNTIL["5.6.7.8"] = 999.0
+    reset_rtsp_path_cache()
+    assert _RESOLVED_PATH_CACHE == {}
+    assert _PROBE_NEGATIVE_UNTIL == {}
+
+
+def test_discover_cameras_probe_resolved_camera_flows_through_stage2() -> None:
+    """End-to-end at the ``discover_cameras`` seam: a Stage-2 scan that returns a
+    probe-resolved camera surfaces it as a normal recordable row (not
+    needs_manual), proving the wiring the appliance uses."""
+    from client_agent.discovery import DiscoveredCamera, discover_cameras
+
+    resolved = DiscoveredCamera(
+        ip="192.168.88.85",
+        port=554,
+        vendor="Generic IP camera (RTSP-probed)",
+        model="",
+        rtsp_url="rtsp://192.168.88.85:554/unicast/c1/s0/live",
+        discovery_method="rtsp-probe",
+        needs_manual_url=False,
+    )
+    cams = discover_cameras(
+        probe_fn=lambda _: [],
+        enrich_fn=lambda _m, _c: None,
+        rtsp_scan_fn=lambda _t: [resolved],
+    )
+    assert cams == [resolved]
+    assert cams[0].needs_manual_url is False
