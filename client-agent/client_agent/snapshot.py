@@ -43,7 +43,34 @@ _JPEG_QUALITY = 70
 _SNAPSHOT_WARMUP_MAX_FRAMES = 15
 _SNAPSHOT_MIN_STDDEV = 8.0
 
+# Partial-decode guard: a 4K H.265 IDR sometimes surfaces *half-decoded* — the
+# top slices carry real content but the bottom rows are still the decoder's
+# uninitialised fill (renders as a flat green block, the "most green" preview
+# seen on 192.168.88.84). Such a frame's GLOBAL stddev is high (the real top
+# dominates) so the grey guard above waves it through. Catch it by measuring the
+# bottom strip alone: an undecoded block is near-uniform (stddev ~0.5), whereas
+# any real scene's ground/floor keeps sensor+texture noise well above this. The
+# raster-scan decode order means undecoded rows are always at the BOTTOM.
+_SNAPSHOT_BOTTOM_FRACTION = 0.25
+_SNAPSHOT_MIN_BOTTOM_STDDEV = 3.0
+
 SnapshotGrabberFn = Callable[[str, float], bytes]
+
+
+def _bottom_region_stddev(
+    frame: object, bottom_fraction: float = _SNAPSHOT_BOTTOM_FRACTION
+) -> float:
+    """Per-pixel stddev of the bottom ``bottom_fraction`` of ``frame``.
+
+    Duck-typed on the numpy-array surface (``.shape`` + slicing + ``.std()``),
+    so a real cv2 frame and the test fake both work. Isolating the bottom strip
+    is what distinguishes a *partial-decode* frame (real top, flat undecoded
+    bottom) from a fully-decoded one — the global stddev can't, because the real
+    top swamps it."""
+    height = frame.shape[0]  # type: ignore[attr-defined]
+    start = int(height * (1.0 - bottom_fraction))
+    strip = frame[start:, :, :]  # type: ignore[index]
+    return float(strip.std())  # type: ignore[attr-defined]
 
 
 def _select_snapshot_frame(
@@ -51,24 +78,42 @@ def _select_snapshot_frame(
     *,
     max_frames: int = _SNAPSHOT_WARMUP_MAX_FRAMES,
     min_stddev: float = _SNAPSHOT_MIN_STDDEV,
+    min_bottom_stddev: float = _SNAPSHOT_MIN_BOTTOM_STDDEV,
 ) -> object | None:
-    """Read frames until one has real detail, skipping grey warm-up frames.
+    """Read frames until one is fully decoded, skipping warm-up + partial frames.
 
     ``read_fn`` is ``cv2.VideoCapture.read`` (or a fake): returns
-    ``(ok, frame)`` where ``frame`` exposes ``.std()`` (a numpy ndarray does).
-    Returns the first frame whose per-pixel stddev reaches ``min_stddev``; if
-    none do within ``max_frames`` (a genuinely flat scene or a short stream),
-    the last frame read is returned so the caller still gets the real view.
-    Returns ``None`` when ``read_fn`` never yields a frame."""
-    frame: object | None = None
+    ``(ok, frame)`` where ``frame`` exposes ``.std()``, ``.shape`` and slicing
+    (a numpy ndarray does). A frame is accepted when it clears BOTH gates:
+
+    * global stddev ≥ ``min_stddev`` — skips the uniform grey pre-keyframe
+      placeholder;
+    * bottom-strip stddev ≥ ``min_bottom_stddev`` — skips a half-decoded IDR
+      whose bottom rows are a flat (green) undecoded block.
+
+    If no frame clears both within ``max_frames`` (a genuinely flat scene, a
+    short stream, or a stream that never fully decodes), the best frame seen —
+    the one with the most detail in its weakest region — is returned rather than
+    just the last, so a trailing partial frame can't win the fallback. Returns
+    ``None`` when ``read_fn`` never yields a frame."""
+    best: object | None = None
+    best_score = -1.0
     for _ in range(max_frames):
         ok, candidate = read_fn()
         if not ok or candidate is None:
             break
-        frame = candidate
-        if float(candidate.std()) >= min_stddev:  # type: ignore[attr-defined]
-            break
-    return frame
+        global_std = float(candidate.std())  # type: ignore[attr-defined]
+        bottom_std = _bottom_region_stddev(candidate)
+        if global_std >= min_stddev and bottom_std >= min_bottom_stddev:
+            return candidate
+        # Rank fallbacks by their weakest region: a partial frame scores ~0 on
+        # its flat bottom, a grey frame ~0 globally, so a more-complete frame
+        # always outranks them.
+        score = min(global_std, bottom_std)
+        if score > best_score:
+            best_score = score
+            best = candidate
+    return best
 
 
 def build_snapshot_grabber(

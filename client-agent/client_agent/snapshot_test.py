@@ -15,14 +15,30 @@ from client_agent.snapshot import build_snapshot_grabber
 
 
 class _FakeFrame:
-    """Minimal stand-in for a cv2/numpy frame — the warm-up selector only
-    calls ``.std()``, so tests need neither numpy nor cv2."""
+    """Minimal stand-in for a cv2/numpy frame — the selector calls ``.std()``
+    (global) plus ``.shape`` + slicing (to measure the bottom strip), so tests
+    need neither numpy nor cv2. ``bottom_std`` defaults to the global value, so
+    a frame that is uniform top-to-bottom needs only one number; a *partial-
+    decode* frame passes a high global ``std_value`` with a low ``bottom_std``."""
 
-    def __init__(self, std_value: float) -> None:
+    def __init__(
+        self,
+        std_value: float,
+        *,
+        bottom_std: float | None = None,
+        shape: tuple[int, int, int] = (1080, 1920, 3),
+    ) -> None:
         self._std = std_value
+        self._bottom_std = std_value if bottom_std is None else bottom_std
+        self.shape = shape
 
     def std(self) -> float:
         return self._std
+
+    def __getitem__(self, _key: object) -> _FakeFrame:
+        # The selector only ever slices the bottom strip; return a frame whose
+        # global std IS this frame's bottom_std so the strip's ``.std()`` matches.
+        return _FakeFrame(self._bottom_std, shape=self.shape)
 
 
 def _reader(frames: list[tuple[bool, object]]):
@@ -93,6 +109,59 @@ def test_select_snapshot_frame_is_bounded_by_max_frames() -> None:
     got = _select_snapshot_frame(read, max_frames=5, min_stddev=8.0)
     assert reads == 5
     assert got is not None
+
+
+def test_select_snapshot_frame_skips_partial_decode_green_bottom() -> None:
+    """A half-decoded 4K H.265 IDR (real top, flat green undecoded bottom) has a
+    HIGH global stddev — it clears the grey guard — but a near-zero bottom-strip
+    stddev. The selector must skip it and return the next fully-decoded frame,
+    not upload the "most green" preview seen on 192.168.88.84."""
+    from client_agent.snapshot import _select_snapshot_frame
+
+    partial = _FakeFrame(40.0, bottom_std=0.4)  # detailed top, flat green bottom
+    full = _FakeFrame(52.0, bottom_std=47.0)  # decoded top-to-bottom
+    got = _select_snapshot_frame(
+        _reader([(True, partial), (True, full)]),
+        max_frames=15,
+        min_stddev=8.0,
+        min_bottom_stddev=3.0,
+    )
+    assert got is full
+
+
+def test_select_snapshot_frame_fallback_prefers_most_complete_frame() -> None:
+    """When nothing fully decodes within the cap, the fallback must be the
+    most-complete frame (highest detail in its weakest region), NOT merely the
+    last read — so a trailing partial-decode frame can't win the preview."""
+    from client_agent.snapshot import _select_snapshot_frame
+
+    grey = _FakeFrame(0.3, bottom_std=0.3)
+    partial = _FakeFrame(40.0, bottom_std=0.5)  # high global, flat bottom
+    best_partial = _FakeFrame(45.0, bottom_std=2.5)  # closest to fully decoded
+    trailing_partial = _FakeFrame(41.0, bottom_std=0.6)  # last, but still green
+    got = _select_snapshot_frame(
+        _reader([(True, grey), (True, partial), (True, best_partial), (True, trailing_partial)]),
+        max_frames=15,
+        min_stddev=8.0,
+        min_bottom_stddev=3.0,
+    )
+    assert got is best_partial
+
+
+def test_select_snapshot_frame_accepts_fully_decoded_first_frame() -> None:
+    """No-regression: a frame that is detailed top-to-bottom (real content,
+    fully decoded) is accepted immediately — the bottom-strip guard must not
+    reject good frames."""
+    from client_agent.snapshot import _select_snapshot_frame
+
+    full = _FakeFrame(58.0, bottom_std=55.0)
+    got = _select_snapshot_frame(
+        _reader([(True, full), (True, _FakeFrame(59.0, bottom_std=56.0))]),
+        max_frames=15,
+        min_stddev=8.0,
+        min_bottom_stddev=3.0,
+    )
+    assert got is full
 
 
 def test_http_url_dispatches_to_http_fetcher() -> None:
