@@ -1,207 +1,144 @@
 """Tests for the production snapshot grabber (issue #41).
 
 The grabber dispatches on URL scheme: HTTP/HTTPS go through stdlib
-``urllib.request`` (cheap, single GET), RTSP goes through OpenCV
-(``cv2.VideoCapture`` opens a session, reads one frame, encodes JPEG).
+``urllib.request`` (cheap, single GET), RTSP goes through ffmpeg (settle past
+a keyframe, capture one frame, encode JPEG to stdout).
 
-Both backends are injectable so these tests never touch cv2 or open
-sockets — the real cv2 / urllib calls are exercised by the manual
-verification step in the issue's acceptance criteria.
+Both backends are injectable so these tests never fork ffmpeg or open
+sockets — the real ffmpeg / urllib calls are exercised by the manual
+verification step on a live camera.
 """
 
 from __future__ import annotations
 
+import subprocess
+
 from client_agent.snapshot import build_snapshot_grabber
 
 
-class _FakeFrame:
-    """A frame identity carrying its ``(global_detail, bottom_detail)`` metrics.
+class _FakeCompleted:
+    """Stand-in for ``subprocess.CompletedProcess`` — the grab reads only
+    ``returncode``/``stdout``/``stderr``."""
 
-    The selector reads metrics through the injected ``metrics_fn`` (see
-    :func:`_metrics`), so tests need neither numpy nor cv2. ``bottom_std``
-    defaults to the global value (uniform frame); a *partial-decode* frame is a
-    high ``std_value`` with a low ``bottom_std`` (detailed top, flat green
-    bottom)."""
-
-    def __init__(self, std_value: float, *, bottom_std: float | None = None) -> None:
-        self._std = std_value
-        self._bottom_std = std_value if bottom_std is None else bottom_std
+    def __init__(self, returncode: int = 0, stdout: bytes = b"", stderr: bytes = b"") -> None:
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
 
 
-def _metrics(frame: object) -> tuple[float, float]:
-    """Stand-in for :func:`client_agent.snapshot._frame_detail_metrics` — reads
-    the ``_FakeFrame``'s declared ``(global, bottom)`` detail directly instead of
-    doing numpy pixel math, so the selector's skip/fallback logic is tested in
-    isolation from the luminance computation (that has its own numpy test)."""
-    return (frame._std, frame._bottom_std)  # type: ignore[attr-defined]
+def _runner(completed: _FakeCompleted, *, calls: list | None = None):
+    """A ``subprocess.run``-shaped fake returning ``completed`` and optionally
+    recording each ``(cmd, kwargs)`` it saw."""
+
+    def run(cmd, **kwargs):
+        if calls is not None:
+            calls.append((cmd, kwargs))
+        return completed
+
+    return run
 
 
-def _reader(frames: list[tuple[bool, object]]):
-    """Build a ``read_fn`` yielding successive ``(ok, frame)`` from ``frames``
-    then ``(False, None)`` once exhausted — mirrors ``cv2.VideoCapture.read``."""
-    it = iter(frames)
+def test_build_ffmpeg_snapshot_cmd_is_settled_single_jpeg() -> None:
+    """The grab command must (a) settle past a keyframe via ``-ss`` AFTER ``-i``
+    so it captures a fully-decoded frame, (b) take exactly one frame, (c) cap the
+    width, and (d) stream one MJPEG to stdout — the shape proven to beat the
+    mid-GOP grey/green preview on the operator's 4K H.265 cameras."""
+    from client_agent.snapshot import _build_ffmpeg_snapshot_cmd
 
-    def read() -> tuple[bool, object]:
-        try:
-            return next(it)
-        except StopIteration:
-            return (False, None)
+    cmd = _build_ffmpeg_snapshot_cmd("rtsp://192.168.88.85:554/unicast/c1/s0/live")
+    assert cmd[0] == "ffmpeg"
+    assert cmd[-1] == "pipe:1"
+    i = cmd.index("-i")
+    assert cmd[i + 1] == "rtsp://192.168.88.85:554/unicast/c1/s0/live"
+    # -ss must come AFTER -i (decode-and-discard the live stream), not before.
+    assert cmd.index("-ss") > i
+    assert cmd[cmd.index("-ss") + 1] == "1.0"
+    assert cmd[cmd.index("-frames:v") + 1] == "1"
+    assert "-rtsp_transport" in cmd and "tcp" in cmd
+    assert cmd[cmd.index("-f") + 1] == "mjpeg"
+    assert cmd[cmd.index("-vf") + 1] == "scale=640:-2"
 
-    return read
+
+def test_rtsp_frame_grab_returns_stdout_jpeg_bytes() -> None:
+    """A clean ffmpeg run (exit 0, JPEG on stdout) yields those bytes verbatim —
+    they go straight to the presigned R2 PUT / HTTP response."""
+    from client_agent.snapshot import _rtsp_frame_grab
+
+    jpeg = b"\xff\xd8\xff\xe0" + b"fake-jpeg-body"
+    out = _rtsp_frame_grab("rtsp://cam/stream", 5.0, runner=_runner(_FakeCompleted(0, jpeg)))
+    assert out == jpeg
 
 
-def test_select_snapshot_frame_skips_grey_warmup_frames() -> None:
-    """The first frame(s) off an H.264/H.265 RTSP stream are a uniform grey
-    placeholder (std ~0.3) the decoder emits before the first keyframe; the
-    selector must skip them and return the first frame with real detail."""
-    from client_agent.snapshot import _select_snapshot_frame
+def test_rtsp_frame_grab_floors_the_subprocess_deadline() -> None:
+    """The caller's ``timeout_s`` (tuned for the old single cv2 read) must not
+    starve the settle-then-grab: the ffmpeg deadline is floored so a too-small
+    caller value can't spuriously fail every grab."""
+    from client_agent.snapshot import _RTSP_GRAB_MIN_TIMEOUT_S, _rtsp_frame_grab
 
-    grey1, grey2 = _FakeFrame(0.3), _FakeFrame(0.5)
-    real = _FakeFrame(58.0)
-    got = _select_snapshot_frame(
-        _reader([(True, grey1), (True, grey2), (True, real), (True, _FakeFrame(60.0))]),
-        max_frames=15,
-        min_stddev=8.0,
-        metrics_fn=_metrics,
+    calls: list = []
+    _rtsp_frame_grab(
+        "rtsp://cam/stream", 1.0, runner=_runner(_FakeCompleted(0, b"jpeg"), calls=calls)
     )
-    assert got is real
+    assert calls[0][1]["timeout"] == _RTSP_GRAB_MIN_TIMEOUT_S
 
 
-def test_select_snapshot_frame_falls_back_to_last_when_all_uniform() -> None:
-    """A genuinely flat scene (blank wall, covered lens) never clears the
-    threshold — the selector must still return the last real frame it read,
-    not None, so the preview shows the actual (flat) view."""
-    from client_agent.snapshot import _select_snapshot_frame
+def test_rtsp_frame_grab_raises_on_nonzero_exit_with_stderr_tail() -> None:
+    """A failed ffmpeg (non-zero exit) surfaces its stderr tail so the poller's
+    failure message is diagnostic (which camera, why), not a bare exit code."""
+    from client_agent.snapshot import _rtsp_frame_grab
 
-    last = _FakeFrame(1.0)
-    got = _select_snapshot_frame(
-        _reader([(True, _FakeFrame(0.3)), (True, _FakeFrame(0.4)), (True, last)]),
-        max_frames=15,
-        min_stddev=8.0,
-        metrics_fn=_metrics,
-    )
-    assert got is last
+    completed = _FakeCompleted(1, b"", b"[tcp] connection refused\nConversion failed!")
+    try:
+        _rtsp_frame_grab("rtsp://cam/stream", 5.0, runner=_runner(completed))
+    except RuntimeError as exc:
+        assert "Conversion failed!" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError on non-zero exit")
 
 
-def test_select_snapshot_frame_returns_none_when_no_frame_read() -> None:
-    """A stream that yields no frame at all → None, so the caller raises the
-    'no frame' RuntimeError instead of encoding a missing frame."""
-    from client_agent.snapshot import _select_snapshot_frame
+def test_rtsp_frame_grab_raises_on_empty_output() -> None:
+    """Exit 0 but no bytes (ffmpeg produced no frame) must raise, not return an
+    empty JPEG that the UI would render as a broken image."""
+    from client_agent.snapshot import _rtsp_frame_grab
 
-    got = _select_snapshot_frame(_reader([]), max_frames=15, min_stddev=8.0, metrics_fn=_metrics)
-    assert got is None
-
-
-def test_select_snapshot_frame_is_bounded_by_max_frames() -> None:
-    """An endlessly-grey stream must not spin — the read count is capped at
-    ``max_frames`` (bounds HEVC 4K decode cost), returning the last frame."""
-    from client_agent.snapshot import _select_snapshot_frame
-
-    reads = 0
-
-    def read() -> tuple[bool, object]:
-        nonlocal reads
-        reads += 1
-        return (True, _FakeFrame(0.3))  # forever grey
-
-    got = _select_snapshot_frame(read, max_frames=5, min_stddev=8.0, metrics_fn=_metrics)
-    assert reads == 5
-    assert got is not None
+    try:
+        _rtsp_frame_grab("rtsp://cam/stream", 5.0, runner=_runner(_FakeCompleted(0, b"")))
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("expected RuntimeError on empty output")
 
 
-def test_select_snapshot_frame_skips_partial_decode_green_bottom() -> None:
-    """A half-decoded 4K H.265 IDR (real top, flat green undecoded bottom) has a
-    HIGH global stddev — it clears the grey guard — but a near-zero bottom-strip
-    stddev. The selector must skip it and return the next fully-decoded frame,
-    not upload the "most green" preview seen on 192.168.88.84."""
-    from client_agent.snapshot import _select_snapshot_frame
+def test_rtsp_frame_grab_raises_on_timeout() -> None:
+    """A wedged stream (ffmpeg past its deadline) becomes a clean RuntimeError,
+    not a leaked ``TimeoutExpired`` that would crash the poll loop."""
+    from client_agent.snapshot import _rtsp_frame_grab
 
-    partial = _FakeFrame(40.0, bottom_std=0.4)  # detailed top, flat green bottom
-    full = _FakeFrame(52.0, bottom_std=47.0)  # decoded top-to-bottom
-    got = _select_snapshot_frame(
-        _reader([(True, partial), (True, full)]),
-        max_frames=15,
-        min_stddev=8.0,
-        min_bottom_stddev=3.0,
-        metrics_fn=_metrics,
-    )
-    assert got is full
+    def timeout_runner(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=cmd, timeout=kwargs.get("timeout", 8.0))
+
+    try:
+        _rtsp_frame_grab("rtsp://cam/stream", 5.0, runner=timeout_runner)
+    except RuntimeError as exc:
+        assert "timed out" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError on timeout")
 
 
-def test_select_snapshot_frame_fallback_prefers_most_complete_frame() -> None:
-    """When nothing fully decodes within the cap, the fallback must be the
-    most-complete frame (highest detail in its weakest region), NOT merely the
-    last read — so a trailing partial-decode frame can't win the preview."""
-    from client_agent.snapshot import _select_snapshot_frame
+def test_rtsp_frame_grab_raises_when_ffmpeg_missing() -> None:
+    """No ffmpeg on PATH (OSError) → RuntimeError, so a mis-provisioned host
+    fails with a readable message instead of an uncaught FileNotFoundError."""
+    from client_agent.snapshot import _rtsp_frame_grab
 
-    grey = _FakeFrame(0.3, bottom_std=0.3)
-    partial = _FakeFrame(40.0, bottom_std=0.5)  # high global, flat bottom
-    best_partial = _FakeFrame(45.0, bottom_std=2.5)  # closest to fully decoded
-    trailing_partial = _FakeFrame(41.0, bottom_std=0.6)  # last, but still green
-    got = _select_snapshot_frame(
-        _reader([(True, grey), (True, partial), (True, best_partial), (True, trailing_partial)]),
-        max_frames=15,
-        min_stddev=8.0,
-        min_bottom_stddev=3.0,
-        metrics_fn=_metrics,
-    )
-    assert got is best_partial
+    def missing(cmd, **kwargs):
+        raise FileNotFoundError("ffmpeg")
 
-
-def test_select_snapshot_frame_accepts_fully_decoded_first_frame() -> None:
-    """No-regression: a frame that is detailed top-to-bottom (real content,
-    fully decoded) is accepted immediately — the bottom-strip guard must not
-    reject good frames."""
-    from client_agent.snapshot import _select_snapshot_frame
-
-    full = _FakeFrame(58.0, bottom_std=55.0)
-    got = _select_snapshot_frame(
-        _reader([(True, full), (True, _FakeFrame(59.0, bottom_std=56.0))]),
-        max_frames=15,
-        min_stddev=8.0,
-        min_bottom_stddev=3.0,
-        metrics_fn=_metrics,
-    )
-    assert got is full
-
-
-def test_frame_detail_metrics_scores_uniform_green_block_as_flat() -> None:
-    """The actual bug fix: an undecoded HEVC block is a uniform GREEN colour
-    (BGR ``[0,135,0]``) — spatially flat but ``ndarray.std()`` over the raw BGR
-    array reads ~63 from the inter-channel 0-vs-135 gap, which is what let the
-    green preview through. ``_frame_detail_metrics`` measures LUMINANCE spatial
-    stddev, so the uniform block scores ~0 while real texture scores high."""
-    import numpy as np
-
-    from client_agent.snapshot import _frame_detail_metrics
-
-    # A half-decoded frame: noisy top half, flat green bottom half.
-    frame = np.zeros((200, 320, 3), dtype=np.uint8)
-    rng = np.random.default_rng(0)
-    frame[:100, :, :] = rng.integers(0, 255, (100, 320, 3), dtype=np.uint8)  # real top
-    frame[100:, :, 1] = 135  # flat green bottom (B=0, G=135, R=0)
-
-    global_detail, bottom_detail = _frame_detail_metrics(frame)
-    assert bottom_detail < 1.0, "uniform green bottom must read as flat luminance"
-    assert global_detail > 20.0, "the real top keeps global detail high"
-
-    # Sanity: raw-array std over the same green bottom would have looked like
-    # 'detail' (~63) — the exact trap luminance collapsing avoids.
-    assert float(frame[100:, :, :].std()) > 50.0
-
-
-def test_frame_detail_metrics_scores_real_content_high_top_to_bottom() -> None:
-    """No-regression: a fully-decoded, textured frame keeps HIGH detail in both
-    the global and bottom-strip measures, so the selector accepts it at once."""
-    import numpy as np
-
-    from client_agent.snapshot import _frame_detail_metrics
-
-    rng = np.random.default_rng(1)
-    frame = rng.integers(0, 255, (200, 320, 3), dtype=np.uint8)
-    global_detail, bottom_detail = _frame_detail_metrics(frame)
-    assert global_detail > 20.0
-    assert bottom_detail > 20.0
+    try:
+        _rtsp_frame_grab("rtsp://cam/stream", 5.0, runner=missing)
+    except RuntimeError as exc:
+        assert "could not run" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError when ffmpeg missing")
 
 
 def test_http_url_dispatches_to_http_fetcher() -> None:
