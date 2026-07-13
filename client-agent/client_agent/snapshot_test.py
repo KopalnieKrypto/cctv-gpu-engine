@@ -15,30 +15,25 @@ from client_agent.snapshot import build_snapshot_grabber
 
 
 class _FakeFrame:
-    """Minimal stand-in for a cv2/numpy frame — the selector calls ``.std()``
-    (global) plus ``.shape`` + slicing (to measure the bottom strip), so tests
-    need neither numpy nor cv2. ``bottom_std`` defaults to the global value, so
-    a frame that is uniform top-to-bottom needs only one number; a *partial-
-    decode* frame passes a high global ``std_value`` with a low ``bottom_std``."""
+    """A frame identity carrying its ``(global_detail, bottom_detail)`` metrics.
 
-    def __init__(
-        self,
-        std_value: float,
-        *,
-        bottom_std: float | None = None,
-        shape: tuple[int, int, int] = (1080, 1920, 3),
-    ) -> None:
+    The selector reads metrics through the injected ``metrics_fn`` (see
+    :func:`_metrics`), so tests need neither numpy nor cv2. ``bottom_std``
+    defaults to the global value (uniform frame); a *partial-decode* frame is a
+    high ``std_value`` with a low ``bottom_std`` (detailed top, flat green
+    bottom)."""
+
+    def __init__(self, std_value: float, *, bottom_std: float | None = None) -> None:
         self._std = std_value
         self._bottom_std = std_value if bottom_std is None else bottom_std
-        self.shape = shape
 
-    def std(self) -> float:
-        return self._std
 
-    def __getitem__(self, _key: object) -> _FakeFrame:
-        # The selector only ever slices the bottom strip; return a frame whose
-        # global std IS this frame's bottom_std so the strip's ``.std()`` matches.
-        return _FakeFrame(self._bottom_std, shape=self.shape)
+def _metrics(frame: object) -> tuple[float, float]:
+    """Stand-in for :func:`client_agent.snapshot._frame_detail_metrics` — reads
+    the ``_FakeFrame``'s declared ``(global, bottom)`` detail directly instead of
+    doing numpy pixel math, so the selector's skip/fallback logic is tested in
+    isolation from the luminance computation (that has its own numpy test)."""
+    return (frame._std, frame._bottom_std)  # type: ignore[attr-defined]
 
 
 def _reader(frames: list[tuple[bool, object]]):
@@ -67,6 +62,7 @@ def test_select_snapshot_frame_skips_grey_warmup_frames() -> None:
         _reader([(True, grey1), (True, grey2), (True, real), (True, _FakeFrame(60.0))]),
         max_frames=15,
         min_stddev=8.0,
+        metrics_fn=_metrics,
     )
     assert got is real
 
@@ -82,6 +78,7 @@ def test_select_snapshot_frame_falls_back_to_last_when_all_uniform() -> None:
         _reader([(True, _FakeFrame(0.3)), (True, _FakeFrame(0.4)), (True, last)]),
         max_frames=15,
         min_stddev=8.0,
+        metrics_fn=_metrics,
     )
     assert got is last
 
@@ -91,7 +88,8 @@ def test_select_snapshot_frame_returns_none_when_no_frame_read() -> None:
     'no frame' RuntimeError instead of encoding a missing frame."""
     from client_agent.snapshot import _select_snapshot_frame
 
-    assert _select_snapshot_frame(_reader([]), max_frames=15, min_stddev=8.0) is None
+    got = _select_snapshot_frame(_reader([]), max_frames=15, min_stddev=8.0, metrics_fn=_metrics)
+    assert got is None
 
 
 def test_select_snapshot_frame_is_bounded_by_max_frames() -> None:
@@ -106,7 +104,7 @@ def test_select_snapshot_frame_is_bounded_by_max_frames() -> None:
         reads += 1
         return (True, _FakeFrame(0.3))  # forever grey
 
-    got = _select_snapshot_frame(read, max_frames=5, min_stddev=8.0)
+    got = _select_snapshot_frame(read, max_frames=5, min_stddev=8.0, metrics_fn=_metrics)
     assert reads == 5
     assert got is not None
 
@@ -125,6 +123,7 @@ def test_select_snapshot_frame_skips_partial_decode_green_bottom() -> None:
         max_frames=15,
         min_stddev=8.0,
         min_bottom_stddev=3.0,
+        metrics_fn=_metrics,
     )
     assert got is full
 
@@ -144,6 +143,7 @@ def test_select_snapshot_frame_fallback_prefers_most_complete_frame() -> None:
         max_frames=15,
         min_stddev=8.0,
         min_bottom_stddev=3.0,
+        metrics_fn=_metrics,
     )
     assert got is best_partial
 
@@ -160,8 +160,48 @@ def test_select_snapshot_frame_accepts_fully_decoded_first_frame() -> None:
         max_frames=15,
         min_stddev=8.0,
         min_bottom_stddev=3.0,
+        metrics_fn=_metrics,
     )
     assert got is full
+
+
+def test_frame_detail_metrics_scores_uniform_green_block_as_flat() -> None:
+    """The actual bug fix: an undecoded HEVC block is a uniform GREEN colour
+    (BGR ``[0,135,0]``) — spatially flat but ``ndarray.std()`` over the raw BGR
+    array reads ~63 from the inter-channel 0-vs-135 gap, which is what let the
+    green preview through. ``_frame_detail_metrics`` measures LUMINANCE spatial
+    stddev, so the uniform block scores ~0 while real texture scores high."""
+    import numpy as np
+
+    from client_agent.snapshot import _frame_detail_metrics
+
+    # A half-decoded frame: noisy top half, flat green bottom half.
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
+    rng = np.random.default_rng(0)
+    frame[:100, :, :] = rng.integers(0, 255, (100, 320, 3), dtype=np.uint8)  # real top
+    frame[100:, :, 1] = 135  # flat green bottom (B=0, G=135, R=0)
+
+    global_detail, bottom_detail = _frame_detail_metrics(frame)
+    assert bottom_detail < 1.0, "uniform green bottom must read as flat luminance"
+    assert global_detail > 20.0, "the real top keeps global detail high"
+
+    # Sanity: raw-array std over the same green bottom would have looked like
+    # 'detail' (~63) — the exact trap luminance collapsing avoids.
+    assert float(frame[100:, :, :].std()) > 50.0
+
+
+def test_frame_detail_metrics_scores_real_content_high_top_to_bottom() -> None:
+    """No-regression: a fully-decoded, textured frame keeps HIGH detail in both
+    the global and bottom-strip measures, so the selector accepts it at once."""
+    import numpy as np
+
+    from client_agent.snapshot import _frame_detail_metrics
+
+    rng = np.random.default_rng(1)
+    frame = rng.integers(0, 255, (200, 320, 3), dtype=np.uint8)
+    global_detail, bottom_detail = _frame_detail_metrics(frame)
+    assert global_detail > 20.0
+    assert bottom_detail > 20.0
 
 
 def test_http_url_dispatches_to_http_fetcher() -> None:

@@ -46,31 +46,37 @@ _SNAPSHOT_MIN_STDDEV = 8.0
 # Partial-decode guard: a 4K H.265 IDR sometimes surfaces *half-decoded* — the
 # top slices carry real content but the bottom rows are still the decoder's
 # uninitialised fill (renders as a flat green block, the "most green" preview
-# seen on 192.168.88.84). Such a frame's GLOBAL stddev is high (the real top
+# seen on 192.168.88.84). Such a frame's GLOBAL detail is high (the real top
 # dominates) so the grey guard above waves it through. Catch it by measuring the
-# bottom strip alone: an undecoded block is near-uniform (stddev ~0.5), whereas
-# any real scene's ground/floor keeps sensor+texture noise well above this. The
+# bottom strip alone: an undecoded block is spatially near-uniform, whereas any
+# real scene's ground/floor keeps sensor+texture detail well above this. The
 # raster-scan decode order means undecoded rows are always at the BOTTOM.
 _SNAPSHOT_BOTTOM_FRACTION = 0.25
 _SNAPSHOT_MIN_BOTTOM_STDDEV = 3.0
 
 SnapshotGrabberFn = Callable[[str, float], bytes]
+# frame -> (global_detail, bottom_detail). Injected into the selector so the
+# selector's skip/fallback LOGIC is testable without numpy, while the real
+# pixel math lives in one place (:func:`_frame_detail_metrics`).
+FrameMetricsFn = Callable[[object], "tuple[float, float]"]
 
 
-def _bottom_region_stddev(
-    frame: object, bottom_fraction: float = _SNAPSHOT_BOTTOM_FRACTION
-) -> float:
-    """Per-pixel stddev of the bottom ``bottom_fraction`` of ``frame``.
+def _frame_detail_metrics(frame: object) -> tuple[float, float]:
+    """``(global_detail, bottom_detail)`` as the spatial stddev of per-pixel
+    LUMINANCE (mean over BGR channels) for the whole frame and its bottom strip.
 
-    Duck-typed on the numpy-array surface (``.shape`` + slicing + ``.std()``),
-    so a real cv2 frame and the test fake both work. Isolating the bottom strip
-    is what distinguishes a *partial-decode* frame (real top, flat undecoded
-    bottom) from a fully-decoded one — the global stddev can't, because the real
-    top swamps it."""
-    height = frame.shape[0]  # type: ignore[attr-defined]
-    start = int(height * (1.0 - bottom_fraction))
-    strip = frame[start:, :, :]  # type: ignore[index]
-    return float(strip.std())  # type: ignore[attr-defined]
+    Collapsing BGR → luminance *before* measuring spatial spread is the whole
+    point: an undecoded HEVC block is a uniform COLOUR (green ≈ ``[0,135,0]``) —
+    spatially flat — but ``ndarray.std()`` over the raw BGR array reads ~63 for
+    it, purely from the inter-channel 0-vs-135 gap, so raw-array std would score
+    a green block as "detail" and let the half-decoded frame through (the exact
+    bug that shipped the green preview). Luminance is flat for any uniform
+    colour, so a uniform block scores ~0 regardless of its hue while real
+    texture still scores high."""
+    luma = frame.mean(axis=2)  # type: ignore[attr-defined] # H×W, collapses BGR
+    height = luma.shape[0]
+    bottom = luma[int(height * (1.0 - _SNAPSHOT_BOTTOM_FRACTION)) :, :]
+    return float(luma.std()), float(bottom.std())
 
 
 def _select_snapshot_frame(
@@ -79,16 +85,18 @@ def _select_snapshot_frame(
     max_frames: int = _SNAPSHOT_WARMUP_MAX_FRAMES,
     min_stddev: float = _SNAPSHOT_MIN_STDDEV,
     min_bottom_stddev: float = _SNAPSHOT_MIN_BOTTOM_STDDEV,
+    metrics_fn: FrameMetricsFn = _frame_detail_metrics,
 ) -> object | None:
     """Read frames until one is fully decoded, skipping warm-up + partial frames.
 
-    ``read_fn`` is ``cv2.VideoCapture.read`` (or a fake): returns
-    ``(ok, frame)`` where ``frame`` exposes ``.std()``, ``.shape`` and slicing
-    (a numpy ndarray does). A frame is accepted when it clears BOTH gates:
+    ``read_fn`` is ``cv2.VideoCapture.read`` (or a fake) yielding ``(ok, frame)``;
+    ``metrics_fn`` maps a frame to ``(global_detail, bottom_detail)`` — luminance
+    spatial stddev in production (:func:`_frame_detail_metrics`). A frame is
+    accepted when it clears BOTH gates:
 
-    * global stddev ≥ ``min_stddev`` — skips the uniform grey pre-keyframe
+    * global detail ≥ ``min_stddev`` — skips the uniform grey pre-keyframe
       placeholder;
-    * bottom-strip stddev ≥ ``min_bottom_stddev`` — skips a half-decoded IDR
+    * bottom-strip detail ≥ ``min_bottom_stddev`` — skips a half-decoded IDR
       whose bottom rows are a flat (green) undecoded block.
 
     If no frame clears both within ``max_frames`` (a genuinely flat scene, a
@@ -102,8 +110,7 @@ def _select_snapshot_frame(
         ok, candidate = read_fn()
         if not ok or candidate is None:
             break
-        global_std = float(candidate.std())  # type: ignore[attr-defined]
-        bottom_std = _bottom_region_stddev(candidate)
+        global_std, bottom_std = metrics_fn(candidate)
         if global_std >= min_stddev and bottom_std >= min_bottom_stddev:
             return candidate
         # Rank fallbacks by their weakest region: a partial frame scores ~0 on
