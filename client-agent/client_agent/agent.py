@@ -1,29 +1,27 @@
-"""Container entrypoint for the client-agent (issues #7, #8).
+"""Flask-app factory for the client-agent (issues #7, #8, #23).
 
-Reads R2 credentials from the env, constructs an :class:`R2Client`, builds
-the Flask web UI via :func:`client_agent.web.create_app`, and serves it on
-``0.0.0.0:8080`` — the port both the Dockerfile and
-``docker-compose.client.yml`` expose.
+Builds the client-agent Flask UI — camera discovery, per-camera snapshots,
+the managed-cameras panel, and the RTSP recorder — via :func:`build_app`.
 
-Env vars (SPEC §10.1):
+Historically this module also had a Docker container entrypoint (``main``)
+that read R2 credentials from the env and served the app on ``0.0.0.0:8080``
+through the Werkzeug dev server. That entrypoint and the R2 credential path
+were removed in #29 when the Docker deployment was retired: the appliance
+(``client_agent.appliance``) is now the only entrypoint, uploads go through
+presigned URLs (:class:`client_agent.uploader.PresignedUploader`), and the
+recorder writes to a local rolling buffer. ``build_app`` stays here as the
+shared Flask-app factory the appliance imports.
 
-* ``R2_ENDPOINT``          — e.g. ``https://<acct>.r2.cloudflarestorage.com``
-* ``R2_ACCESS_KEY_ID``     — scoped R2 API token
-* ``R2_SECRET_ACCESS_KEY`` — paired secret
-* ``R2_BUCKET``            — defaults to ``surveillance-data`` (CLAUDE.md rule)
-* ``RECORDINGS_DIR``       — host dir for in-flight recordings (defaults to
-  ``$TMPDIR/cctv-recordings``); the docker-compose volume mount lands here.
+Env vars:
 
-The previous placeholder body (``signal.pause()`` until SIGTERM, issue #16)
-is gone now that real Flask UI lives in :mod:`client_agent.web`. PID-1
-signal handling is no longer our concern: Werkzeug's dev server installs
-its own SIGTERM/SIGINT handlers and exits cleanly on ``docker stop``.
+* ``RECORDINGS_DIR`` — host dir for in-flight recordings (defaults to
+  ``$TMPDIR/cctv-recordings``); the appliance overrides this with the XDG
+  state dir.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 import subprocess
 import tempfile
 from collections.abc import Mapping
@@ -38,7 +36,6 @@ from client_agent.discovery import (
     make_real_tuya_scan,
     resolve_camera_credentials,
 )
-from client_agent.r2_client import R2Client
 from client_agent.recorder import BackgroundRecorder, Recorder
 from client_agent.snapshot import build_snapshot_grabber
 from client_agent.web import CameraResolverFn, ManagedCamerasFn, create_app
@@ -50,7 +47,7 @@ logger = logging.getLogger(__name__)
 class BuiltApp:
     """Bundle returned by :func:`build_app`.
 
-    Carries the ready-to-serve Flask app plus a couple of values the
+    Carries the ready-to-serve Flask app plus values the appliance
     entrypoint logs at startup so the operator can confirm wiring without
     grepping env. ``recorder`` is exposed so the appliance entrypoint
     (issue #26) can drive it from the platform heartbeat without going
@@ -58,7 +55,6 @@ class BuiltApp:
     accidentally rebind ``app`` after construction."""
 
     app: Flask
-    bucket: str
     recordings_root: Path
     recorder: BackgroundRecorder
 
@@ -72,58 +68,29 @@ def build_app(
 ) -> BuiltApp:
     """Construct the full client-agent Flask app from the given environment.
 
-    Shared between the Docker entrypoint (:func:`main`, runs Werkzeug dev
-    server) and the standalone appliance entrypoint
-    (``client_agent.appliance.main``, runs waitress). Both must produce
-    byte-identical behaviour, so all wiring lives here.
+    The appliance entrypoint (``client_agent.appliance.main``) runs the
+    returned app under waitress. The Flask UI has no R2 backend since #29 —
+    ``create_app`` is wired with ``client=None`` so the legacy R2-backed
+    routes (/upload, /start, /jobs, /report) return 503; real uploads go
+    through the platform's presigned URLs instead.
 
     ``recordings_root`` is injectable so the appliance can override the
-    Docker default (``$TMPDIR/cctv-recordings``) with the XDG state dir.
-    When ``None``, the historical Docker behaviour is preserved.
+    default (``$TMPDIR/cctv-recordings``) with the XDG state dir. When
+    ``None``, the historical default is preserved.
     """
-    # R2 credentials are required for the Docker container entrypoint (where
-    # the Flask UI is the upload path) but unused in platform-mode bare-metal
-    # appliance (where the platform mints presigned URLs and the recorder
-    # writes to local buffer). All-three-missing → ``client = None`` and the
-    # Flask handlers that need R2 return 503 ("R2 backend disabled in
-    # platform mode"). Partial config (one or two of three) still fails loud
-    # because that's almost certainly a typo in ``.env.client``.
-    endpoint = environ.get("R2_ENDPOINT")
-    access_key = environ.get("R2_ACCESS_KEY_ID")
-    secret_key = environ.get("R2_SECRET_ACCESS_KEY")
-    bucket = environ.get("R2_BUCKET", "surveillance-data")
-
-    r2_set = [v for v in (endpoint, access_key, secret_key) if v]
-    if r2_set and len(r2_set) < 3:
-        raise ValueError(
-            "R2 credentials misconfigured: R2_ENDPOINT, R2_ACCESS_KEY_ID, "
-            "R2_SECRET_ACCESS_KEY must all be set together (or all absent for "
-            "platform-mode appliance)"
-        )
-
-    client: R2Client | None = None
-    if endpoint and access_key and secret_key:
-        client = R2Client(
-            endpoint=endpoint,
-            access_key=access_key,
-            secret_key=secret_key,
-            bucket=bucket,
-        )
-
-    # Build the production recorder (#8). Each recording lands in its
-    # own subdir under ``recordings_root`` so the cleanup step in
-    # Recorder.start can shutil.rmtree it without touching siblings.
-    # The synchronous Recorder is wrapped by BackgroundRecorder so the
-    # Flask request handler returns immediately while ffmpeg runs for
-    # hours.
     if recordings_root is None:
         recordings_root = (
             Path(environ.get("RECORDINGS_DIR", tempfile.gettempdir())) / "cctv-recordings"
         )
     recordings_root.mkdir(parents=True, exist_ok=True)
 
+    # Build the production recorder (#8). Each recording lands in its own
+    # subdir under ``recordings_root``. The recorder writes to a local
+    # rolling buffer and never uploads (buffer-only since #29 — the poller
+    # ships chunks via presigned URLs). The synchronous Recorder is wrapped
+    # by BackgroundRecorder so the Flask request handler returns immediately
+    # while ffmpeg runs for hours.
     sync_recorder = Recorder(
-        uploader=client,
         runner=subprocess.run,
         output_dir_factory=lambda job_id: str(recordings_root / job_id),
     )
@@ -131,7 +98,7 @@ def build_app(
 
     # Discovery (issue #21): Stage 1 ONVIF + Stage 2 RTSP-scan, both wired
     # to the same env-driven credentials resolver. Operators populate
-    # ``RTSP_DEFAULT_USER/PASS`` in ``.env.client`` (with optional per-IP
+    # ``RTSP_DEFAULT_USER/PASS`` in ``cameras.env`` (with optional per-IP
     # overrides ``RTSP_CAM_<sanitized_ip>_USER/PASS``); both stages use
     # those creds — Stage 1 hands them to ``ONVIFCamera``, Stage 2 embeds
     # them in the RTSP URL templates. The resolver closes over a snapshot
@@ -154,12 +121,15 @@ def build_app(
 
     # Issue #41: per-camera snapshot endpoint. The production grabber
     # dispatches HTTP (vendor ONVIF GetSnapshotUri) vs RTSP (cv2 frame
-    # grab) on URL scheme. ``camera_resolver`` is None in Docker mode —
+    # grab) on URL scheme. ``camera_resolver`` is None in legacy mode —
     # last_discovery (keyed by IP) carries every camera the operator
     # could ask for. The appliance entrypoint overrides this with a
     # closure over the platform-supplied camera registry.
+    #
+    # ``client=None``: the R2-backed routes are retired (#29); the appliance
+    # uploads via presigned URLs, not a client-agent R2 client.
     app = create_app(
-        client,
+        None,
         recorder=recorder,
         discover_fn=_discover,
         credentials_resolver=creds_resolver,
@@ -168,24 +138,4 @@ def build_app(
         managed_cameras_lister=managed_cameras_lister,
     )
 
-    return BuiltApp(app=app, bucket=bucket, recordings_root=recordings_root, recorder=recorder)
-
-
-def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
-
-    built = build_app(os.environ)
-
-    logger.info(
-        "client-agent web UI starting on http://0.0.0.0:8080 (bucket=%s, recordings=%s)",
-        built.bucket,
-        built.recordings_root,
-    )
-    built.app.run(host="0.0.0.0", port=8080)
-
-
-if __name__ == "__main__":
-    main()
+    return BuiltApp(app=app, recordings_root=recordings_root, recorder=recorder)

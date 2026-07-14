@@ -9,16 +9,16 @@ Batch surveillance video analysis powered by idle GPU infrastructure. Upload MP4
 
 ---
 
-## Installing this image? Pick your role
+## Setting this up? Pick your role
 
-This repository ships **two separate Docker images** that run on **two different machines**. Skip straight to the section that matches the image you pulled:
+This system runs across **two different machines**. Skip straight to the section that matches your role:
 
-| You pulled… | You are… | Jump to |
+| Your role | You are… | Jump to |
 |---|---|---|
-| `ghcr.io/kopalniekrypto/cctv-gpu-engine/gpu-service` | the **GPU host operator** (investor / data center side, NVIDIA hardware) | [GPU Service Setup](#gpu-service-setup-gpu-host-operator) |
-| `ghcr.io/kopalniekrypto/cctv-gpu-engine/client-agent` | the **on-premise operator** (customer office, regular CPU box with cameras on the LAN) | [Client Agent Setup](#client-agent-setup-on-premise-operator) |
+| **GPU host operator** — pull the `ghcr.io/kopalniekrypto/cctv-gpu-engine/gpu-service` Docker image | the investor / data center side, NVIDIA hardware | [GPU Service Setup](#gpu-service-setup-gpu-host-operator) |
+| **On-premise operator** — install the bare-metal client appliance (no Docker) | customer office, a regular CPU box with cameras on the LAN | [Client Appliance Setup](#client-appliance-setup-on-premise-operator) |
 
-The two images talk to each other **only** through a shared Cloudflare R2 bucket — no direct network connection, no VPN, no port forwarding. Operators on each side only need their own image and their own `.env` file.
+The GPU side runs a single Docker image; the client side is a bare-metal systemd appliance (Docker for the client was retired in #29). The two sides talk to each other **only** through a shared Cloudflare R2 bucket — no direct network connection, no VPN, no port forwarding. The GPU host uses its `.env.gpu` file with R2 credentials; the client holds no R2 credentials and (in platform mode) uploads via presigned URLs.
 
 ---
 
@@ -27,15 +27,15 @@ The two images talk to each other **only** through a shared Cloudflare R2 bucket
 ```
 ┌─ Client LAN ──────────┐       ┌─ Cloudflare R2 ──────┐       ┌─ GPU Server ───────────┐
 │                        │       │ surveillance-jobs/    │       │                        │
-│  client-agent          │──────>│   {job_id}/           │<──────│  gpu-service            │
-│  Flask UI :8080        │upload │     status.json       │ poll  │  YOLO-pose + VLM       │
-│  ffmpeg RTSP → MP4     │       │     input/*.mp4       │       │  activity classif.     │
-│  boto3 → R2            │<──────│     output/report.html│──────>│  HTML report gen       │
-│                        │ poll  │                       │upload │                        │
+│  client appliance      │──────>│   {job_id}/           │<──────│  gpu-service            │
+│  (bare-metal systemd)  │upload │     status.json       │ poll  │  YOLO-pose + VLM       │
+│  Flask UI :8080        │(pre-  │     input/*.mp4       │       │  activity classif.     │
+│  ffmpeg RTSP → buffer  │signed │     output/report.html│──────>│  HTML report gen       │
+│  presigned-URL upload  │ URLs) │                       │upload │                        │
 └────────────────────────┘       └───────────────────────┘       └────────────────────────┘
 ```
 
-Two Docker images connected by an R2 bucket — no database, no direct communication.
+A bare-metal client appliance and a gpu-service Docker image connected by an R2 bucket — no database, no direct communication.
 
 ## GPU Service Setup (GPU host operator)
 
@@ -95,77 +95,45 @@ The dashboard on `:5000` shows every job that's ever been processed (job id, sta
 
 ---
 
-## Client Agent Setup (on-premise operator)
+## Client Appliance Setup (on-premise operator)
 
-You're running the box that records video from your IP cameras and ships it to R2 for processing. No GPU needed — this image is pure CPU.
+You're running the box that records video from your IP cameras. No GPU needed, and **no Docker** — the client is a bare-metal systemd appliance (the Docker client image was retired in #29). It holds no R2 credentials; in platform mode it uploads via presigned URLs handed to it by the platform.
 
-> **Looking for the full step-by-step?** See **[docs/SETUP_CLIENT.md](docs/SETUP_CLIENT.md)** — exhaustive setup guide with hardware/software requirements, vendor-specific RTSP URL patterns, smoke tests, and a troubleshooting matrix. The section below is the speed-run version for operators who already know the stack.
+> **Looking for the full step-by-step?** See **[client-appliance/README.md](client-appliance/README.md)** — the canonical install / update / troubleshooting runbook (systemd unit, idempotent installer, env templates, 5-minute smoke test). **[docs/SETUP_CLIENT.md](docs/SETUP_CLIENT.md)** is a short redirect to it. The section below is the speed-run version.
 
 **Host requirements (one-time):**
 
-- Any Linux box (or Windows/macOS with Docker Desktop) reachable from your camera network
-- Docker 24.0+ with the `compose` plugin
-- ~5 GB free disk for the image + recording workdir (more if you record long sessions on high-bitrate cameras)
-- Network access to your RTSP cameras AND outbound HTTPS to `r2.cloudflarestorage.com`
+- A mini-PC / small Linux box (Ubuntu 24.04 LTS or Raspberry Pi OS Bookworm — Python 3.12 + systemd + ffmpeg) reachable from your camera network
+- ~5 GB free disk for the local rolling buffer (more if you buffer long sessions on high-bitrate cameras)
+- Network access to your RTSP cameras
+- **No GPU, no Docker.** The appliance is pure CPU.
 
-**Run it:**
+**Install it:**
 
 ```bash
-# 1. Clone the repo (only for the compose file — image is pulled from GHCR)
-git clone https://github.com/KopalnieKrypto/cctv-gpu-engine.git
-cd cctv-gpu-engine
+sudo apt-get update && sudo apt-get install -y git python3.12-venv ffmpeg
 
-# 2. Configure credentials
-cp .env.client.example .env.client
-$EDITOR .env.client    # fill R2_*, RTSP_DEFAULT_URL, MAX_RECORDING_HOURS
+git clone https://github.com/KopalnieKrypto/cctv-gpu-engine.git /opt/src/cctv-gpu-engine
+cd /opt/src/cctv-gpu-engine
+sudo ./client-appliance/install.sh          # creates the cctv user + venv, installs the systemd unit
 
-# 3. Pull and start
-docker compose -f docker-compose.client.yml pull
-docker compose -f docker-compose.client.yml up -d
+# Fill in RTSP camera creds (and, for platform mode, PLATFORM_URL + APPLIANCE_TOKEN)
+sudo nano /etc/cctv-client/cameras.env
+sudo nano /etc/cctv-client/platform.env
+
+sudo systemctl enable --now cctv-client
 ```
 
-**Where to get R2 credentials:** see the GPU Service section above — both sides share the same bucket and use the same kind of token. The investor / GPU host operator typically creates the bucket and shares credentials with you out-of-band.
+The installer is idempotent — re-run it after `git pull` and it won't clobber your `/etc/cctv-client/*.env` files.
 
 **Verify it's working:**
 
 ```bash
-docker compose -f docker-compose.client.yml ps      # cctv-client-agent should be "Up"
-docker compose -f docker-compose.client.yml logs    # Flask boot logs
+systemctl status cctv-client                # should be active (running)
+journalctl -u cctv-client -f                # Flask + appliance boot logs
 ```
 
-Open `http://localhost:8080` in your browser for the Flask UI: MP4 upload form, RTSP recorder controls (test connection / start / stop, durations 1/2/4/8 h), and the job list with status badges that auto-refreshes every 10 s. Reports open inline once the GPU side marks the job as `done`.
-
-### Standalone (poza Dockerem)
-
-For bare-metal deployments (mini-PC, Raspberry Pi 5, Intel N100) where Docker is overkill or unavailable, the client-agent ships a second entrypoint that runs directly from a Python venv. Same Flask app, same R2 bucket, same camera discovery — just served by `waitress` (multithreaded WSGI) instead of Werkzeug's dev server, with credentials read from disk instead of compose env.
-
-```bash
-# 1. Clone + sync deps in a venv (only the default deps — no GPU / VLM)
-git clone https://github.com/KopalnieKrypto/cctv-gpu-engine.git
-cd cctv-gpu-engine
-uv sync                                  # pulls flask, boto3, waitress, ONVIF deps
-
-# 2. Create env files (operator credentials live on disk, not in shell history)
-sudo mkdir -p /etc/cctv-client
-sudo install -m 600 /dev/stdin /etc/cctv-client/r2.env <<'EOF'
-R2_ENDPOINT=https://<account>.r2.cloudflarestorage.com
-R2_ACCESS_KEY_ID=...
-R2_SECRET_ACCESS_KEY=...
-R2_BUCKET=surveillance-data
-EOF
-sudo install -m 600 /dev/stdin /etc/cctv-client/cameras.env <<'EOF'
-RTSP_DEFAULT_USER=admin
-RTSP_DEFAULT_PASS=...
-# Optional per-camera overrides:
-# RTSP_CAM_192_168_1_50_USER=other
-# RTSP_CAM_192_168_1_50_PASS=...
-EOF
-
-# 3. Run (foreground — designed for systemd Type=simple)
-uv run python -m client_agent.appliance --env-dir /etc/cctv-client
-```
-
-The recordings dir defaults to the XDG state dir (`${XDG_STATE_HOME:-$HOME/.local/state}/cctv-client/recordings`) and is created idempotently at startup. Override with the `RECORDINGS_DIR` env var if you need to point at fast NVMe / external storage. The systemd unit + `install.sh` packaging lands in a follow-up issue (#24); for now `tmux`, `nohup`, or a hand-rolled unit file are fine.
+Open `http://<appliance-ip>:8080` in your browser for the Flask UI: camera discovery ("Wykryj kamery"), per-camera snapshots, the managed-cameras panel, and the test-connection / stop controls. The legacy manual "upload an MP4 / record → R2" flow has been retired — those routes now return 503.
 
 ---
 
@@ -304,7 +272,8 @@ Works on RTX 5070 and RTX 4090.
 │   ├── activity_classifier.py  # Heuristic fallback + displacement smoother
 │   └── report_renderer.py
 ├── gpu-service/           # R2 polling worker + investor dashboard
-├── client-agent/          # Flask UI + ffmpeg recorder + R2 uploader
+├── client-agent/          # Shared client package (Flask UI + ffmpeg recorder), served by the bare-metal appliance
+├── client-appliance/      # Bare-metal appliance packaging (systemd unit + installer)
 ├── scripts/               # Standalone test/benchmark scripts
 ├── setup-models.sh        # curl + sha256-verify yolo11s-pose.onnx (GH release pin)
 ├── models/                # yolo11s-pose.onnx (gitignored, fetched by setup-models.sh)
@@ -315,7 +284,8 @@ Works on RTX 5070 and RTX 4090.
 ## Documentation
 
 - [docs/SETUP_GPU.md](docs/SETUP_GPU.md) — Step-by-step setup guide for the GPU host operator (hardware, driver, container toolkit, R2, smoke tests, troubleshooting)
-- [docs/SETUP_CLIENT.md](docs/SETUP_CLIENT.md) — Step-by-step setup guide for the on-premise operator (Docker host, RTSP camera URL patterns, recording flow, troubleshooting)
+- [docs/SETUP_CLIENT.md](docs/SETUP_CLIENT.md) — On-premise operator setup (short redirect to the canonical bare-metal appliance runbook)
+- [client-appliance/README.md](client-appliance/README.md) — Canonical client appliance install / update / troubleshooting runbook (bare-metal, systemd)
 - [SPEC.md](SPEC.md) — Full technical specification
 - [DECISION_LOG.md](DECISION_LOG.md) — Design decisions and rationale
 - [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) — 4-phase roadmap

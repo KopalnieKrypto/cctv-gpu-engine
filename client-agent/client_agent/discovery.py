@@ -222,7 +222,7 @@ def rtsp_template_for_vendor(
     wrong and giving them a confidently broken URL.
 
     ``credentials=None`` produces ``rtsp://host:port/path`` without
-    ``user:pass@``; the UI flags it as "needs credentials in .env.client".
+    ``user:pass@``; the UI flags it as "needs credentials in cameras.env".
     Special characters in the password are URL-encoded so passwords with
     ``@``/``:``/``/`` don't break URL parsing downstream (ffmpeg, the
     recorder, etc.)."""
@@ -456,7 +456,7 @@ def _real_enrich(
     fault on most camera firmware — env creds are the realistic happy
     path. We still try with empty creds when the resolver returns ``None``
     so the caller's discovery flow keeps working before the operator
-    populates ``.env.client``. Failed auth → SOAP fault → ``None``, and
+    populates ``cameras.env``. Failed auth → SOAP fault → ``None``, and
     :func:`discover_cameras` skips the row.
 
     Unit tests cover the transport-timeout wiring + happy path + ReadTimeout

@@ -8,7 +8,6 @@
 # Layout it sets up:
 #
 #     /opt/cctv-client/            venv (python + deps + client_agent code)
-#     /etc/cctv-client/r2.env       R2 creds (chmod 600, seeded from .example)
 #     /etc/cctv-client/cameras.env  RTSP creds (chmod 600, seeded from .example)
 #     /etc/cctv-client/platform.env GPU Exchange platform creds, optional
 #                                   (chmod 600, seeded from .example, #26)
@@ -94,13 +93,14 @@ cp -R "$REPO_ROOT/client-agent/client_agent" "$SITE_PACKAGES/client_agent"
 #    writes by the runtime user succeed).
 chown -R cctv:cctv "$VENV"
 
-# 6. /etc/cctv-client — directory 0700 root:root keeps env files (with R2
-#    secrets) readable only by root and, via 0640 below, the cctv group.
+# 6. /etc/cctv-client — directory 0700 root:root keeps env files (with RTSP
+#    and platform secrets) readable only by root and, via 0640 below, the
+#    cctv group.
 log "configuring $ETC"
 install -d -o root -g cctv -m 0750 "$ETC"
 chmod 0700 "$ETC"
 
-for name in r2.env cameras.env platform.env; do
+for name in cameras.env platform.env; do
     target="$ETC/$name"
     if [[ ! -f "$target" ]]; then
         log "seeding $target from $name.example"

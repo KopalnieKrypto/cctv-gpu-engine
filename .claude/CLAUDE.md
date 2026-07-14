@@ -14,8 +14,7 @@ Batch surveillance video analysis: MP4 → YOLO-pose + VLM → activity classifi
 - Run end-to-end GPU smoke test: `make test-gpu`
 - GPU service: `docker compose up` (polls R2 for pending jobs)
 - GPU service REST mode (gpu-exchange integration, #25): `docker run --rm --entrypoint python <image> -m gpu_service.rest_server` — Flask on :5003. Routes: `POST /analyze` (presigned URL passthrough), `GET /healthz`, `GET /status/:id`. (`--rm` is required — without it each manual run leaves an exit-0 container behind; see gpu-exchange#64.) For interactive debugging where you want the container removed on Ctrl-C as well, add `-it`: `docker run --rm -it --entrypoint python <image> -m gpu_service.rest_server`.
-- Client agent (Docker): `docker compose -f docker-compose.client.yml up` (Flask UI :8080)
-- Client appliance (bare-metal mini-PC, no Docker): `sudo ./client-appliance/install.sh` then `systemctl enable --now cctv-client` — see `client-appliance/README.md`
+- Client appliance (bare-metal mini-PC, no Docker — the only client deployment): `sudo ./client-appliance/install.sh` then `systemctl enable --now cctv-client` — see `client-appliance/README.md`
 - Client appliance platform mode (#26, optional): set `PLATFORM_URL` + `APPLIANCE_TOKEN` in `/etc/cctv-client/platform.env` (chmod 600, seeded by install.sh from `platform.env.example`) → boot calls platform `register`/`push_cameras`/`heartbeat` and recorders spawn from heartbeat config. Either key missing → auto-fallback to legacy standalone flow.
 
 ## Remote infrastructure
@@ -26,21 +25,21 @@ Batch surveillance video analysis: MP4 → YOLO-pose + VLM → activity classifi
 - **VPS uv path**: `uv` is at `~/.local/bin/uv` on `cctv-vps` and **not** on the default ssh `PATH`. Prefix any non-interactive command that calls `make test` / `uv run` with `export PATH=$HOME/.local/bin:$PATH &&` or it will fail with `make: uv: No such file or directory`.
 - **VPS docker socket**: rootless docker on `cctv-vps` is broken (the user systemd unit fails on start); the system-wide dockerd at `/var/run/docker.sock` is what works, and user `mvp` is in the `docker` group. Every non-interactive `docker`/`docker compose` call must `export DOCKER_HOST=unix:///var/run/docker.sock` first or it errors with `Cannot connect to the Docker daemon at unix:///run/user/1000/docker.sock`.
 - **VPS disk hygiene**: Docker build cache + dangling images silently fill GPU boxes (cctv-vps hit 100% twice; #19). `bash scripts/setup-docker-disk-cron.sh` installs an idempotent weekly prune (`docker system prune -f` + `docker builder prune -f --filter until=168h`, non-destructive — keeps running containers/`:latest`/named volumes). Auto-detects sudo: system `/etc/cron.weekly/docker-prune` when root, per-user crontab otherwise (e.g. cctv-vps-2, no sudo). Run it on every new GPU node (`git pull` then `bash scripts/setup-docker-disk-cron.sh`). Installed on cctv-vps + cctv-vps-2 (both per-user crontab, Sun 04:00 — neither has passwordless sudo). Note the socket differs: cctv-vps needs `DOCKER_HOST=unix:///var/run/docker.sock` baked in (rootless broken), cctv-vps-2 uses the default context; the installer auto-detects which and bakes the right one into the cron line.
-- **VPS env files**: two separate env files live at the repo root — `.env.gpu` (real R2 credentials, used by `docker-compose.yml`) and `.env.client` (historically placeholder-only, used by `docker-compose.client.yml`). Both stacks share the same R2 bucket so the easy fix when bringing up client-agent is to merge `R2_*` keys from `.env.gpu` into `.env.client`. Long-term: consolidate into one file.
-- **Local RTSP fake for testing recorder flows**: spin up `bluenviron/mediamtx` on the compose network as an RTSP server, then push a sample MP4 with `ffmpeg -re -stream_loop -1 -i sample.mp4 -c copy -f rtsp -rtsp_transport tcp rtsp://mediamtx:8554/stream`. The recorder reaches it as `rtsp://mediamtx:8554/stream` from inside `cctv-client-agent`. HTTP `POST /start` accepts a unified `duration_s` field with presets `{300, 900, 1800, 2700, 3600, 7200, 14400, 28800}` (5/15/30/45 min + 1/2/4/8 h). For sub-5-minute smoke tests still bypass the route and call `Recorder.start(url=..., duration_s=30)` directly via `docker exec cctv-client-agent python -c "..."`.
+- **VPS env files**: the GPU stack reads `.env.gpu` (real R2 credentials, used by `docker-compose.yml`) at the repo root. The client no longer runs on the VPS as a Docker container — it is bare-metal only and reads its config from `/etc/cctv-client/` on the appliance (`cameras.env` for RTSP creds, `platform.env` for `PLATFORM_URL`/`APPLIANCE_TOKEN` in platform mode). No R2 credentials live on the client anymore.
+- **Local RTSP fake for testing recorder flows**: spin up `bluenviron/mediamtx` as an RTSP server, then push a sample MP4 with `ffmpeg -re -stream_loop -1 -i sample.mp4 -c copy -f rtsp -rtsp_transport tcp rtsp://<mediamtx-host>:8554/stream`. Drive the recorder on the bare-metal appliance (there is no `cctv-client-agent` container anymore): run the appliance with `python -m client_agent.appliance` and reach the stream at `rtsp://<mediamtx-host>:8554/stream`. HTTP `POST /start` accepts a unified `duration_s` field with presets `{300, 900, 1800, 2700, 3600, 7200, 14400, 28800}` (5/15/30/45 min + 1/2/4/8 h). For sub-5-minute smoke tests bypass the route and call `Recorder.start(url=..., duration_s=30)` directly on the appliance host (e.g. `uv run python -c "..."`). The recorder is buffer-only now: it writes chunks to a local rolling buffer and leaves them on disk — no R2 upload.
 
 ## TODO (deferred)
 
-- _(none currently)_ — the R2 upload/download retry item (issue #5 follow-up) is **done** in issue #61: both `R2Client` copies retry every network method 3× with exponential backoff via `_with_retry` (SPEC §8.2), and the status-list walks share an ETag-keyed cache so an idle bucket costs zero `get_object` calls per poll.
+- _(none currently)_ — the R2 upload/download retry item (issue #5 follow-up) is **done** in issue #61: the gpu-service `R2Client` retries every network method 3× with exponential backoff via `_with_retry` (SPEC §8.2), and the status-list walks share an ETag-keyed cache so an idle bucket costs zero `get_object` calls per poll. (The client-agent R2Client copy was removed in #29 — the client no longer touches R2 directly.)
 
 ## Architecture
 
 ```
-client-agent (Flask :8080) → R2 bucket (surveillance-data) → gpu-service (Docker+NVIDIA)
+client appliance (bare-metal, Flask :8080) → R2 (presigned URLs) → gpu-service (Docker+NVIDIA)
 ```
 
 - **Pipeline** (`pipeline/`): frame extraction → YOLO-pose (person detection + displacement) → VLM or heuristic activity classification → HTML report
-- **Client Agent** (`client-agent/`): Flask UI on :8080 for MP4 upload + job status (#7 ✅) and RTSP recorder with ffmpeg stream-copy + segmented chunks (#8 ✅, e2e-validated on cctv-vps). Shared package `client_agent/` has **two entrypoints**: `client_agent.agent` (Docker; existing) and `client_agent.appliance` (bare-metal via waitress; #23 ✅).
+- **Client Agent** (`client-agent/`): Flask UI on :8080 for camera discovery, per-camera snapshots, the managed-cameras panel, `/test-connection`, `/stop`, and an RTSP recorder with ffmpeg stream-copy + segmented chunks (#8 ✅, e2e-validated on cctv-vps). The shared package `client_agent/` has a **single entrypoint**: `client_agent.appliance` (bare-metal via waitress; #23 ✅). `agent.py` is no longer an entrypoint — it survives only as the shared `build_app` Flask-app factory that the appliance imports. The recorder is buffer-only (local rolling buffer); in platform mode the appliance uploads via presigned URLs (PresignedUploader). The legacy on-site R2 routes (`/upload`, `/start`, `/jobs`, `/report`) now return 503 (#29).
 - **Client Appliance** (`client-appliance/`): packaging-only target (#24 ✅) — systemd unit, idempotent `install.sh`, env templates, README. Zero Python; consumes the shared `client_agent` package. Operator runs `sudo ./client-appliance/install.sh` on a fresh Ubuntu/RPi mini-PC and gets a `systemctl enable --now`-ed Flask UI in LAN.
 - **GPU Service** (`gpu-service/`): two run-modes share one Docker image:
   - `gpu_service.worker` (default ENTRYPOINT, :5000 dashboard): R2 polling worker for the SPEC §6 client-agent flow.
@@ -79,7 +78,7 @@ client-agent (Flask :8080) → R2 bucket (surveillance-data) → gpu-service (Do
 - Job coordination: `status.json` in R2, no database
 - Confidence threshold: 0.25, NMS IoU: 0.45
 - uv over pip for Python dependency management
-- Client-agent dual target: shared package `client_agent/` powers both Docker (`client-agent/Dockerfile`, entrypoint `client_agent.agent`) and bare-metal appliance (`client-appliance/`, entrypoint `client_agent.appliance` via waitress). Every new feature in `client_agent/` must work in both targets — no Docker-only or appliance-only code paths.
+- Client-agent single bare-metal target: the shared package `client_agent/` is served **only** by the appliance (`client-appliance/`, entrypoint `client_agent.appliance` via waitress). There is no Docker target for the client (removed in #29). `agent.py` remains only as the `build_app` Flask-app factory the appliance imports.
 
 ## Don't
 
@@ -102,7 +101,6 @@ client-agent (Flask :8080) → R2 bucket (surveillance-data) → gpu-service (Do
 ├── Makefile                   # sync-dev / sync-gpu / test / test-gpu shortcuts
 ├── pyproject.toml             # uv-managed deps; cpu-stub & gpu extras (issue #9)
 ├── docker-compose.yml         # gpu-service stack (R2 worker + dashboard)
-├── docker-compose.client.yml  # client-agent stack (Flask UI :8080)
 ├── pipeline/                  # Core AI pipeline (CLI: python -m pipeline.analyze)
 │   ├── analyze.py             # full-video CLI entry point
 │   ├── pose_detector.py       # ONNX session + CUDAExecutionProvider guard
@@ -122,13 +120,12 @@ client-agent (Flask :8080) → R2 bucket (surveillance-data) → gpu-service (Do
 │       ├── task_runner.py, ffmpeg_concat.py          # download → concat → pipeline → upload
 │       ├── http_client.py, http_retry.py             # urllib + 3-try exp-backoff (1s/2s)
 │       └── tenant_url.py                             # defense-in-depth tenants/{tid}/results/{tid}/ check
-├── client-agent/              # Flask UI :8080 (#7) + RTSP recorder (#8)
-│   ├── Dockerfile             # python:3.12-slim + ffmpeg, ENTRYPOINT client_agent.agent
-│   └── client_agent/          # web.py (Flask), recorder.py (ffmpeg+R2), discovery.py (ONVIF/RTSP-scan), agent.py (Docker entrypoint), appliance.py (bare-metal entrypoint via waitress, #23) (+tests)
+├── client-agent/              # Shared client package (served by the bare-metal appliance only)
+│   └── client_agent/          # web.py (Flask), recorder.py (ffmpeg, buffer-only), discovery.py (ONVIF/RTSP-scan), agent.py (shared build_app Flask-app factory, imported by appliance), appliance.py (bare-metal entrypoint via waitress, #23) (+tests)
 ├── client-appliance/          # Standalone-appliance packaging (#24) — zero Python, just packaging
-│   ├── cctv-client.service    # systemd unit (Type=simple, EnvironmentFile r2.env+cameras.env, journald)
+│   ├── cctv-client.service    # systemd unit (Type=simple, EnvironmentFile cameras.env+platform.env, journald)
 │   ├── install.sh             # idempotent root installer (creates cctv user + venv at /opt/cctv-client)
-│   ├── r2.env.example / cameras.env.example  # operator-edited templates → /etc/cctv-client/ (perms 600)
+│   ├── cameras.env.example / platform.env.example  # operator-edited templates → /etc/cctv-client/ (perms 600)
 │   ├── README.md              # install/update/troubleshooting + 5-min smoke runbook + ADR git-vs-tarball
 │   └── tests/                 # unit_file/env_examples/install_script/readme contract tests
 ├── tests/                     # Repo-level meta tests (build_config_test.py)

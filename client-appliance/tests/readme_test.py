@@ -79,21 +79,22 @@ def test_documents_tarball_vs_git_decision() -> None:
 
 def test_links_to_unit_file_and_envs() -> None:
     """Cross-references inside the package directory — README mentions the
-    files the operator will edit."""
+    files the operator will edit. (``r2.env`` was retired in #29 — the
+    appliance holds no R2 credentials.)"""
     text = _text()
     assert "cctv-client.service" in text
-    assert "r2.env" in text
     assert "cameras.env" in text
+    assert "platform.env" in text
 
 
 # --- dual-mode docs (issue #30) ---------------------------------------------
 
 
 def test_section_dual_mode_documents_platform_mode() -> None:
-    """Phase 4 platform mode and legacy Phase 1-3 Docker UI mode coexist
-    until #29 retires the legacy one. The README has to surface both so an
-    operator picking up the appliance for the first time knows which
-    compose / env files belong to which flow."""
+    """Phase 4 platform mode is the appliance's networked flow (the legacy
+    Docker UI mode was retired in #29). The README must surface the
+    platform-mode entrypoint and its env file so an operator knows the
+    networked path exists."""
     text = _text()
     # The platform-mode entrypoint and its env file are the load-bearing
     # references — without them the operator can't tell that a separate
@@ -101,16 +102,6 @@ def test_section_dual_mode_documents_platform_mode() -> None:
     assert "platform.env" in text, "README must reference platform.env (Phase 4 mode)"
     assert "PLATFORM_URL" in text, "README must mention PLATFORM_URL (Phase 4 toggle)"
     assert "APPLIANCE_TOKEN" in text, "README must mention APPLIANCE_TOKEN (Phase 4 token)"
-
-
-def test_section_dual_mode_documents_docker_appliance_compose() -> None:
-    """The Docker variant for platform mode is `docker-compose.appliance.yml`.
-    Operators who don't want bare-metal installs need this pointer."""
-    text = _text()
-    assert "docker-compose.appliance.yml" in text, (
-        "README must reference docker-compose.appliance.yml as the Phase 4 "
-        "Docker variant alongside the bare-metal install path"
-    )
 
 
 def test_section_dual_mode_links_to_issue_29() -> None:

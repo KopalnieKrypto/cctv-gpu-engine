@@ -49,7 +49,7 @@ Important boundary:
 ```
 ┌─ Client LAN ──────────────┐        ┌─ R2 Bucket ─────────────┐        ┌─ GPU Server ─────────────┐
 │                            │        │ surveillance-jobs/       │        │                          │
-│  client-agent (Docker)     │        │   {job_id}/              │        │  surveillance-serve      │
+│  client appliance (bare)   │        │   {job_id}/              │        │  surveillance-serve      │
 │  Flask UI :8080            │───────>│     status.json          │<───────│  (Docker, NVIDIA)        │
 │  ffmpeg RTSP → MP4         │ upload │     input/chunk_*.mp4    │  poll  │                          │
 │  boto3 → R2                │        │     output/report.html   │        │  worker.py (poll loop)   │
@@ -384,10 +384,12 @@ No GPU required. Runs on any machine with Docker on client's network.
 
 ### 7.6 Installation Flow
 
-1. Client receives: agent zip/git link + `.env` with R2 credentials + video tutorial.
-2. Client installs Docker Desktop (Windows) or Docker Engine (Linux).
-3. `docker compose -f docker-compose.client.yml up -d`
-4. Opens `http://localhost:8080`.
+The client is a bare-metal systemd appliance (the Docker client image was retired in #29). It holds no R2 credentials.
+
+1. Operator receives: git link + RTSP camera credentials (+ `PLATFORM_URL`/`APPLIANCE_TOKEN` for platform mode).
+2. Installs prerequisites on a mini-PC: `sudo apt-get install -y git python3.12-venv ffmpeg`, then clones the repo.
+3. `sudo ./client-appliance/install.sh` then `sudo systemctl enable --now cctv-client`.
+4. Opens `http://<appliance-ip>:8080`.
 
 ## 8. GPU Service Specification
 
@@ -620,7 +622,6 @@ infra/video-test/
 ├── IMPLEMENTATION_PLAN.md             # 4-phase implementation roadmap
 ├── RTX5070_CONSTRAINTS.md             # Hardware compatibility analysis
 ├── docker-compose.yml                 # GPU service
-├── docker-compose.client.yml          # Client agent
 ├── .env.example
 ├── setup-models.sh                    # Download yolo11n-pose.onnx
 ├── benchmark.sh

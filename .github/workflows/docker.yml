@@ -6,13 +6,11 @@ on:
     paths:
       - "pipeline/**"
       - "gpu-service/**"
-      - "client-agent/**"
   pull_request:
     branches: [main]
     paths:
       - "pipeline/**"
       - "gpu-service/**"
-      - "client-agent/**"
   workflow_dispatch:
 
 env:
@@ -74,46 +72,3 @@ jobs:
           # reached the push step.
           provenance: false
           sbom: false
-
-  client-agent:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Check Dockerfile exists
-        id: check
-        run: |
-          if [ -f client-agent/Dockerfile ]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::client-agent/Dockerfile does not exist yet (deferred per CLAUDE.md TODO) — skipping build"
-          fi
-
-      - uses: docker/login-action@v3
-        if: steps.check.outputs.exists == 'true'
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: docker/metadata-action@v5
-        id: meta
-        if: steps.check.outputs.exists == 'true'
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/client-agent
-          tags: |
-            type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - uses: docker/build-push-action@v6
-        if: steps.check.outputs.exists == 'true'
-        with:
-          context: .
-          file: client-agent/Dockerfile
-          push: ${{ github.event_name == 'push' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}

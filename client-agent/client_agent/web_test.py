@@ -616,6 +616,25 @@ def test_post_start_invokes_recorder_and_redirects_to_jobs() -> None:
     assert fake_recorder.starts == [{"url": "rtsp://camera.local/stream", "duration_s": 4 * 3600}]
 
 
+def test_post_start_returns_503_when_r2_backend_disabled() -> None:
+    """Since #29 the on-site "record this camera → upload to R2" flow is
+    retired. With no R2 backend (platform-mode appliance, or any cred-free
+    deploy) the manual /start route returns 503 — consistent with /upload,
+    /jobs and /report — and must NOT touch the recorder. Real recording in
+    platform mode is driven by the heartbeat/reconcile loop, not this route."""
+    recorder = FakeRecorder()
+    app = create_app(None, job_id_factory=lambda: "job-x", recorder=recorder)
+    app.config["TESTING"] = True
+
+    resp = app.test_client().post(
+        "/start",
+        data={"rtsp_url": "rtsp://camera.local/stream", "duration_s": "3600"},
+    )
+
+    assert resp.status_code == 503
+    assert recorder.starts == [], "a disabled R2 backend must not start a recording"
+
+
 def test_post_start_returns_409_when_recorder_busy() -> None:
     """Acceptance criterion (#8): "second recording while one active →
     rejected". 409 Conflict is the right HTTP shape for "the resource is
@@ -885,7 +904,7 @@ def test_get_root_renders_discovery_method_badge_in_js() -> None:
     found each camera (ONVIF Stage 1 vs RTSP-scan Stage 2). Operators need
     this for two reasons: ONVIF is more trustworthy (vendor/model came from
     the device), and RTSP-scan rows often need creds populated in
-    ``.env.client``. Substring assertions: we look for the
+    ``cameras.env``. Substring assertions: we look for the
     ``discovery_method`` reference and the human-facing labels."""
     app, _, _ = _make_app_with_recorder()
     body = app.test_client().get("/").get_data(as_text=True)

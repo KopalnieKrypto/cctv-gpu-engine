@@ -7,7 +7,6 @@ Wants=network-online.target
 Type=simple
 User=cctv
 Group=cctv
-EnvironmentFile=-/etc/cctv-client/r2.env
 EnvironmentFile=-/etc/cctv-client/cameras.env
 EnvironmentFile=-/etc/cctv-client/platform.env
 ExecStart=/opt/cctv-client/bin/python -m client_agent.appliance --env-dir /etc/cctv-client

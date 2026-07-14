@@ -14,7 +14,6 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-R2_EXAMPLE = ROOT / "r2.env.example"
 CAMERAS_EXAMPLE = ROOT / "cameras.env.example"
 PLATFORM_EXAMPLE = ROOT / "platform.env.example"
 
@@ -35,28 +34,9 @@ def _keys(path: Path) -> set[str]:
     return keys
 
 
-# --- r2.env.example ---------------------------------------------------------
-
-
-def test_r2_example_exists() -> None:
-    assert R2_EXAMPLE.is_file(), R2_EXAMPLE
-
-
-@pytest.mark.parametrize(
-    "key",
-    [
-        "R2_ENDPOINT",
-        "R2_ACCESS_KEY_ID",
-        "R2_SECRET_ACCESS_KEY",
-        "R2_BUCKET",
-    ],
-)
-def test_r2_example_has_key(key: str) -> None:
-    """All four R2 keys ``client_agent.agent.build_app`` reads must be in the
-    example. Three are required (no default → raises KeyError); ``R2_BUCKET``
-    has a default of ``surveillance-data`` but we still surface it so the
-    operator knows the override exists."""
-    assert key in _keys(R2_EXAMPLE)
+# NOTE: ``r2.env.example`` was retired in #29 — the appliance no longer uses
+# R2 credentials (uploads go through presigned URLs). Only cameras.env and
+# platform.env remain operator-facing.
 
 
 # --- cameras.env.example ----------------------------------------------------

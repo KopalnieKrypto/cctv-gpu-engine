@@ -8,18 +8,20 @@ Three concerns live here:
 2. :func:`build_ffmpeg_cmd` — pure helper that builds the ffmpeg argv for
    stream-copy recording. Short recordings (≤1h) use ``-t``; long ones
    use ``-f segment -segment_time 3600`` so files cap at 1h each.
-3. :class:`Recorder` — single-recording state machine that runs ffmpeg,
-   then uploads the produced chunks to R2 using the same ``status.json``
-   handshake the MP4-upload path uses.
+3. :class:`Recorder` — single-recording state machine that runs ffmpeg
+   and leaves the produced chunks on disk for the task poller to pick up
+   (buffer mode, issue #27). The historical one-shot R2 upload path was
+   removed together with the legacy Docker UI flow (issue #29): the
+   appliance uploads exclusively via presigned URLs, so the recorder no
+   longer touches R2 at all.
 
-The subprocess and R2 surfaces are both injectable so the unit tests in
-``recorder_test.py`` never fork ffmpeg or hit the network.
+The subprocess boundary is injectable so the unit tests in
+``recorder_test.py`` never fork ffmpeg.
 """
 
 from __future__ import annotations
 
 import logging
-import shutil
 import subprocess
 import threading
 import uuid
@@ -27,7 +29,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -99,11 +101,11 @@ def build_ffmpeg_cmd(
     Three branches:
 
     * **buffer_mode=True** — segment muxer with ``BUFFER_SEGMENT_SECONDS``
-      (default 60s) so the task poller has finalized chunks to trim. Used
-      by the appliance's per-camera recorder (issue #27).
-    * **duration_s > SEGMENT_SECONDS** — segment muxer with 1h chunks, the
-      historical "long one-shot recording" path.
-    * **otherwise** — single ``recording.mp4`` (legacy Docker UI flow).
+      (default 60s) so the task poller has finalized chunks to trim. This
+      is the appliance's per-camera recorder (issue #27) and the only path
+      wired in production.
+    * **duration_s > SEGMENT_SECONDS** — segment muxer with 1h chunks.
+    * **otherwise** — single ``recording.mp4``.
 
     ``-t`` still bounds the total duration in all branches — without it a
     stuck camera would record forever.
@@ -150,19 +152,6 @@ def build_ffmpeg_cmd(
     return [*base, f"{output_dir}/recording.mp4"]
 
 
-class _UploaderLike(Protocol):
-    """Narrow R2 surface the recorder needs.
-
-    Mirrors the relevant slice of :class:`client_agent.web.ClientR2Like`
-    — no overlap with the upload-MP4 form, no list/get methods, just the
-    two writes a recording produces."""
-
-    def upload_input_chunk(
-        self, job_id: str, fileobj: Any, chunk_name: str = "chunk_001.mp4"
-    ) -> str: ...
-    def put_status(self, job_id: str, status: dict[str, Any]) -> None: ...
-
-
 class RecorderBusy(RuntimeError):
     """Raised when ``Recorder.start`` is called while a recording is in
     flight. Acceptance criterion (#8): "second recording while one
@@ -177,15 +166,17 @@ class RecorderStatus:
     inspect a snapshot without racing the worker thread.
     """
 
-    state: str = "idle"  # idle | recording | uploading | done | failed
+    state: str = "idle"  # idle | recording | failed
     job_id: str | None = None
     message: str = ""
     chunks_uploaded: int = 0
 
 
 def _default_job_id() -> str:
-    """Same shape as the upload form's job_id factory so /jobs rows from
-    recordings sit alongside upload rows without visual surprise."""
+    """Generate a job_id for a recording that isn't keyed by a camera_id.
+
+    ``job-<12 hex>`` — the historical shape from when recordings shared the
+    /jobs table with manual uploads."""
     return f"job-{uuid.uuid4().hex[:12]}"
 
 
@@ -194,21 +185,14 @@ class Recorder:
     """Single-recording state machine.
 
     Holds at most one recording at a time — concurrent ``start`` calls
-    raise :class:`RecorderBusy`. After ffmpeg exits, all chunk files in
-    the output dir are uploaded to R2 in lexical order, then a single
-    ``status.json`` (status=pending) is written so the gpu-service worker
-    picks up the recording exactly the same way it picks up an MP4 from
-    the upload form.
+    raise :class:`RecorderBusy`. After ffmpeg exits, the produced chunk
+    files are left on disk under ``output_dir_factory(job_id)`` for the
+    task poller to pick up (buffer mode, issue #27). The recorder never
+    uploads to R2 — that was the legacy Docker UI flow, retired in #29.
 
-    All side-effecting collaborators (subprocess runner, R2 client, dir
-    factory, job_id factory, clock) are injected so the unit tests stay
-    hermetic.
+    All side-effecting collaborators (subprocess runner, dir factory,
+    job_id factory, clock) are injected so the unit tests stay hermetic."""
 
-    ``uploader`` is optional: buffer-mode (issue #27) recordings skip the
-    R2 upload entirely, so platform-mode appliances pass ``None``. Legacy
-    one-shot recordings (Flask UI flow) still require an uploader."""
-
-    uploader: _UploaderLike | None = None
     # ``runner`` is the ``subprocess.run``-shaped boundary used ONLY by
     # :meth:`probe` (a bounded, blocking call that must surface
     # ``TimeoutExpired``). ``popen_factory`` is the ``subprocess.Popen``-shaped
@@ -234,7 +218,7 @@ class Recorder:
     _proc: Any = field(default=None)
     # Set by :meth:`stop` so the recording thread, once ffmpeg is terminated
     # and ``communicate`` returns, knows the exit was operator-requested and
-    # skips the R2 upload (a killed recording must not create a phantom job).
+    # returns without re-flipping the state machine.
     _cancelled: bool = field(default=False)
 
     def status(self) -> RecorderStatus:
@@ -248,19 +232,17 @@ class Recorder:
             )
 
     def start(self, *, url: str, duration_s: int, camera_id: str | None = None) -> str:
-        """Run ffmpeg synchronously, then upload the produced chunks.
+        """Run ffmpeg synchronously; leave the produced chunks on disk.
 
         Returns the ``job_id`` of the recording. Raises
         :class:`RecorderBusy` if another recording is already in flight.
 
-        ``camera_id`` switches the recorder into **buffer mode** (issue #27):
-        chunks land in ``output_dir_factory(camera_id)`` and are **left on
-        disk** for the task poller to pick up later. The R2 upload + status
-        handshake + temp-dir cleanup are all skipped — the rolling buffer
-        is the source of truth in this mode.
-
-        Default (``camera_id=None``) is the legacy one-shot mode: chunks
-        upload to R2 immediately and the temp dir is removed afterwards.
+        ``camera_id`` selects **buffer mode** (issue #27): chunks land in
+        ``output_dir_factory(camera_id)`` (keyed by camera, not a generated
+        job_id) with 60s segments so the task poller has finalized chunks to
+        trim. Either way the chunks are **left on disk** — the recorder no
+        longer uploads anywhere (the poller owns upload via presigned URLs,
+        issue #29).
 
         Split into :meth:`_reserve` (atomic slot claim) + :meth:`_run`
         (the ffmpeg work) so :class:`BackgroundRecorder` can claim the slot
@@ -279,7 +261,7 @@ class Recorder:
         its own (HTTP) thread."""
         buffer_mode = camera_id is not None
         with self._lock:
-            if self._status.state in ("recording", "uploading"):
+            if self._status.state == "recording":
                 raise RecorderBusy(f"recorder already busy in state {self._status.state!r}")
             # In buffer mode the camera_id stands in for the job_id on the
             # status snapshot — operators and metrics key on it the same
@@ -291,10 +273,12 @@ class Recorder:
         return job_id
 
     def _run(self, job_id: str, *, url: str, duration_s: int, camera_id: str | None) -> str:
-        """Run ffmpeg for an already-reserved slot and upload/keep its chunks.
+        """Run ffmpeg for an already-reserved slot and leave its chunks on disk.
 
         Assumes :meth:`_reserve` has already claimed the slot for ``job_id``;
-        never re-checks busy state. Safe to run on a background thread."""
+        never re-checks busy state. Safe to run on a background thread. The
+        produced chunks stay on disk for the task poller — the recorder does
+        not upload (issue #29)."""
         buffer_mode = camera_id is not None
         out_dir = Path(self.output_dir_factory(job_id))
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -325,20 +309,18 @@ class Recorder:
             cancelled = self._cancelled
 
         if cancelled:
-            # Operator/platform requested the stop. Do NOT upload a killed
-            # legacy recording (issue point #2 — that phantom job would just
-            # fail in the GPU worker); buffer-mode chunks stay on disk for the
-            # poller. ``stop`` already set state=idle; leave it (a fresh start
-            # may already own the state machine, so we must not clobber it).
-            if not buffer_mode:
-                shutil.rmtree(out_dir, ignore_errors=True)
+            # Operator/platform requested the stop. Any chunks ffmpeg already
+            # flushed stay on disk for the poller. ``stop`` already set
+            # state=idle; leave it (a fresh start may already own the state
+            # machine, so we must not clobber it).
             return job_id
 
         chunks = sorted(out_dir.glob("*.mp4"))
         # Filter out 0-byte files — ffmpeg creates the output file before
         # opening the input, so a mux failure (e.g. pcm_mulaw codec
-        # unsupported by MP4) leaves an empty file on disk. Uploading it
-        # would create a phantom job in R2 that the GPU worker has to fail.
+        # unsupported by MP4) leaves an empty file on disk. Treat that the
+        # same as "no chunks" → failed so the poller never trims an empty
+        # segment.
         chunks = [c for c in chunks if c.stat().st_size > 0]
         if not chunks:
             with self._lock:
@@ -347,50 +329,14 @@ class Recorder:
                     job_id=job_id,
                     message=(stderr or "").strip() or f"ffmpeg exited {returncode} with no output",
                 )
-            if not buffer_mode:
-                shutil.rmtree(out_dir, ignore_errors=True)
             return job_id
 
-        if buffer_mode:
-            # Chunks stay on disk for the task poller to find later — no
-            # upload, no cleanup, no status handshake (the buffer layout
-            # IS the contract). Flip straight back to idle so the next
-            # restart cycle (e.g. per-day -t expiry) proceeds cleanly.
-            with self._lock:
-                self._status = RecorderStatus(
-                    state="idle", job_id=job_id, chunks_uploaded=len(chunks)
-                )
-            return job_id
-
+        # Chunks stay on disk for the task poller to find later — no upload,
+        # no cleanup (the buffer layout IS the contract). Flip straight back
+        # to idle so the next restart cycle (e.g. per-day -t expiry) proceeds
+        # cleanly. ``chunks_uploaded`` carries the produced-chunk count so the
+        # UI can show "last recording: N chunks".
         with self._lock:
-            self._status = RecorderStatus(state="uploading", job_id=job_id, chunks_uploaded=0)
-
-        for chunk in chunks:
-            # Pass the chunk's own filename as the R2 key suffix. Without
-            # this every segment overwrites ``chunk_001.mp4`` and only the
-            # last hour of a long recording survives (issue #50). ``chunks``
-            # is lexically sorted, so keys land in chronological order.
-            with chunk.open("rb") as fh:
-                self.uploader.upload_input_chunk(job_id, fh, chunk_name=chunk.name)
-            with self._lock:
-                self._status.chunks_uploaded += 1
-
-        now = self.clock().strftime("%Y-%m-%dT%H:%M:%SZ")
-        self.uploader.put_status(
-            job_id,
-            {
-                "job_id": job_id,
-                "status": "pending",
-                "updated_at": now,
-                "submitted_at": now,
-            },
-        )
-        # Free the disk space — an 8h recording is ~32GB (#8 testing focus).
-        shutil.rmtree(out_dir, ignore_errors=True)
-
-        with self._lock:
-            # Preserve chunks_uploaded across the idle transition so the
-            # UI can show "last recording: N chunks" without re-walking R2.
             self._status = RecorderStatus(state="idle", job_id=job_id, chunks_uploaded=len(chunks))
         return job_id
 
@@ -410,7 +356,7 @@ class Recorder:
         For a CCTV product "stop recording" must mean recording stops *now*,
         not "within ``duration_s``". We hold the ffmpeg handle (``_proc``), so
         this actually SIGTERMs it: the recording thread's ``communicate``
-        returns, sees ``_cancelled``, and skips the upload.
+        returns, sees ``_cancelled``, and returns without re-flipping state.
 
         Ordering is race-safe against a near-simultaneous ``start``: we set
         ``_cancelled`` and read ``_proc`` under the same lock ``start`` uses to
@@ -469,9 +415,9 @@ class BackgroundRecorder:
         job_id = self._inner._reserve(camera_id)
 
         def _target() -> None:
-            # Wrap ``_run`` so an exception inside ffmpeg / upload /
-            # status-handshake does NOT silently kill the daemon thread with
-            # no trace. Source incident: Wi-Fi blip on a macOS dev box dropped
+            # Wrap ``_run`` so an exception inside ffmpeg / chunk-walk does
+            # NOT silently kill the daemon thread with no trace. Source
+            # incident: Wi-Fi blip on a macOS dev box dropped
             # the RTSP TCP, ffmpeg exited with an error, the exception
             # propagated out of the thread and ``reconcile_recorders`` then
             # refused to respawn because the dead handle was still in
@@ -518,4 +464,4 @@ class BackgroundRecorder:
         thread = self._thread
         if thread is None or not thread.is_alive():
             return False
-        return self._inner.status().state in ("recording", "uploading")
+        return self._inner.status().state == "recording"

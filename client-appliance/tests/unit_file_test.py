@@ -98,13 +98,14 @@ def test_runs_as_unprivileged_user(unit: configparser.ConfigParser) -> None:
 
 
 def test_environment_files_loaded_from_etc(unit: configparser.ConfigParser) -> None:
-    """Both env files must be referenced. Leading ``-`` makes systemd treat a
+    """The env files must be referenced. Leading ``-`` makes systemd treat a
     missing file as non-fatal — the unit installs *before* the operator fills
-    in real R2 creds, so without the dash the first ``systemctl start`` after
-    install would fail with ENOENT."""
+    in real creds, so without the dash the first ``systemctl start`` after
+    install would fail with ENOENT. (``r2.env`` was retired in #29 — the
+    appliance no longer uses R2 credentials.)"""
     files = _multi("Service", "EnvironmentFile")
-    assert "-/etc/cctv-client/r2.env" in files
     assert "-/etc/cctv-client/cameras.env" in files
+    assert "-/etc/cctv-client/platform.env" in files
 
 
 def test_exec_start_uses_appliance_venv(unit: configparser.ConfigParser) -> None:

@@ -231,7 +231,7 @@ correctly wired.
 | `Cannot connect to the Docker daemon` | Docker not running, or you're not in the `docker` group | `sudo systemctl start docker` and `usermod -aG docker $USER` + relog. |
 | `nvidia-container-cli: initialization error` | NVIDIA Container Toolkit not installed or not registered with Docker | Re-run §2.4. |
 | Container is `Up` but `/dashboard` returns 502 / connection refused | Worker thread crashed (e.g. CPU-only fallback was attempted and rejected per CLAUDE.md "Don't") | `docker compose logs gpu-service` — look for `CUDAExecutionProvider` initialization errors. Verify §2.4 + §6 smoke test. |
-| Dashboard shows zero jobs after a client uploaded | R2 bucket / credentials mismatch between client and GPU side | Confirm `R2_BUCKET` and `R2_ENDPOINT` match exactly on both `.env.gpu` and the client's `.env.client`. |
+| Dashboard shows zero jobs after a client uploaded | R2 bucket / credentials mismatch on the GPU side | Confirm `R2_BUCKET` and `R2_ENDPOINT` in `.env.gpu` point at the same bucket the client's jobs land in. (The client holds no R2 credentials — in platform mode it uploads via presigned URLs.) |
 | `libcublasLt.so.12: cannot open shared object file` | Old image without `nvidia-cublas-cu12` | `docker compose pull` to grab the latest GHCR image. |
 
 For anything else, attach `docker compose logs --no-color gpu-service` to a

@@ -1,69 +1,56 @@
-"""Tests for the client-agent container entrypoint (issue #7).
+"""Tests for the client-agent Flask-app factory (``build_app``).
 
-The entrypoint is a thin wire-up: read R2 credentials from env, construct
-an :class:`R2Client`, build the Flask app via :func:`create_app`, run on
-:8080. The interesting behaviour lives in ``web_test.py`` and
-``r2_client_test.py``; this module just pins the wire-up so a regression
-in env-var names or port can't slip past CI.
+Since #29 there is no Docker container entrypoint and no R2 credential
+path: ``build_app`` wires the shared Flask UI with ``client=None`` (the
+appliance uploads via presigned URLs). These tests pin that wiring so a
+regression can't reintroduce an R2 backend or drop the recorder. The
+interesting route behaviour lives in ``web_test.py``.
 """
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-
-import pytest
+from client_agent.agent import BuiltApp, build_app
 
 
-def test_main_constructs_r2_client_from_env_and_runs_flask_on_8080(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """``main()`` should:
+def test_build_app_wires_recorder_and_recordings_root(tmp_path) -> None:  # noqa: ANN001
+    """``build_app`` always wires a recorder (so the appliance can drive it
+    from the heartbeat loop) and honours the injected recordings_root,
+    creating it if absent."""
+    recordings = tmp_path / "recs"
+    built = build_app({}, recordings_root=recordings)
 
-    1. Read R2 creds from env (``R2_ENDPOINT``, ``R2_ACCESS_KEY_ID``,
-       ``R2_SECRET_ACCESS_KEY``, ``R2_BUCKET``).
-    2. Construct an :class:`R2Client` with those values.
-    3. Build the Flask app via :func:`create_app`.
-    4. Run the app on ``0.0.0.0:8080``.
+    assert isinstance(built, BuiltApp)
+    assert built.recorder is not None
+    assert built.recordings_root == recordings
+    assert recordings.is_dir()
 
-    We patch ``R2Client`` and the returned app's ``run`` so the test never
-    binds a real socket or talks to R2.
-    """
-    monkeypatch.setenv("R2_ENDPOINT", "https://acct.r2.cloudflarestorage.com")
-    monkeypatch.setenv("R2_ACCESS_KEY_ID", "AK-test")
-    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "SK-test")
-    monkeypatch.setenv("R2_BUCKET", "surveillance-data")
 
-    fake_app = MagicMock()
-    fake_client = MagicMock()
+def test_build_app_has_no_r2_backend_so_legacy_routes_503(tmp_path) -> None:  # noqa: ANN001
+    """No R2 credentials are read or required (#29). The legacy R2-backed
+    routes must return 503 rather than crash — the appliance serves the same
+    app but its data path is presigned URLs, not these routes."""
+    built = build_app({}, recordings_root=tmp_path / "recs")
+    client = built.app.test_client()
 
-    with (
-        patch("client_agent.agent.R2Client", return_value=fake_client) as r2_ctor,
-        patch("client_agent.agent.create_app", return_value=fake_app) as create_app,
-    ):
-        from client_agent.agent import main
+    assert client.get("/jobs").status_code == 503
+    resp = client.post(
+        "/start",
+        data={"rtsp_url": "rtsp://camera.local/stream", "duration_s": "3600"},
+    )
+    assert resp.status_code == 503
 
-        main()
 
-    # R2Client built with env-derived creds.
-    r2_ctor.assert_called_once()
-    kwargs = r2_ctor.call_args.kwargs
-    assert kwargs["endpoint"] == "https://acct.r2.cloudflarestorage.com"
-    assert kwargs["access_key"] == "AK-test"
-    assert kwargs["secret_key"] == "SK-test"
-    assert kwargs["bucket"] == "surveillance-data"
+def test_build_app_ignores_stale_r2_env_vars(tmp_path) -> None:  # noqa: ANN001
+    """Even if stale R2_* creds linger in the environment (an appliance whose
+    ``r2.env`` hasn't been deleted yet), ``build_app`` must NOT construct an
+    R2 client — the routes stay 503. Guards against a silent regression that
+    revives the credential path the #29 cleanup removed."""
+    env = {
+        "R2_ENDPOINT": "https://acct.r2.cloudflarestorage.com",
+        "R2_ACCESS_KEY_ID": "AK",
+        "R2_SECRET_ACCESS_KEY": "SK",
+        "R2_BUCKET": "surveillance-data",
+    }
+    built = build_app(env, recordings_root=tmp_path / "recs")
 
-    # Flask app built with the constructed R2 client and a recorder
-    # wired up — the recorder identity isn't asserted here (that's the
-    # recorder unit tests' job); we just pin that *some* recorder is
-    # passed so a regression that drops it can't slip past CI.
-    create_app.assert_called_once()
-    args, kwargs = create_app.call_args
-    assert args == (fake_client,)
-    assert "recorder" in kwargs
-    assert kwargs["recorder"] is not None
-
-    # And served on the port the Dockerfile / docker-compose.client.yml expose.
-    fake_app.run.assert_called_once()
-    run_kwargs = fake_app.run.call_args.kwargs
-    assert run_kwargs.get("host") == "0.0.0.0"
-    assert run_kwargs.get("port") == 8080
+    assert built.app.test_client().get("/jobs").status_code == 503

@@ -498,6 +498,13 @@ def create_app(
 
         if recorder is None:
             return ("recorder not configured", 404)
+        # Since #29 the on-site "record → upload to R2" flow is retired. The
+        # recorder no longer uploads (buffer-only), so without an R2 backend
+        # this route would silently orphan chunks on disk. Return 503 like the
+        # other R2-backed routes. Platform-mode recording is driven by the
+        # heartbeat/reconcile loop, not this manual route.
+        if client is None:
+            return ("R2 backend disabled in platform mode", 503)
         rtsp_url = (request.form.get("rtsp_url") or "").strip()
         camera_ip = (request.form.get("camera_ip") or "").strip()
         duration_raw = (request.form.get("duration_s") or "").strip()

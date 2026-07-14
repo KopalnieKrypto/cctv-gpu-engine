@@ -446,11 +446,14 @@ def run_platform_session(
 
 
 def load_env_files(env_dir: Path, environ: MutableMapping[str, str]) -> None:
-    """Read ``cameras.env`` and ``r2.env`` from ``env_dir`` into ``environ``.
+    """Read ``cameras.env`` from ``env_dir`` into ``environ``.
 
     Format follows systemd's ``EnvironmentFile=``: ``KEY=VALUE`` per line.
+    ``r2.env`` was retired in #29 — the appliance no longer uses R2
+    credentials (uploads go through presigned URLs). ``platform.env`` is
+    loaded separately by :func:`_load_platform_env`.
     """
-    for name in ("cameras.env", "r2.env"):
+    for name in ("cameras.env",):
         path = env_dir / name
         if not path.exists():
             continue
@@ -857,8 +860,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     logger.info(
         "client-agent appliance starting on http://0.0.0.0:8080 "
-        "(bucket=%s, recordings=%s, env_dir=%s, platform=%s)",
-        built.bucket,
+        "(recordings=%s, env_dir=%s, platform=%s)",
         built.recordings_root,
         args.env_dir,
         os.environ.get("PLATFORM_URL", "off"),

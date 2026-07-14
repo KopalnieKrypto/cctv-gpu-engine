@@ -100,16 +100,17 @@ def test_creates_etc_config_dir_with_secure_perms() -> None:
 
 
 def test_env_example_files_copied_when_absent() -> None:
-    """First run seeds /etc/cctv-client/{r2,cameras}.env from the .example
-    files; second run leaves operator edits alone. Acceptable guards: an
-    explicit ``-f`` test (any bracket style), ``cp -n`` (no-clobber), or
-    looping over both names with a guard around an ``install``/``cp``."""
+    """First run seeds /etc/cctv-client/{cameras,platform}.env from the
+    .example files; second run leaves operator edits alone. Acceptable
+    guards: an explicit ``-f`` test (any bracket style), ``cp -n``
+    (no-clobber), or looping over both names with a guard around an
+    ``install``/``cp``. (``r2.env`` was retired in #29.)"""
     text = INSTALL.read_text()
     # Either each name has its own guarded copy, or the script loops over
-    # ``r2.env cameras.env`` with a single guard that covers both. We accept
-    # both: require both names appear *somewhere* and at least one ``-f``
-    # guard on a path containing "$ETC" or /etc/cctv-client.
-    for name in ("r2.env", "cameras.env"):
+    # ``cameras.env platform.env`` with a single guard that covers both. We
+    # accept both: require both names appear *somewhere* and at least one
+    # ``-f`` guard on a path containing "$ETC" or /etc/cctv-client.
+    for name in ("cameras.env", "platform.env"):
         assert name in text, f"missing reference to {name}"
     f_guard = re.search(r"\[\[?\s*!\s*-f\s+", text) or re.search(r"cp\s+-n", text)
     assert f_guard, "no idempotent seed guard (-f test or cp -n)"
@@ -122,12 +123,12 @@ def test_env_files_chmod_600() -> None:
     text = INSTALL.read_text()
     # Either chmod 0600 appears against each file literal, or once inside a
     # loop body — the loop pattern is what install.sh uses for DRY-ness.
-    has_loop = re.search(r"for\s+\w+\s+in[^\n]*r2\.env[^\n]*cameras\.env", text)
+    has_loop = re.search(r"for\s+\w+\s+in[^\n]*cameras\.env[^\n]*platform\.env", text)
     if has_loop:
         assert re.search(r"chmod\s+0?600\s+", text), "loop without chmod 0600"
     else:
-        assert re.search(r"chmod\s+0?600\s+.*r2\.env", text)
         assert re.search(r"chmod\s+0?600\s+.*cameras\.env", text)
+        assert re.search(r"chmod\s+0?600\s+.*platform\.env", text)
 
 
 def test_installs_systemd_unit() -> None:

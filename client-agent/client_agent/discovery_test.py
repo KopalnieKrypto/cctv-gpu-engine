@@ -397,7 +397,7 @@ def test_rtsp_template_unknown_vendor_returns_bare_root() -> None:
 def test_rtsp_template_without_credentials_omits_user_pass() -> None:
     """No env creds yet → URL is still emitted but without ``user:pass@``.
     The UI surfaces this as "needs credentials" so the operator knows to
-    populate ``.env.client``. Once they do, a re-scan paints the same row
+    populate ``cameras.env``. Once they do, a re-scan paints the same row
     with creds inline."""
     from client_agent.discovery import rtsp_template_for_vendor
 

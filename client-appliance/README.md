@@ -1,10 +1,11 @@
 # cctv-client appliance
 
 Standalone packaging dla `client_agent` — Flask UI :8080 + RTSP recorder z
-auto-discovery kamer ONVIF, działający bez Dockera na mini-PC w LAN. Cała
-logika żyje w pakiecie [`client_agent`](../client-agent/client_agent/) i jest
-współdzielona z obrazem Dockerowym; ten katalog zawiera **wyłącznie
-packaging**: systemd unit, install.sh, env templates, README.
+auto-discovery kamer ONVIF, działający bez Dockera na mini-PC w LAN. To
+**jedyny** sposób uruchomienia klienta (Dockerowy client-agent został
+wycofany w #29). Cała logika żyje w pakiecie
+[`client_agent`](../client-agent/client_agent/); ten katalog zawiera
+**wyłącznie packaging**: systemd unit, install.sh, env templates, README.
 
 ## Wymagania sprzętowe
 
@@ -50,11 +51,12 @@ cd /opt/src/cctv-gpu-engine
 sudo ./client-appliance/install.sh
 ```
 
-Po zakończeniu wpisz dane R2 i RTSP do plików konfiguracyjnych:
+Po zakończeniu wpisz dane RTSP (i opcjonalnie dane platformy) do plików
+konfiguracyjnych — klient nie trzyma już żadnych credentiali R2:
 
 ```bash
-sudo nano /etc/cctv-client/r2.env
-sudo nano /etc/cctv-client/cameras.env
+sudo nano /etc/cctv-client/cameras.env    # RTSP_DEFAULT_USER/PASS (+ opcjonalne per-IP)
+sudo nano /etc/cctv-client/platform.env   # PLATFORM_URL + APPLIANCE_TOKEN (tryb platformowy)
 sudo systemctl restart cctv-client
 ```
 
@@ -104,9 +106,11 @@ przenieś plik na docelowy mini-PC, rozpakuj do `/opt/src/`, uruchom
   Ubuntu Server 24.04 ma UFW domyślnie wyłączony, ale RPi OS i custom
   obrazy mogą blokować.
 - **Service nie wstał**: `systemctl status cctv-client` i
-  `journalctl -u cctv-client -n 100`. Najczęstsza przyczyna: brakujące
-  klucze w `r2.env` (`R2_ENDPOINT` / `R2_ACCESS_KEY_ID` /
-  `R2_SECRET_ACCESS_KEY` są wymagane).
+  `journalctl -u cctv-client -n 100`. W trybie platformowym częsta
+  przyczyna to zła wartość `BUFFER_HOURS` w `platform.env` (nie-liczbowa
+  lub `≤ 0` → boot validation fails fast). Brak `PLATFORM_URL`/
+  `APPLIANCE_TOKEN` nie wywala unit-a — appliance auto-fallbackuje do
+  trybu standalone.
 - **Bind na 0.0.0.0**: appliance bindu je do `0.0.0.0:8080` — jeśli mini-PC
   ma kilka interfejsów (np. WiFi + LAN), UI będzie na każdym z nich.
 
@@ -130,10 +134,12 @@ Pi OS:
    /opt/src/cctv-gpu-engine` (≤ 30 s).
 3. `sudo /opt/src/cctv-gpu-engine/client-appliance/install.sh` (≤ 2 min,
    pierwszy run instaluje deps).
-4. Edytuj `/etc/cctv-client/r2.env` (R2 creds) i `cameras.env` (default
-   RTSP user/pass), `sudo systemctl restart cctv-client`.
+4. Edytuj `/etc/cctv-client/cameras.env` (default RTSP user/pass; opcjonalnie
+   `platform.env` dla trybu platformowego), `sudo systemctl restart cctv-client`.
 5. W przeglądarce: `http://<ip>:8080/` → "Wykryj kamery" → wybierz
-   kamerę → "Nagraj 30 s" → sprawdź job w R2.
+   kamerę → "Nagraj 30 s" → sprawdź nagrany chunk w lokalnym buforze
+   (recorder jest buffer-only; w trybie platformowym chunk trafia do R2
+   przez presigned URL).
 
 Cel: krok 1–5 ≤ 5 min. Jeśli przekracza, problem zwykle leży w sieci
 (multicast, firewall) i opisany jest w sekcji Troubleshooting.
@@ -142,50 +148,27 @@ Cel: krok 1–5 ≤ 5 min. Jeśli przekracza, problem zwykle leży w sieci
 
 | Plik | Opis |
 |------|------|
-| `cctv-client.service` | systemd unit (Type=simple, EnvironmentFile dla `r2.env` i `cameras.env`, ExecStart na venv `/opt/cctv-client`) |
+| `cctv-client.service` | systemd unit (Type=simple, EnvironmentFile dla `cameras.env` i `platform.env`, ExecStart na venv `/opt/cctv-client`) |
 | `install.sh` | idempotentny installer (user `cctv`, venv, deps via uv/pip, kopiowanie pakietów, etc) |
-| `r2.env.example` | template dla `/etc/cctv-client/r2.env` (R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET) |
 | `cameras.env.example` | template dla `/etc/cctv-client/cameras.env` (RTSP_DEFAULT_USER/PASS + opcjonalne per-IP) |
+| `platform.env.example` | template dla `/etc/cctv-client/platform.env` (PLATFORM_URL, APPLIANCE_TOKEN, opcjonalny BUFFER_HOURS) |
 
-## Brak regresji dla Dockera
-
-Docker stack (`client-agent/Dockerfile` + `docker-compose.client.yml`)
-nadal działa identycznie — appliance to równoległy target, nie zamiennik.
-Współdzielony pakiet `client_agent` gwarantuje 1:1 funkcjonalność: każda
-nowa funkcja ląduje w obu trybach.
-
-## Tryby pracy: legacy Docker UI vs platform mode (issue #30)
+## Tryby pracy: standalone vs platform mode (issue #30)
 
 Po wprowadzeniu integracji z GPU Exchange (`PLATFORM_URL`/`APPLIANCE_TOKEN`)
-appliance ma dwa równoległe tryby pracy. Współdzielą ten sam pakiet
-`client_agent` i ten sam obraz Dockera — różnią się tylko entrypointem
-i wymaganymi env-vars.
+appliance ma dwa równoległe tryby pracy. Oba uruchamiane są tym samym
+entrypointem `client_agent.appliance` (bare-metal, systemd) — różnią się
+wyłącznie zawartością env-files w `/etc/cctv-client/`.
 
-| Tryb | Entrypoint | Compose | Env | Zachowanie |
-|------|-----------|---------|-----|------------|
-| **Legacy Docker UI** (Phase 1-3) | `client_agent.agent` | `docker-compose.client.yml` | `R2_*` + `RTSP_*` | Flask UI :8080, ręczne nagrania, upload bezpośrednio do R2 z hardcoded creds |
-| **Platform mode** (Phase 4) | `client_agent.appliance` | `docker-compose.appliance.yml` | `PLATFORM_URL` + `APPLIANCE_TOKEN` + opcjonalny `BUFFER_HOURS` | Flask UI :8080 + TaskPoller w tle, rejestracja w platformie, rolling buffer, upload przez presigned URL |
+| Tryb | Env | Zachowanie |
+|------|-----|------------|
+| **Standalone** | `cameras.env` (`RTSP_*`), `platform.env` pusty | Flask UI :8080, camera discovery + snapshoty, recorder buffer-only (rolling buffer na dysku, bez uploadu) |
+| **Platform mode** (Phase 4) | `PLATFORM_URL` + `APPLIANCE_TOKEN` + opcjonalny `BUFFER_HOURS` w `platform.env` | Flask UI :8080 + TaskPoller w tle, rejestracja w platformie, rolling buffer, upload przez presigned URL |
 
 Wybór trybu zależy od tego, czy appliance jest podpięty do GPU Exchange:
 
-- **Standalone (bez platformy)**: ustaw tylko `R2_*` i `RTSP_*` w `/etc/cctv-client/`. `platform.env` zostaw nienaruszony — appliance auto-fallbackuje do legacy flow (`_is_platform_mode()` zwraca `False`).
+- **Standalone (bez platformy)**: ustaw tylko `RTSP_*` w `/etc/cctv-client/cameras.env`. `platform.env` zostaw pusty — appliance działa w trybie standalone, buffer-only (`_is_platform_mode()` zwraca `False`).
 - **Z platformą**: wpisz `PLATFORM_URL` + `APPLIANCE_TOKEN` (+ opcjonalnie `BUFFER_HOURS`) w `/etc/cctv-client/platform.env`. Po restarcie unit-a appliance zarejestruje się, podejmie task'i z kolejki i będzie utrzymywał rolling buffer.
-
-### Docker variant trybu platformowego
-
-Dla operatorów wolących Docker zamiast bare-metal install:
-
-```bash
-cp .env.appliance.example .env.appliance  # wypełnij wartości
-docker compose -f docker-compose.appliance.yml up -d
-docker compose -f docker-compose.appliance.yml ps  # healthcheck po ~30 s
-```
-
-Compose `docker-compose.appliance.yml`:
-- entrypoint: `python -m client_agent.appliance`
-- env: wymaga `PLATFORM_URL` i `APPLIANCE_TOKEN` (uruchomienie z pustymi → fail-fast z czytelnym błędem);
-- volume: nazwany volume `cctv-appliance-buffer` na `/var/lib/cctv/buffer` — przeżywa `docker compose down`;
-- healthcheck: HTTP GET `http://127.0.0.1:8080/` z 30-sekundowym `start_period` na pierwszy heartbeat.
 
 ### `BUFFER_HOURS` — rozmiar rolling buffera
 
@@ -195,10 +178,27 @@ Compose `docker-compose.appliance.yml`:
 - produkcja: ustaw `8` (lub więcej) — operator zlecający task forensic z 6-godzinnym horyzontem musi mieć w buforze odpowiedni materiał;
 - wartość nie-liczbowa lub `≤ 0` → boot validation fails fast (`systemctl status cctv-client` pokaże stack ze stringa `BUFFER_HOURS must be ...`).
 
-### Plan migracji
+### Migracja legacy Docker → bare-metal (issue #29 — **DONE**)
 
 Issue [#29](https://github.com/KopalnieKrypto/cctv-gpu-engine/issues/29)
-śledzi wycofanie legacy `client_agent.agent` trybu Dockerowego po
-demonstracji Phase 4 (gpu-exchange #24). Do tego czasu oba flavoursy
-coexistują — appliance nie wymusza migracji, ale nowe wdrożenia powinny
-od razu lądować w trybie platformowym.
+**wycofał** legacy tryb Dockerowy `client_agent.agent`. Usunięte zostały
+`client-agent/Dockerfile`, `docker-compose.client.yml`,
+`docker-compose.appliance.yml`, `.env.client.example` oraz
+`client_agent/r2_client.py`; obraz GHCR `client-agent` nie jest już
+budowany. `client_agent.agent` **nie jest już entrypointem** — pozostaje
+wyłącznie jako fabryka `build_app` importowana przez appliance.
+
+**Nota upgrade dla istniejących wdrożeń** (operatorzy podnoszący starszą
+instalację):
+
+- (a) legacy ręczny on-site UI ("upload MP4 / nagraj → R2") został wycofany —
+  trasy `/upload`, `/start`, `/jobs`, `/report` zwracają teraz **503**. UI
+  nadal działa dla: discovery kamer, snapshotów per-kamera, panelu managed
+  cameras, `/test-connection` i `/stop`.
+- (b) w platform mode appliance uploaduje **wyłącznie przez presigned URL** —
+  nie ma już żadnego bezpośredniego dostępu do R2 z klienta.
+- (c) usuń pozostały `r2.env` z `/etc/cctv-client/` — jest teraz ignorowany;
+  jego usunięcie oznacza **zero credentiali R2 na dysku** klienta.
+- (d) nie ma już żadnego wariantu Dockerowego klienta — używaj wyłącznie
+  instalacji bare-metal przez systemd (`sudo ./client-appliance/install.sh` +
+  `systemctl enable --now cctv-client`).

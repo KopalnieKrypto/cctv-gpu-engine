@@ -41,25 +41,6 @@ def test_load_env_files_reads_key_value_pairs_from_cameras_env(tmp_path: Path) -
     assert environ["RTSP_DEFAULT_PASS"] == "secret"
 
 
-def test_load_env_files_also_reads_r2_env(tmp_path: Path) -> None:
-    """The two-file split mirrors systemd's design (one ``EnvironmentFile=``
-    per concern). ``r2.env`` carries cloud credentials; ``cameras.env``
-    carries on-prem RTSP credentials. The loader must read both."""
-    from client_agent.appliance import load_env_files
-
-    (tmp_path / "cameras.env").write_text("RTSP_DEFAULT_USER=admin\n")
-    (tmp_path / "r2.env").write_text(
-        "R2_ENDPOINT=https://acct.r2.cloudflarestorage.com\nR2_BUCKET=surveillance-data\n"
-    )
-    environ: dict[str, str] = {}
-
-    load_env_files(tmp_path, environ)
-
-    assert environ["RTSP_DEFAULT_USER"] == "admin"
-    assert environ["R2_ENDPOINT"] == "https://acct.r2.cloudflarestorage.com"
-    assert environ["R2_BUCKET"] == "surveillance-data"
-
-
 def test_load_env_files_is_noop_when_env_dir_missing(tmp_path: Path) -> None:
     """Operator may not have run install.sh yet, or the directory may be
     empty on first boot. The loader must not crash — the appliance still
@@ -75,17 +56,17 @@ def test_load_env_files_is_noop_when_env_dir_missing(tmp_path: Path) -> None:
 
 def test_load_env_files_does_not_overwrite_existing_environ(tmp_path: Path) -> None:
     """Mirrors systemd's ``EnvironmentFile=`` semantics: variables already
-    set in the process env take precedence over the file. The Docker stack
-    relies on this — env from compose must not be silently overridden by a
-    stale ``r2.env`` mounted into the container."""
+    set in the process env take precedence over values in the file, so a
+    systemd ``EnvironmentFile=`` (or a shell ``export``) is never silently
+    overridden by ``cameras.env`` on disk."""
     from client_agent.appliance import load_env_files
 
-    (tmp_path / "r2.env").write_text("R2_BUCKET=from-file\n")
-    environ = {"R2_BUCKET": "from-process-env"}
+    (tmp_path / "cameras.env").write_text("RTSP_DEFAULT_USER=from-file\n")
+    environ = {"RTSP_DEFAULT_USER": "from-process-env"}
 
     load_env_files(tmp_path, environ)
 
-    assert environ["R2_BUCKET"] == "from-process-env"
+    assert environ["RTSP_DEFAULT_USER"] == "from-process-env"
 
 
 def test_load_env_files_skips_blank_lines_and_comments(tmp_path: Path) -> None:
@@ -265,8 +246,8 @@ def test_main_serves_built_app_on_8080_via_waitress(
     4. Hands the app to ``waitress.serve(host=0.0.0.0, port=8080)``.
 
     We mock ``waitress.serve`` (boundary — would otherwise bind a real
-    socket) and ``R2Client`` (boundary — would otherwise hit the network
-    inside ``build_app``).
+    socket). ``build_app`` no longer touches R2 (#29), so nothing else needs
+    mocking here even though the env-dir carries a leftover ``r2.env``.
     """
     env_dir = tmp_path / "etc-cctv-client"
     env_dir.mkdir()
@@ -288,10 +269,7 @@ def test_main_serves_built_app_on_8080_via_waitress(
     for k in ("R2_ENDPOINT", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET"):
         monkeypatch.delenv(k, raising=False)
 
-    fake_client = MagicMock()
-
     with (
-        patch("client_agent.agent.R2Client", return_value=fake_client),
         patch("client_agent.appliance.serve") as serve,
     ):
         from client_agent.appliance import main
@@ -824,7 +802,6 @@ def test_run_platform_session_disable_terminates_underlying_ffmpeg(tmp_path: Pat
     def recorder_factory():  # noqa: ANN202
         return BackgroundRecorder(
             Recorder(
-                uploader=None,  # buffer mode never uploads
                 popen_factory=_popen_factory,
                 output_dir_factory=lambda cam_id: str(tmp_path / "buffer" / cam_id),
             )
@@ -1325,7 +1302,6 @@ def test_main_starts_poller_thread_in_platform_mode(
         )
 
         with (
-            patch("client_agent.agent.R2Client", return_value=MagicMock()),
             patch("client_agent.appliance.serve"),
             patch("client_agent.appliance.start_poller_thread") as fake_start,
             patch("client_agent.appliance.start_maintenance_thread"),
@@ -1373,7 +1349,6 @@ def test_main_does_not_start_poller_thread_in_legacy_mode(
         monkeypatch.delenv(k, raising=False)
 
     with (
-        patch("client_agent.agent.R2Client", return_value=MagicMock()),
         patch("client_agent.appliance.serve"),
         patch("client_agent.appliance.start_poller_thread") as fake_start,
     ):
@@ -1418,7 +1393,6 @@ def test_main_exits_nonzero_on_buffer_hours_misconfig(
         monkeypatch.delenv(k, raising=False)
 
     with (
-        patch("client_agent.agent.R2Client", return_value=MagicMock()),
         patch("client_agent.appliance.serve"),
         pytest.raises((SystemExit, ValueError)) as exc_info,
     ):
@@ -1474,7 +1448,6 @@ def test_main_exits_nonzero_on_platform_auth_error(
         mock.post("/appliance/register").mock(return_value=httpx.Response(401))
 
         with (
-            patch("client_agent.agent.R2Client", return_value=MagicMock()),
             patch("client_agent.appliance.serve"),
             pytest.raises((SystemExit, PlatformAuthError)) as exc_info,
         ):
@@ -1528,7 +1501,6 @@ def test_main_exits_nonzero_on_platform_unavailable(
         mock.post("/appliance/register").mock(return_value=httpx.Response(503))
 
         with (
-            patch("client_agent.agent.R2Client", return_value=MagicMock()),
             patch("client_agent.appliance.serve"),
             patch("client_agent.platform.time.sleep"),
             pytest.raises((SystemExit, PlatformUnavailableError)) as exc_info,
@@ -1569,7 +1541,6 @@ def test_main_skips_platform_mode_when_env_unset(
         monkeypatch.delenv(k, raising=False)
 
     with (
-        patch("client_agent.agent.R2Client", return_value=MagicMock()),
         patch("client_agent.appliance.serve") as fake_serve,
         patch("client_agent.appliance.run_platform_session") as fake_session,
     ):
@@ -1907,7 +1878,6 @@ def test_main_starts_maintenance_thread_in_platform_mode(
         )
 
         with (
-            patch("client_agent.agent.R2Client", return_value=MagicMock()),
             patch("client_agent.appliance.serve"),
             patch("client_agent.appliance.start_poller_thread"),
             patch("client_agent.appliance.start_maintenance_thread") as fake_maint,
@@ -1949,7 +1919,6 @@ def test_main_does_not_start_maintenance_thread_in_legacy_mode(
         monkeypatch.delenv(k, raising=False)
 
     with (
-        patch("client_agent.agent.R2Client", return_value=MagicMock()),
         patch("client_agent.appliance.serve"),
         patch("client_agent.appliance.start_maintenance_thread") as fake_maint,
     ):
