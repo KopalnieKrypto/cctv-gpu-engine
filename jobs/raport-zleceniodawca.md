@@ -71,3 +71,54 @@ W obu filmach system **prawidłowo wskazał aktywność dominującą** (chodzeni
 **Wniosek:** dla typowego zastosowania CCTV — szybkiej oceny „co się działo na nagraniu w skali 5/15/30/60 minut" — wynik systemu jest zbieżny z ręczną analizą i można go traktować jako wiarygodne źródło informacji. Drobne rozbieżności (rzędu kilku sekund per aktywność) nie zmieniają obrazu sytuacji ani odpowiedzi na pytanie *„kim była ta osoba i co robiła?"*.
 
 Dalsze obniżenie rozbieżności jest możliwe (filtry odporne na obiekty mobilne typu ławka, dłuższy próg detekcji ruchu) — w razie potrzeby można je wdrożyć w kolejnej wersji.
+
+---
+
+# Zmiana metodyki — 15 lipca 2026 (ByteTrack + OSNet, letterbox)
+
+Ponowna analiza tych samych dwóch nagrań po dwóch zmianach w systemie:
+
+1. **Śledzenie osób (ByteTrack + OSNet Re-ID)** — system nadaje każdej osobie trwałą tożsamość między klatkami i liczy czas *per osoba*. Obiekt wykryty tylko przez chwilę (ławka na kółkach) nie jest już zaliczany jako osoba.
+2. **Poprawka skalowania obrazu (letterbox)** — klatka nie jest już rozciągana do kwadratu przed analizą, tylko skalowana z zachowaniem proporcji. Sylwetki mają naturalne kształty, więc detekcja jest wyraźnie pewniejsza.
+
+## Wyniki
+
+| Film 1 | Obserwacja manualna | System (kwiecień) | System (lipiec) |
+|---|---:|---:|---:|
+| Chodzenie | 80 s | 97 s | 98 s |
+| Siedzenie | 31 s | 29 s | 29 s |
+| Stanie | 19 s | 20 s | 21 s |
+| **Zgodność sekunda-po-sekundzie** | — | **85 %** | **89 %** |
+
+| Film 2 | Obserwacja manualna | System (kwiecień) | System (lipiec) |
+|---|---:|---:|---:|
+| Chodzenie | 47 s | 50 s | 58 s |
+| Siedzenie | 43 s | 40 s | 41 s |
+| Stanie | 0 s | 7 s | 5 s |
+| **Zgodność sekunda-po-sekundzie** | — | **86 %** | **89 %** |
+
+## Co się poprawiło
+
+- **Zgodność wzrosła z 85/86 % do 89 % w obu filmach.**
+- **Zniknął „duch" w kadrze.** W Filmie 2 system raportował wcześniej „szczyt: 2 osoby", choć była tam jedna — teraz raportuje **1 osobę**. To jest dokładnie zgłoszona przez Państwa sytuacja „wózek z taśmą liczony jako osoba". W Filmie 1 fałszywe wykrycie ławki również już nie występuje.
+- **Detekcja jest praktycznie kompletna.** W każdym z filmów system pomija dziś tylko **1 sekundę** z całego zakresu opisanego ręcznie.
+
+## Ważne zastrzeżenie do porównywania sum
+
+Sumy w tabelach powyżej **nie powinny być porównywane wprost**. Ręczna notatka opisuje *epizody aktywności* („0:27–0:40 chodzę"), a nie ciągłą obecność osoby w kadrze. Pomiędzy epizodami są luki — w Filmie 1 łącznie **20 sekund**, w Filmie 2 **15 sekund** — w których osoba **była widoczna**, ale obserwator nie zanotował konkretnej czynności (najczęściej krótkie momenty przejściowe między jedną a drugą aktywnością).
+
+System liczy każdą sekundę, w której widzi osobę, więc jego suma jest z definicji wyższa od sumy notatki — i to nie jest błąd systemu. Cała różnica sum (+19 s w Filmie 1, +15 s w Filmie 2) niemal dokładnie odpowiada tym nieopisanym lukom.
+
+Dlatego **miarą jakości jest zgodność sekunda-po-sekundzie** (89 %), a nie różnica sum. Aby porównywać sumy wprost, ręczna anotacja musiałaby opisywać każdą sekundę obecności osoby, bez luk.
+
+## Co pozostaje do poprawy
+
+Pozostałe rozbieżności to prawie wyłącznie **momenty przejściowe**, nie pomyłki tożsamości:
+
+| Rzeczywistość → System | Film 1 | Film 2 |
+|---|---:|---:|
+| stanie → chodzenie | 4 s | — |
+| siedzenie → chodzenie | 4 s | 5 s |
+| chodzenie → stanie | 3 s | 4 s |
+
+Źródłem jest **czułość progu ruchu**: system uznaje osobę za idącą już przy niewielkim przesunięciu sylwetki (np. przy wstawaniu z ławki). Śledzenie osób tego nie rozwiązuje — to osobna zmiana, zaplanowana jako kolejny krok.
