@@ -24,15 +24,23 @@ stays in view. Two consequences worth knowing:
 - **Association is by appearance, not position.** At 1 fps a person crosses
   most of the frame between samples, so bbox overlap (IoU) carries almost no
   signal. Identity comes from OSNet Re-ID cosine similarity instead.
-- **A track must persist 3 consecutive frames before it counts.** Sporadic
+- **A track must be seen 3 times within 5 frames before it counts.** Sporadic
   false positives — the bench-on-wheels that Film 1 reported as a second
-  person — do not survive that. Nothing is thrown away on confidence alone:
-  a faint box can extend a track it matches, it just cannot found a new one.
+  person — never get there. Nothing is thrown away on confidence alone: a
+  faint box can extend a track it matches, it just cannot found a new one.
 
-Because proof arrives on a track's 3rd frame, `track_filter` is a delay line:
-frames reach the aggregator two steps late. Frames are always emitted, even
-when everyone in them was rejected — the frame happened, so duration and frame
-totals stay honest.
+  The advisory specified "3 *consecutive* frames". Real detections are not
+  consecutive: measured on cctv-vps, a genuinely-present person was detected in
+  frames 0, 2, 3, 5, 6 — eight sightings, never three in a row. A strict
+  consecutive rule discarded that person entirely (and a second one with seven
+  sightings), which swaps the client's over-count for a worse under-count. The
+  window keeps the artifact filter while letting real, flickering people
+  through.
+
+Because a track can take its whole window to prove itself, `track_filter` is a
+delay line: frames reach the aggregator four steps late. Frames are always
+emitted, even when everyone in them was rejected — the frame happened, so
+duration and frame totals stay honest.
 
 ### Open: the match threshold is untuned
 
@@ -66,8 +74,8 @@ across it. Distinguishing a replacement worker from the same worker returning
 
 Run with `--dump-detections out.jsonl`. Each line is one frame; each person
 carries `track_id`. A detection with `"track_id": null` was never given an
-identity (too faint to start a track, matched nothing). A `track_id` that
-appears in fewer than 3 consecutive lines was rejected by the filter and
+identity (too faint to start a track, matched nothing). A `track_id` seen
+fewer than 3 times within any 5-frame span was rejected by the filter and
 contributed nothing to `result.json`.
 
 `--no-tracker` disables tracking entirely and reproduces pre-#32 numbers, where

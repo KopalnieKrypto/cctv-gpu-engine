@@ -745,9 +745,10 @@ class TestRunFullVideoToJson:
         from pipeline.analyze import run_full_video_to_json
 
         fake_frame = np.zeros((40, 60, 3), dtype=np.uint8)
-        # Three frames, not two: since issue #32 a person must persist for
-        # MIN_TRACK_FRAMES before they are counted, so a two-frame fixture now
-        # (correctly) reports nobody and cannot exercise the report schema.
+        # Three frames, not two: since issue #32 a person needs
+        # MIN_TRACK_DETECTIONS sightings before they are counted, so a
+        # two-frame fixture now (correctly) reports nobody and cannot exercise
+        # the report schema.
         mocker.patch(
             "pipeline.analyze.iter_frames",
             return_value=iter([(float(t), fake_frame) for t in range(3)]),

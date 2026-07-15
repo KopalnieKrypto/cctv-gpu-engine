@@ -70,22 +70,39 @@ class TestMinTrackLength:
         assert [f.timestamp_s for f in emitted] == [0.0, 1.0, 2.0]
         assert [d.track_id for f in emitted for d in f.detections] == [7, 7, 7]
 
-    def test_unproven_track_restarts_its_run_after_a_gap(self):
-        # Two frames, gone, two frames: four hits but never three in a row, so
-        # never proven. Junk that flickers in and out must not accumulate its
-        # way past the filter.
+    def test_flickering_person_counts_despite_a_missed_frame(self):
+        # Real YOLO output at 1 fps is not continuous. Measured on cctv-vps: a
+        # genuinely-present person was detected in frames 0, 2, 3, 5, 6 — never
+        # three *consecutive*. Demanding consecutive frames threw such people
+        # away wholesale (a 7-detection track scored zero person-minutes),
+        # trading the client's over-count for a worse under-count. Three
+        # sightings inside five frames is a person.
         filter_ = MinTrackLengthFilter()
 
         emitted = _run(
             filter_,
             [
                 (0.0, [_det(track_id=7)]),
-                (1.0, [_det(track_id=7)]),
-                (2.0, []),
+                (1.0, []),
+                (2.0, [_det(track_id=7)]),
                 (3.0, [_det(track_id=7)]),
-                (4.0, [_det(track_id=7)]),
             ],
         )
+
+        assert [d.track_id for f in emitted for d in f.detections] == [7, 7, 7]
+
+    def test_sporadic_artifact_never_accumulates_its_way_in(self):
+        # The bench-on-wheels: YOLO calls it a person twice, it vanishes for
+        # ages, then twice more. Four hits in total, but never three close
+        # together — so never a person. This is what the window must still
+        # reject now that "consecutive" no longer guards the door.
+        filter_ = MinTrackLengthFilter()
+
+        script = [(0.0, [_det(track_id=7)]), (1.0, [_det(track_id=7)])]
+        script += [(float(t), []) for t in range(2, 10)]
+        script += [(10.0, [_det(track_id=7)]), (11.0, [_det(track_id=7)])]
+
+        emitted = _run(filter_, script)
 
         assert all(f.detections == [] for f in emitted)
 

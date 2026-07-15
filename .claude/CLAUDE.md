@@ -73,7 +73,7 @@ client appliance (bare-metal, Flask :8080) → R2 (presigned URLs) → gpu-servi
 - YOLO-pose output `[1,56,N]` transposed: rows 0-3 bbox, row 4 conf, rows 5-55 keypoints (17×3)
 - Preprocessing: PIL RGB → resize 640×640 → float32 /255 → CHW → batch dim
 - Activity classes: sitting, standing, walking, running — no others
-- Person tracking (issue #32) sits between pose detection and aggregation and is **on by default**: OSNet Re-ID cosine similarity is the association metric (never IoU — useless at 1 fps), and a track must persist `MIN_TRACK_FRAMES` (3) consecutive frames before it counts. `--no-tracker` reproduces pre-#32 numbers for baseline comparison. Requires `models/osnet_x0_25.onnx` from `setup-models.sh`.
+- Person tracking (issue #32) sits between pose detection and aggregation and is **on by default**: OSNet Re-ID cosine similarity is the association metric (never IoU — useless at 1 fps), and a track must be seen `MIN_TRACK_DETECTIONS` (3) times within `TRACK_WINDOW_FRAMES` (5) before it counts — real YOLO output flickers, so the advisory's strict-consecutive rule under-counted real people badly. `--no-tracker` reproduces pre-#32 numbers for baseline comparison. Requires `models/osnet_x0_25.onnx` from `setup-models.sh`.
 - Tracking defaults favour splitting one person into two tracks over merging two people into one (`max_track_age_s` 120 s) — for person-minute reporting a merge silently corrupts the numbers, a split only shows an absence gap
 - Reports: standalone HTML, zero external deps (vendored Chart.js, base64 images)
 - R2 bucket: `surveillance-data`. Key: `surveillance-jobs/{job_id}/`
