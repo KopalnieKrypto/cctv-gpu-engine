@@ -23,15 +23,18 @@ from pipeline.reid import REID_INPUT_H, REID_INPUT_W, OSNetEmbedder
 
 
 class FakeSession:
-    """Stands in for the OSNet ONNX session; records what it was fed."""
+    """Stands in for the OSNet ONNX session; records every call it receives."""
 
-    def __init__(self, features: np.ndarray) -> None:
-        self._features = np.asarray(features, dtype=np.float32)
-        self.last_input: np.ndarray | None = None
+    def __init__(self, features) -> None:
+        self._features = [np.asarray(f, dtype=np.float32) for f in features]
+        self.inputs: list[np.ndarray] = []
 
     def run(self, output_names, feed: dict) -> list[np.ndarray]:
-        self.last_input = next(iter(feed.values()))
-        return [self._features[: self.last_input.shape[0]]]
+        self.inputs.append(next(iter(feed.values())))
+        # Hand back the scripted vector for this call; the last one repeats if
+        # a test scripted fewer vectors than it makes calls.
+        index = min(len(self.inputs) - 1, len(self._features) - 1)
+        return [self._features[index].reshape(1, -1)]
 
 
 def _frame(h: int = 64, w: int = 64) -> np.ndarray:
@@ -52,7 +55,7 @@ class TestEmbedding:
         # equals cosine similarity when both vectors are unit length. If raw
         # model output leaked through, every similarity — and so every match
         # threshold — would be meaningless.
-        session = FakeSession(features=np.array([[3.0, 4.0], [0.0, 5.0]]))
+        session = FakeSession(features=[[3.0, 4.0], [0.0, 5.0]])
         embedder = OSNetEmbedder(session=session, input_name="images")
 
         vectors = embedder.embed(_frame(), [_det((0, 0, 10, 20)), _det((20, 20, 30, 40))])
@@ -61,23 +64,30 @@ class TestEmbedding:
         assert vectors[0] == pytest.approx([0.6, 0.8])
         assert np.linalg.norm(vectors[1]) == pytest.approx(1.0)
 
-    def test_every_person_is_embedded_in_one_batched_pass(self):
-        # Three people must cost one forward pass, not three: at 1 fps on an
-        # hour of footage the per-call overhead is what eats the 10% throughput
-        # budget the issue allows.
-        session = FakeSession(features=np.ones((3, 512)))
+    def test_every_crop_is_sent_at_a_constant_input_shape(self):
+        """Crops go one per call, never as a variable-size batch.
+
+        Measured on an RTX 5070: onnxruntime's CUDA provider re-optimises the
+        graph on *every* input-shape change — ~0.5 s, and 4.3 s even when
+        flipping between two shapes it has already warmed. A batch sized by the
+        person count changes shape almost every frame, which made the embedder
+        6.6x more expensive than the entire rest of the pipeline. A constant
+        shape is worth far more here than batching is.
+        """
+        session = FakeSession(features=[[1.0, 1.0]])
         embedder = OSNetEmbedder(session=session, input_name="images")
 
         embedder.embed(_frame(), [_det((0, 0, 10, 20))] * 3)
 
-        assert session.last_input.shape == (3, 3, REID_INPUT_H, REID_INPUT_W)
+        assert len(session.inputs) == 3
+        assert all(t.shape == (1, 3, REID_INPUT_H, REID_INPUT_W) for t in session.inputs)
 
     def test_no_detections_means_no_model_call(self):
-        session = FakeSession(features=np.ones((1, 512)))
+        session = FakeSession(features=[[1.0, 1.0]])
         embedder = OSNetEmbedder(session=session, input_name="images")
 
         assert embedder.embed(_frame(), []) == []
-        assert session.last_input is None
+        assert session.inputs == []
 
 
 class TestAwkwardBoxes:
@@ -90,19 +100,19 @@ class TestAwkwardBoxes:
         # the person's identity would flip for no visible reason.
         frame = np.zeros((64, 64, 3), dtype=np.uint8)
         frame[0:32, 0:32] = 255  # the region the box actually overlaps
-        session = FakeSession(features=np.array([[1.0, 1.0]]))
+        session = FakeSession(features=[[1.0, 1.0]])
         embedder = OSNetEmbedder(session=session, input_name="images")
 
         embedder.embed(frame, [_det((-20.0, -20.0, 32.0, 32.0))])
 
         # White pixels normalize positive, black ones negative — so a positive
         # mean proves we embedded the top-left region and not the black corner.
-        assert session.last_input.mean() > 0.0
+        assert session.inputs[0].mean() > 0.0
 
     def test_zero_area_bbox_does_not_crash_the_run(self):
         # A degenerate box slices to an empty array and blows up cv2.resize.
         # One bad box at minute 19 must not kill a 20-minute GPU job.
-        session = FakeSession(features=np.array([[1.0, 1.0]]))
+        session = FakeSession(features=[[1.0, 1.0]])
         embedder = OSNetEmbedder(session=session, input_name="images")
 
         vectors = embedder.embed(_frame(), [_det((10.0, 10.0, 10.0, 10.0))])

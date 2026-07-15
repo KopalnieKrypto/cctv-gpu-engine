@@ -43,12 +43,23 @@ class OSNetEmbedder:
     input_name: str
 
     def embed(self, frame: np.ndarray, detections: list[Detection]) -> list[np.ndarray]:
-        """Embed every detection's crop in one batched forward pass."""
-        if not detections:
-            return []
-        batch = np.stack([self._crop(frame, det) for det in detections])
-        features = self.session.run(None, {self.input_name: batch})[0]
-        return [self._normalize(feature) for feature in features]
+        """Embed each detection's crop, one crop per forward pass.
+
+        One-at-a-time looks wasteful and is in fact the fast path here. Batching
+        by person count would change the input shape almost every frame, and
+        onnxruntime's CUDA provider re-optimises the graph on *every* shape
+        change — measured on an RTX 5070 at ~0.5 s per change, and still 4.3 s
+        when alternating between two shapes it had already warmed (there is no
+        per-shape cache). That made the embedder 6.6x more expensive than the
+        whole rest of the pipeline. Pinned at batch 1 the shape never changes:
+        ~7.7 ms per person, flat.
+        """
+        return [self._embed_one(frame, det) for det in detections]
+
+    def _embed_one(self, frame: np.ndarray, det: Detection) -> np.ndarray:
+        tensor = self._crop(frame, det)[np.newaxis, ...]  # → (1, 3, H, W)
+        features = self.session.run(None, {self.input_name: tensor})[0]
+        return self._normalize(features[0])
 
     def _crop(self, frame: np.ndarray, det: Detection) -> np.ndarray:
         """One person's bbox → normalized CHW tensor at OSNet input size."""
