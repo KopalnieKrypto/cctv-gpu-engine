@@ -48,6 +48,14 @@ RUN mkdir -p /app/models \
     && curl -fL "${YOLO_MODEL_URL}" -o /app/models/yolo11s-pose.onnx \
     && echo "${YOLO_MODEL_SHA256}  /app/models/yolo11s-pose.onnx" | sha256sum -c -
 
+# OSNet Re-ID weights (issue #32). Person tracking is on by default, so this
+# is as load-bearing as the pose model: without it every job dies on boot in
+# load_reid_model(). 0.7 MB, so it costs the image nothing.
+ARG OSNET_MODEL_URL=https://github.com/KopalnieKrypto/cctv-gpu-engine/releases/download/osnet-x0_25-v1.0/osnet_x0_25.onnx
+ARG OSNET_MODEL_SHA256=86f6314fc903d6b3c7e90c8f4dc5f438fb640faf2840574f3170b749c4765ce6
+RUN curl -fL "${OSNET_MODEL_URL}" -o /app/models/osnet_x0_25.onnx \
+    && echo "${OSNET_MODEL_SHA256}  /app/models/osnet_x0_25.onnx" | sha256sum -c -
+
 # uv (preferred per CLAUDE.md). Pinned version keeps the build reproducible.
 COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /usr/local/bin/uv
 

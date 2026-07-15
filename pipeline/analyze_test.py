@@ -17,15 +17,47 @@ from pipeline.analyze import main
 from pipeline.postprocessing import Detection, Keypoint
 
 
-def _detection(activity: str = "standing", confidence: float = 0.9) -> Detection:
+def _detection(
+    activity: str = "standing",
+    confidence: float = 0.9,
+    bbox: tuple[float, float, float, float] = (100.0, 200.0, 300.0, 600.0),
+) -> Detection:
     kps = [Keypoint(x=float(i), y=float(i * 2), vis=0.95) for i in range(17)]
     det = Detection(
-        bbox=[100.0, 200.0, 300.0, 600.0],
+        bbox=list(bbox),
         confidence=confidence,
         keypoints=kps,
     )
     det.activity = activity
     return det
+
+
+class _FakeEmbedder:
+    """Stands in for the OSNet model — a GPU boundary, like the pose model.
+
+    Gives every distinct bbox its own orthogonal appearance vector: the same
+    box across frames reads as the same person, a different box reads as
+    someone else. Enough for the tracker to behave realistically with no model
+    and no GPU.
+    """
+
+    def __init__(self) -> None:
+        self._identities: dict[tuple, int] = {}
+
+    def embed(self, frame, detections: list[Detection]) -> list[np.ndarray]:
+        vectors = []
+        for det in detections:
+            index = self._identities.setdefault(tuple(det.bbox), len(self._identities))
+            vector = np.zeros(16, dtype=np.float32)
+            vector[index] = 1.0
+            vectors.append(vector)
+        return vectors
+
+
+@pytest.fixture(autouse=True)
+def _fake_reid_model(mocker):
+    """Keep the Re-ID model loader off the GPU for every test in this module."""
+    mocker.patch("pipeline.analyze.load_reid_model", return_value=_FakeEmbedder())
 
 
 class TestAnalyzeCLI:
@@ -713,9 +745,12 @@ class TestRunFullVideoToJson:
         from pipeline.analyze import run_full_video_to_json
 
         fake_frame = np.zeros((40, 60, 3), dtype=np.uint8)
+        # Three frames, not two: since issue #32 a person must persist for
+        # MIN_TRACK_FRAMES before they are counted, so a two-frame fixture now
+        # (correctly) reports nobody and cannot exercise the report schema.
         mocker.patch(
             "pipeline.analyze.iter_frames",
-            return_value=iter([(0.0, fake_frame), (1.0, fake_frame)]),
+            return_value=iter([(float(t), fake_frame) for t in range(3)]),
         )
         fake_detector = MagicMock()
         fake_detector.detect.return_value = [_detection(activity="walking")]
@@ -729,13 +764,13 @@ class TestRunFullVideoToJson:
         assert isinstance(raw, bytes)
         payload = json.loads(raw)
         assert payload["schema_version"] == 1
-        assert payload["total_frames"] == 2
+        assert payload["total_frames"] == 3
         assert payload["peak_persons"] == 1
         # The heuristic smoother reclassifies synthetic keypoints, so the exact
         # label isn't stable — assert it's one of the four canonical buckets.
         assert payload["dominant_activity"] in {"sitting", "standing", "walking", "running"}
         assert set(payload["person_minutes"]) == {"sitting", "standing", "walking", "running"}
-        assert fake_detector.detect.call_count == 2
+        assert fake_detector.detect.call_count == 3
 
     def test_progress_callback_reaches_100_for_json_mode(self, mocker):
         from pathlib import Path
@@ -759,3 +794,122 @@ class TestRunFullVideoToJson:
 
         assert seen[-1] == 100
         assert seen == sorted(seen)
+
+
+class TestTrackingIntegration:
+    """Issue #32 — the tracker sits between pose detection and aggregation.
+
+    These drive the two accuracy complaints the client raised on 2026-07-15
+    through the real pipeline: a cart read as a person, and people going
+    uncounted. Only the GPU boundaries (frame iterator, model loaders) are
+    faked; tracker, filter, aggregator and report renderer all run for real.
+    """
+
+    def test_sporadic_false_positive_never_reaches_the_report(self, mocker, tmp_path):
+        # Film 1's bench-on-wheels: YOLO calls it a person for two frames of a
+        # five-frame clip, and the report showed "peak 2 people" when there was
+        # only ever one. Two frames is not a person.
+        fake_frame = np.zeros((40, 60, 3), dtype=np.uint8)
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            return_value=iter([(float(t), fake_frame) for t in range(5)]),
+        )
+
+        # Sitting, not walking: the fixture's bboxes never move, and the
+        # ActivitySmoother rightly rewrites a stationary "walking" label to
+        # "standing". Sitting keeps this test about the filter.
+        def person():
+            return _detection(activity="sitting", bbox=(100.0, 200.0, 300.0, 600.0))
+
+        def bench():
+            return _detection(activity="sitting", bbox=(10.0, 10.0, 30.0, 40.0))
+
+        fake_detector = MagicMock()
+        fake_detector.detect.side_effect = [
+            [person()],
+            [person()],
+            [person(), bench()],
+            [person(), bench()],
+            [person()],
+        ]
+        mocker.patch("pipeline.analyze.load_pose_model", return_value=fake_detector)
+
+        out_path = tmp_path / "result.json"
+        assert main(["video.mp4", "--output", str(out_path)]) == 0
+
+        payload = json.loads(out_path.read_text(encoding="utf-8"))
+        assert payload["peak_persons"] == 1
+        # Five frames of one real person, and nothing at all from the bench.
+        assert payload["person_minutes"]["sitting"] == pytest.approx(5 / 60)
+
+    def test_person_present_throughout_is_counted_from_their_first_frame(self, mocker, tmp_path):
+        # The filter withholds a track's first two frames until it proves
+        # itself. Once proven, those frames must be released — otherwise every
+        # person silently loses 2 s and we trade one bias for another.
+        fake_frame = np.zeros((40, 60, 3), dtype=np.uint8)
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            return_value=iter([(float(t), fake_frame) for t in range(4)]),
+        )
+        fake_detector = MagicMock()
+        fake_detector.detect.return_value = [_detection(activity="sitting")]
+        mocker.patch("pipeline.analyze.load_pose_model", return_value=fake_detector)
+
+        out_path = tmp_path / "result.json"
+        assert main(["video.mp4", "--output", str(out_path)]) == 0
+
+        payload = json.loads(out_path.read_text(encoding="utf-8"))
+        assert payload["person_minutes"]["sitting"] == pytest.approx(4 / 60)
+        assert payload["total_frames"] == 4
+
+    def test_detections_dump_records_the_track_each_person_belongs_to(self, mocker, tmp_path):
+        # The dump is the post-hoc audit trail (issue #35): without track_id
+        # there is no way to reconstruct why a detection was counted or
+        # filtered, which is exactly the bench argument we had to settle once.
+        fake_frame = np.zeros((40, 60, 3), dtype=np.uint8)
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            return_value=iter([(float(t), fake_frame) for t in range(3)]),
+        )
+        fake_detector = MagicMock()
+        fake_detector.detect.return_value = [_detection(activity="walking")]
+        mocker.patch("pipeline.analyze.load_pose_model", return_value=fake_detector)
+
+        dump_path = tmp_path / "detections.jsonl"
+        main(
+            [
+                "video.mp4",
+                "--output",
+                str(tmp_path / "result.json"),
+                "--dump-detections",
+                str(dump_path),
+            ]
+        )
+
+        lines = [json.loads(line) for line in dump_path.read_text().splitlines()]
+        track_ids = [person["track_id"] for line in lines for person in line["persons"]]
+        assert len(track_ids) == 3
+        assert len(set(track_ids)) == 1  # one person, one identity, all three frames
+
+    def test_no_tracker_flag_restores_the_untracked_behaviour(self, mocker, tmp_path):
+        # The rollback lever, and how the re-baseline gets its "before" column:
+        # with tracking off the two-frame bench counts as a person again, which
+        # is exactly the pre-#32 behaviour the report needs to compare against.
+        fake_frame = np.zeros((40, 60, 3), dtype=np.uint8)
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            return_value=iter([(float(t), fake_frame) for t in range(5)]),
+        )
+        fake_detector = MagicMock()
+        fake_detector.detect.return_value = [
+            _detection(activity="sitting", bbox=(100.0, 200.0, 300.0, 600.0)),
+            _detection(activity="sitting", bbox=(10.0, 10.0, 30.0, 40.0)),
+        ]
+        mocker.patch("pipeline.analyze.load_pose_model", return_value=fake_detector)
+
+        out_path = tmp_path / "result.json"
+        assert main(["video.mp4", "--output", str(out_path), "--no-tracker"]) == 0
+
+        payload = json.loads(out_path.read_text(encoding="utf-8"))
+        assert payload["peak_persons"] == 2
+        assert payload["person_minutes"]["sitting"] == pytest.approx(10 / 60)

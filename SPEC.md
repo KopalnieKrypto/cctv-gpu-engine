@@ -35,7 +35,8 @@ Important boundary:
 ### 2.2 Non-Goals
 
 - Live/real-time RTSP monitoring or streaming analysis.
-- Per-person tracking or re-identification (ByteTrack/DeepSORT — deferred).
+- Re-identification across videos, cameras or days (within-video tracking landed in issue #32; cross-video identity is a separate product tier).
+- Face recognition or enrolled identity (separate product tier).
 - Complex activity recognition beyond sit/stand/walk/run.
 - RODO/GDPR compliance (deferred to production).
 - Platform integration (problem_type, billing, tenant isolation — Phase 4).
@@ -559,7 +560,7 @@ When prototype is validated, integrate into the main ML Compute Exchange platfor
 | Docker | Standalone compose | Added to `gpu-agent` docker-compose (port 5003) |
 | Video delivery | Client-agent only | Client-agent OR dashboard upload |
 | Status updates | R2 polling | SSE via data-service (existing pattern) |
-| Tracking | Per-frame aggregation | ByteTrack per-person tracking |
+| Tracking | ByteTrack + OSNet Re-ID, within-video (#32) | Cross-video / cross-camera re-identification |
 | RODO | Ignored | Umowa powierzenia, DPIA, optional face blur |
 
 ## 13. Risks and Mitigations

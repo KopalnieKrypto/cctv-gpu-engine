@@ -23,10 +23,17 @@ Schema — one JSON object per line (JSONL), one line per processed frame::
           "bbox": [x1, y1, x2, y2],
           "confidence": float,
           "activity": str,
+          "track_id": int | None,  # person identity (issue #32); None = untracked
           "keypoints": [{"x": float, "y": float, "vis": float}]  # 17 COCO points
         }
       ]
     }
+
+The dump is deliberately *unfiltered*: it records every detection the model
+made, including tracks the min-track-length filter later rejected and boxes the
+tracker refused to identify (``track_id: null``). That is the point — it is the
+audit trail for "why was this counted?", and a filtered dump could not answer
+the question. Aggregated numbers come from ``result.json``, not from here.
 """
 
 from __future__ import annotations
@@ -48,6 +55,9 @@ def detection_to_dict(det: Detection) -> dict:
         "bbox": [float(v) for v in det.bbox],
         "confidence": float(det.confidence),
         "activity": det.activity,
+        # None when tracking is off, or when the tracker refused this box an
+        # identity — either way, the aggregator did not count it.
+        "track_id": det.track_id,
         "keypoints": [
             {"x": float(kp.x), "y": float(kp.y), "vis": float(kp.vis)} for kp in det.keypoints
         ],

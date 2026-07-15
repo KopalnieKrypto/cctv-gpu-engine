@@ -31,8 +31,11 @@ from pipeline.aggregator import Aggregator, ReportData
 from pipeline.detections_dump import detection_to_dict
 from pipeline.frame_extractor import extract_frame_at
 from pipeline.pose_detector import load_pose_model
+from pipeline.reid import DEFAULT_REID_MODEL_PATH, load_reid_model
 from pipeline.report_json import render_report_json
 from pipeline.report_renderer import render_report
+from pipeline.track_filter import MinTrackLengthFilter
+from pipeline.tracker import DEFAULT_MAX_TRACK_AGE_S, PersonTracker
 from pipeline.video_frames import iter_frames
 
 DEFAULT_FPS = 1
@@ -45,6 +48,30 @@ DEFAULT_FPS = 1
 PROGRESS_FRAME_INTERVAL = 3
 
 
+def _aggregate(
+    aggregator: Aggregator,
+    track_filter: MinTrackLengthFilter | None,
+    timestamp_s: float,
+    frame,
+    detections: list,
+) -> None:
+    """Hand one analysed frame to the aggregator, through the filter if enabled.
+
+    With filtering on, frames reach the aggregator a couple of steps late —
+    that is the cost of only counting tracks that proved they persist — so
+    nothing here may assume a frame is aggregated during its own iteration.
+    """
+    if track_filter is None:
+        aggregator.add_frame(timestamp_s=timestamp_s, frame=frame, detections=detections)
+        return
+    for confirmed in track_filter.push(timestamp_s, frame, detections):
+        aggregator.add_frame(
+            timestamp_s=confirmed.timestamp_s,
+            frame=confirmed.frame,
+            detections=confirmed.detections,
+        )
+
+
 def _analyze_to_report_data(
     chunks: list[Path],
     progress: Callable[[int], None] | None = None,
@@ -52,6 +79,9 @@ def _analyze_to_report_data(
     fps: int = DEFAULT_FPS,
     classifier: str = "heuristic",
     dump_detections: Path | None = None,
+    track_persons: bool = True,
+    reid_model_path: str = DEFAULT_REID_MODEL_PATH,
+    max_track_age_s: float = DEFAULT_MAX_TRACK_AGE_S,
 ) -> ReportData:
     """Run YOLO-pose pipeline across one or more MP4 chunks → :class:`ReportData`.
 
@@ -93,6 +123,20 @@ def _analyze_to_report_data(
     detector = load_pose_model(model_path)
     aggregator = Aggregator(fps=fps)
 
+    # Identity first, then the min-track-length gate: the tracker decides *who*
+    # each detection is, the filter decides whether that identity has earned the
+    # right to count (issue #32). Both sit downstream of pose detection and
+    # upstream of aggregation, so every consumer inherits the filtering.
+    person_tracker = (
+        PersonTracker(
+            embedder=load_reid_model(reid_model_path),
+            max_track_age_s=max_track_age_s,
+        )
+        if track_persons
+        else None
+    )
+    track_filter = MinTrackLengthFilter() if track_persons else None
+
     with DetectionsDumpWriter(dump_detections) as dump:
         # --- VLM hybrid path -----------------------------------------------
         if classifier == "vlm":
@@ -110,6 +154,8 @@ def _analyze_to_report_data(
                 for timestamp_s, frame in iter_frames(str(chunk), fps=fps):
                     shifted = timestamp_s + time_offset
                     detections = detector.detect(frame)
+                    if person_tracker is not None:
+                        detections = person_tracker.update(frame, detections, shifted)
 
                     if detections:
                         # Per-person walking decision via nearest-center matching
@@ -148,8 +194,8 @@ def _analyze_to_report_data(
                     else:
                         prev_centers = []
 
-                    aggregator.add_frame(timestamp_s=shifted, frame=frame, detections=detections)
                     dump.write_frame(shifted, detections)
+                    _aggregate(aggregator, track_filter, shifted, frame, detections)
                     last_ts = shifted
                     frames_since_progress += 1
                     if progress is not None and frames_since_progress >= PROGRESS_FRAME_INTERVAL:
@@ -171,9 +217,11 @@ def _analyze_to_report_data(
                 for timestamp_s, frame in iter_frames(str(chunk), fps=fps):
                     shifted = timestamp_s + time_offset
                     detections = detector.detect(frame)
+                    if person_tracker is not None:
+                        detections = person_tracker.update(frame, detections, shifted)
                     detections = smoother.smooth(detections)
-                    aggregator.add_frame(timestamp_s=shifted, frame=frame, detections=detections)
                     dump.write_frame(shifted, detections)
+                    _aggregate(aggregator, track_filter, shifted, frame, detections)
                     last_ts = shifted
                     frames_since_progress += 1
                     if progress is not None and frames_since_progress >= PROGRESS_FRAME_INTERVAL:
@@ -182,6 +230,16 @@ def _analyze_to_report_data(
                 time_offset = last_ts + step
                 if progress is not None:
                     progress(int((chunk_index + 1) / len(chunks) * 100))
+
+    if track_filter is not None:
+        # End of video: whatever is still held back is judged on what we know
+        # now. A track that never reached the minimum dies here.
+        for confirmed in track_filter.flush():
+            aggregator.add_frame(
+                timestamp_s=confirmed.timestamp_s,
+                frame=confirmed.frame,
+                detections=confirmed.detections,
+            )
 
     return aggregator.build_report_data()
 
@@ -193,6 +251,9 @@ def run_full_video_to_json(
     fps: int = DEFAULT_FPS,
     classifier: str = "heuristic",
     dump_detections: Path | None = None,
+    track_persons: bool = True,
+    reid_model_path: str = DEFAULT_REID_MODEL_PATH,
+    max_track_age_s: float = DEFAULT_MAX_TRACK_AGE_S,
 ) -> bytes:
     """Run the pipeline and return the canonical ``result.json`` bytes (issue #72).
 
@@ -200,7 +261,7 @@ def run_full_video_to_json(
     platform renders it natively in React, so the JSON is pure data (base64
     JPEG keyframes, no brand/i18n/presentation strings). See
     :func:`_analyze_to_report_data` for the
-    ``progress``/``classifier``/``dump_detections`` contract.
+    ``progress``/``classifier``/``dump_detections``/``track_persons`` contract.
     """
     return render_report_json(
         _analyze_to_report_data(
@@ -210,6 +271,9 @@ def run_full_video_to_json(
             fps=fps,
             classifier=classifier,
             dump_detections=dump_detections,
+            track_persons=track_persons,
+            reid_model_path=reid_model_path,
+            max_track_age_s=max_track_age_s,
         )
     )
 
@@ -221,6 +285,9 @@ def run_full_video_to_html(
     fps: int = DEFAULT_FPS,
     classifier: str = "heuristic",
     dump_detections: Path | None = None,
+    track_persons: bool = True,
+    reid_model_path: str = DEFAULT_REID_MODEL_PATH,
+    max_track_age_s: float = DEFAULT_MAX_TRACK_AGE_S,
 ) -> bytes:
     """Run the pipeline and return a standalone HTML report as bytes.
 
@@ -237,6 +304,9 @@ def run_full_video_to_html(
             fps=fps,
             classifier=classifier,
             dump_detections=dump_detections,
+            track_persons=track_persons,
+            reid_model_path=reid_model_path,
+            max_track_age_s=max_track_age_s,
         )
     ).encode("utf-8")
 
@@ -285,6 +355,28 @@ def _build_parser() -> argparse.ArgumentParser:
         "default) or html (debug-only standalone report)",
     )
     parser.add_argument(
+        "--reid-model",
+        default=DEFAULT_REID_MODEL_PATH,
+        help="Path to the OSNet Re-ID ONNX model used for person tracking",
+    )
+    parser.add_argument(
+        "--no-tracker",
+        dest="track_persons",
+        action="store_false",
+        help="Disable person tracking, counting every detection as before "
+        "issue #32. Sporadic false positives (the bench-on-wheels) count as "
+        "people again — use only to reproduce pre-tracking baselines.",
+    )
+    parser.add_argument(
+        "--max-track-age",
+        type=float,
+        default=DEFAULT_MAX_TRACK_AGE_S,
+        metavar="SECONDS",
+        help="How long a person may leave the frame and still be recognised as "
+        "the same person on return. Longer re-matches more returners but risks "
+        f"confusing two people for one (default: {DEFAULT_MAX_TRACK_AGE_S:.0f})",
+    )
+    parser.add_argument(
         "--dump-detections",
         type=str,
         default=None,
@@ -326,6 +418,9 @@ def _run_full_video(args: argparse.Namespace) -> int:
             fps=args.fps,
             classifier=args.classifier,
             dump_detections=dump_path,
+            track_persons=args.track_persons,
+            reid_model_path=args.reid_model,
+            max_track_age_s=args.max_track_age,
         )
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)

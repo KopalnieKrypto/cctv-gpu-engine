@@ -195,6 +195,25 @@ Sledzenie kazdej osoby miedzy klatkami z unikalnym ID.
 
 Dla walidacji koncepcji agregat per-frame wystarczy. Klient widzi "laczne 45 osobo-minut stania" — to juz odpowiada na pytanie "czym sie zajmowali ludzie". Per-person tracking to naturalne rozszerzenie po walidacji MVP.
 
+### Aktualizacja 2026-07-15 — wybrano Opcje B (issue #32)
+
+**Status: Opcja A zastapiona przez Opcje B.** "Naturalne rozszerzenie po walidacji MVP" nadeszlo: platny pilot na jednej gietarce wymaga trackingu.
+
+Co wymusilo zmiane:
+
+1. **Dokladnosc.** Klasyfikacja per-frame myli sie o ±16 s (Film 1) i ±7 s (Film 2) wzgledem anotacji recznej. Zrodla bledu — nadwrazliwy prog chodzenia, aliasing przejsc przy 1 fps, sporadyczne false-positive (wozek/lawka na kolkach czytane jako osoba) — wszystkie wynikaja z braku ciaglosci tozsamosci miedzy klatkami. VLM poprawil dokladnosc *per-frame*, ale nie ma pamieci miedzy klatkami, wiec problemu nie rozwiazal.
+2. **Skargi klienta (2026-07-15).** "Wozek z tasma liczony jako osoba" → filtr min-track-length. "Wiecej ludzi niz policzono" → zliczanie osobo-minut per track.
+3. **Zone tier (#77).** Wykrywanie obecnosci/nieobecnosci przy stanowisku i rozmow wymaga stabilnych ID w obrebie nagrania — bez tego nie odroznimy pracownika od przechodnia.
+
+Decyzje projektowe (doradztwo Andrew Ng, 2026-05-27):
+
+- **Metryka asocjacji: wyglad (OSNet Re-ID), nie IoU.** Przy 1 fps osoba przemieszcza sie miedzy klatkami za daleko, zeby pokrycie boxow cokolwiek znaczylo; standardowy Kalman tez nie ma tu rozdzielczosci czasowej.
+- **Dedykowany model OSNet**, nie reuse cech posrednich YOLO — modele Re-ID sa duzo lepsze w utrzymaniu tozsamosci przy 1 fps.
+- **Filtr na lawke-na-kolkach: wylacznie min-track-length**, bez progu confidence YOLO (realna osoba w trudnych klatkach ma 0.62–0.92, nie ma czystego ciecia) i bez klasyfikatora osoba/nie-osoba.
+- **Domyslnie dzielic, nie scalac** (`max_track_age_s` = 120 s). Scalenie dwoch osob w jeden track po cichu psuje osobo-minuty; podzial jednej osoby na dwa tracki tylko pokazuje przerwe w obecnosci. Przy raportowaniu czasu ten drugi blad jest znacznie tanszy.
+
+Poza zakresem (osobne tiery produktowe): rozpoznawanie twarzy, re-identyfikacja miedzy nagraniami/dniami/kamerami.
+
 ---
 
 ## 7. Decyzja 5: Prototyp vs. integracja

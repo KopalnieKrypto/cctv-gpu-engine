@@ -41,6 +41,9 @@ class Detection:
     confidence: float
     keypoints: list[Keypoint]
     activity: str = "unknown"
+    # Stable within-video person identity, stamped by pipeline.tracker
+    # (issue #32). None until the tracker has seen this detection.
+    track_id: int | None = None
 
 
 def _iou(a: list[float], b: list[float]) -> float:

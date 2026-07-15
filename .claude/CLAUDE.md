@@ -73,6 +73,8 @@ client appliance (bare-metal, Flask :8080) → R2 (presigned URLs) → gpu-servi
 - YOLO-pose output `[1,56,N]` transposed: rows 0-3 bbox, row 4 conf, rows 5-55 keypoints (17×3)
 - Preprocessing: PIL RGB → resize 640×640 → float32 /255 → CHW → batch dim
 - Activity classes: sitting, standing, walking, running — no others
+- Person tracking (issue #32) sits between pose detection and aggregation and is **on by default**: OSNet Re-ID cosine similarity is the association metric (never IoU — useless at 1 fps), and a track must persist `MIN_TRACK_FRAMES` (3) consecutive frames before it counts. `--no-tracker` reproduces pre-#32 numbers for baseline comparison. Requires `models/osnet_x0_25.onnx` from `setup-models.sh`.
+- Tracking defaults favour splitting one person into two tracks over merging two people into one (`max_track_age_s` 120 s) — for person-minute reporting a merge silently corrupts the numbers, a split only shows an absence gap
 - Reports: standalone HTML, zero external deps (vendored Chart.js, base64 images)
 - R2 bucket: `surveillance-data`. Key: `surveillance-jobs/{job_id}/`
 - Job coordination: `status.json` in R2, no database
@@ -85,7 +87,7 @@ client appliance (bare-metal, Flask :8080) → R2 (presigned URLs) → gpu-servi
 - Don't add CPU inference fallback — breaks 1:1 processing guarantee
 - Don't trust `ort.get_available_providers()` alone — also check `session.get_providers()` after init to catch silent CPU fallback (microsoft/onnxruntime#25145).
 - Don't use `python:slim` Docker images for GPU workloads
-- Don't add per-person tracking (ByteTrack/DeepSORT) — deferred
+- Don't add per-person *re-identification across videos or days* — within-video tracking is in (issue #32), cross-video identity is a separate product tier
 - Don't add RTSP live monitoring — batch only
 - Don't add face recognition or person identification
 - Don't worry about RODO/GDPR — deferred to production
@@ -104,6 +106,9 @@ client appliance (bare-metal, Flask :8080) → R2 (presigned URLs) → gpu-servi
 ├── pipeline/                  # Core AI pipeline (CLI: python -m pipeline.analyze)
 │   ├── analyze.py             # full-video CLI entry point
 │   ├── pose_detector.py       # ONNX session + CUDAExecutionProvider guard
+│   ├── tracker.py             # PersonTracker — OSNet-similarity association → stable track_id (#32)
+│   ├── reid.py                # OSNetEmbedder — bbox crop → L2-normalized appearance vector (#32)
+│   ├── track_filter.py        # MinTrackLengthFilter — delay line, only proven tracks aggregate (#32)
 │   ├── activity_classifier.py # heuristic classifier + ActivitySmoother (displacement)
 │   ├── vlm_classifier.py      # Qwen2.5-VL-3B wrapper for VLM classification
 │   ├── report_renderer.py     # Jinja2 → standalone HTML (vendored Chart.js)

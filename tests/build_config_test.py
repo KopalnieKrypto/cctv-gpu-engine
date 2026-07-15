@@ -588,3 +588,66 @@ class TestRuffJobScope:
             f"formats these locally; CI must verify (issue #15). Got "
             f"command(s): {format_cmds}"
         )
+
+
+class TestGpuServiceDockerfileBundlesReidModel:
+    """The OSNet Re-ID model must ship in the image too (issue #32).
+
+    Person tracking is on by default, so the gpu-service boots straight into
+    ``load_reid_model()``. Same reasoning as the pose model in issue #31: REST
+    mode has no bind-mount, so weights that only exist on the host are a crash
+    on the first job rather than a missing-file warning at build time.
+    """
+
+    REID_MODEL_FILENAME = "osnet_x0_25.onnx"
+
+    @staticmethod
+    def _dockerfile_text() -> str:
+        return GPU_SERVICE_DOCKERFILE.read_text()
+
+    def test_dockerfile_materializes_reid_model(self):
+        text = self._dockerfile_text()
+
+        copy_pattern = re.compile(
+            r"^\s*COPY\s+\S*" + re.escape(self.REID_MODEL_FILENAME),
+            re.MULTILINE,
+        )
+        run_pattern = re.compile(
+            r"RUN[^\n]*(?:\\\n[^\n]*)*" + re.escape(self.REID_MODEL_FILENAME),
+            re.DOTALL,
+        )
+
+        assert copy_pattern.search(text) or run_pattern.search(text), (
+            f"gpu-service/Dockerfile does not materialize /app/models/"
+            f"{self.REID_MODEL_FILENAME} during build. Tracking is on by "
+            f"default (issue #32), so without it every job dies in "
+            f"load_reid_model() with NO_SUCHFILE."
+        )
+
+    def test_dockerfile_reid_sha256_matches_setup_models_script(self):
+        """Same cross-check as the pose model: local dev and the image must
+        pin identical Re-ID weights, or identity decisions — and therefore
+        person-minute totals — differ between environments for no visible
+        reason."""
+        dockerfile = self._dockerfile_text()
+        script = SETUP_MODELS_SCRIPT.read_text()
+
+        dockerfile_pin = re.search(r"ARG\s+OSNET_MODEL_SHA256\s*=\s*([0-9a-fA-F]{64})", dockerfile)
+        assert dockerfile_pin, (
+            "gpu-service/Dockerfile has no `ARG OSNET_MODEL_SHA256=<hex>` line — "
+            "the build_config_test relies on this ARG to cross-check the pin "
+            "against setup-models.sh."
+        )
+
+        script_pin = re.search(r'OSNET_SHA256="\$\{OSNET_SHA256:-([0-9a-fA-F]{64})\}"', script)
+        assert script_pin, (
+            "setup-models.sh has no parseable `OSNET_SHA256:-<hex>` default. "
+            "If you changed the variable convention, update this test."
+        )
+
+        assert dockerfile_pin.group(1).lower() == script_pin.group(1).lower(), (
+            f"sha256 drift between Dockerfile and setup-models.sh for the Re-ID "
+            f"model:\n  Dockerfile ARG: {dockerfile_pin.group(1)}\n"
+            f"  setup-models.sh: {script_pin.group(1)}\n"
+            f"Bump both together when releasing a new osnet-x0_25-vN.0 tag."
+        )
