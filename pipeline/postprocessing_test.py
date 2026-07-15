@@ -105,9 +105,17 @@ class TestPostprocessConfidenceFilter:
 
 
 class TestPostprocessCoordinateScaling:
-    def test_scales_bbox_and_keypoints_to_non_square_original_image(self):
-        # Person centered in 640-space, model thinks they are at (320, 320)
-        # with bbox 100×200. Original image is 1920×1080 (sx=3.0, sy=1.6875).
+    def test_maps_bbox_and_keypoints_back_through_the_letterbox(self):
+        """Coordinates must be un-padded, then un-scaled by one factor (#83).
+
+        ``preprocess`` letterboxes 1920×1080 into the 640 box: one scale of
+        640/1920 = 1/3 for both axes, leaving (640-360)/2 = 140 rows of padding
+        top and bottom. Inverting that means subtracting the padding *before*
+        dividing by the scale. Undoing it with the old per-axis stretch would
+        misplace every box vertically while looking plausible horizontally —
+        the worst kind of wrong.
+        """
+        # Person centered in 640-space: model says (320, 320), bbox 100×200.
         kps = [(320.0, 320.0, 0.9)] + [(0.0, 0.0, 0.0)] * 16
         output = _make_yolo_output(
             boxes=[(320.0, 320.0, 100.0, 200.0, 0.9)],
@@ -118,16 +126,42 @@ class TestPostprocessCoordinateScaling:
 
         assert len(detections) == 1
         det = detections[0]
-        # bbox: x scaled by 3.0, y scaled by 1.6875
-        # x1=(320-50)*3=810, x2=(320+50)*3=1110
-        # y1=(320-100)*1.6875=371.25, y2=(320+100)*1.6875=708.75
-        assert det.bbox == pytest.approx([810.0, 371.25, 1110.0, 708.75], abs=1e-3)
-        # keypoint 0 at center scales: 320*3=960, 320*1.6875=540
+        # x: no padding on this axis → x1=(320-50)*3=810, x2=(320+50)*3=1110
+        # y: strip the 140-row band first → y1=(220-140)*3=240, y2=(420-140)*3=840
+        # The 1:2 box in model space stays 1:2 (300×600) in the original, which
+        # is the whole point — the old squash returned a distorted 300×337.5.
+        assert det.bbox == pytest.approx([810.0, 240.0, 1110.0, 840.0], abs=1e-3)
+        # Centre of the letterboxed image is still the centre of the original.
         kp = det.keypoints[0]
         assert kp.x == pytest.approx(960.0, abs=1e-3)
         assert kp.y == pytest.approx(540.0, abs=1e-3)
         # visibility is NOT scaled — it's a confidence, not a coord
         assert kp.vis == pytest.approx(0.9, abs=1e-5)
+
+    def test_round_trips_a_known_box_through_preprocess_and_back(self):
+        """A box drawn at known pixels must come back at those same pixels.
+
+        Guards the forward/inverse pair as a unit: any drift between the
+        letterbox in preprocess and the un-letterbox here shows up as the box
+        landing somewhere else.
+        """
+        from pipeline.preprocessing import letterbox_params
+
+        orig_w, orig_h = 1280, 720
+        scale, pad_x, pad_y = letterbox_params(orig_w, orig_h)
+        # A person at (400, 300)–(500, 600) in the original image.
+        x1, y1, x2, y2 = 400.0, 300.0, 500.0, 600.0
+        # Where the model would see them, given the letterbox:
+        mx1, my1 = x1 * scale + pad_x, y1 * scale + pad_y
+        mx2, my2 = x2 * scale + pad_x, y2 * scale + pad_y
+        output = _make_yolo_output(
+            boxes=[((mx1 + mx2) / 2, (my1 + my2) / 2, mx2 - mx1, my2 - my1, 0.9)],
+            keypoints_per_box=[[(0.0, 0.0, 0.0)] * 17],
+        )
+
+        detections = postprocess(output, orig_w=orig_w, orig_h=orig_h)
+
+        assert detections[0].bbox == pytest.approx([x1, y1, x2, y2], abs=1e-3)
 
 
 class TestNMS:

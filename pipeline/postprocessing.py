@@ -7,8 +7,11 @@ candidate detections. Channel layout per detection:
 * row 4: confidence
 * rows 5-55: 17 COCO keypoints × (x, y, visibility)
 
-Coordinates are scaled back from 640-space to original image dimensions before
-detections are returned to callers.
+Coordinates are mapped back from 640-space to original image pixels before
+detections are returned to callers. That means inverting the **letterbox**
+:mod:`pipeline.preprocessing` applied — strip the padding band, then divide by
+the single scale factor. Both directions read the transform from
+``letterbox_params`` so they cannot disagree (issue #83).
 """
 
 from __future__ import annotations
@@ -17,7 +20,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from pipeline.preprocessing import IMG_SIZE
+from pipeline.preprocessing import letterbox_params
 
 CONFIDENCE_THRESHOLD = 0.25
 NMS_IOU_THRESHOLD = 0.45
@@ -81,8 +84,16 @@ def postprocess(
     """Parse a YOLO-pose ``[1, 56, N]`` tensor into Detection objects."""
     data = output[0]  # → [56, N]
     num_boxes = data.shape[1]
-    sx = orig_w / IMG_SIZE
-    sy = orig_h / IMG_SIZE
+    # Invert the letterbox that preprocess applied: strip the padding, then
+    # undo the single scale. Both sides read the transform from the same helper
+    # so they cannot drift (issue #83).
+    scale, pad_x, pad_y = letterbox_params(orig_w, orig_h)
+
+    def to_orig_x(x: float) -> float:
+        return (x - pad_x) / scale
+
+    def to_orig_y(y: float) -> float:
+        return (y - pad_y) / scale
 
     detections: list[Detection] = []
     for i in range(num_boxes):
@@ -94,18 +105,18 @@ def postprocess(
         w = float(data[2, i])
         h = float(data[3, i])
 
-        x1 = (cx - w / 2) * sx
-        y1 = (cy - h / 2) * sy
-        x2 = (cx + w / 2) * sx
-        y2 = (cy + h / 2) * sy
+        x1 = to_orig_x(cx - w / 2)
+        y1 = to_orig_y(cy - h / 2)
+        x2 = to_orig_x(cx + w / 2)
+        y2 = to_orig_y(cy + h / 2)
 
         kps: list[Keypoint] = []
         for k in range(NUM_KEYPOINTS):
             base = 5 + k * 3
             kps.append(
                 Keypoint(
-                    x=float(data[base, i]) * sx,
-                    y=float(data[base + 1, i]) * sy,
+                    x=to_orig_x(float(data[base, i])),
+                    y=to_orig_y(float(data[base + 1, i])),
                     vis=float(data[base + 2, i]),
                 )
             )
