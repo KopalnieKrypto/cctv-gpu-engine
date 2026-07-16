@@ -123,4 +123,5 @@ addopts = [
 markers = [
     "gpu: requires NVIDIA GPU with CUDAExecutionProvider (skipped by default)",
     "integration: requires real ffmpeg binary or real video file (skipped by default)",
+    "perf: validates a measured performance artifact from representative GPU data",
 ]

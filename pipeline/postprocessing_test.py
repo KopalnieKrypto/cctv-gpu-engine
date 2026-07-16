@@ -26,8 +26,9 @@ def _make_yolo_output(
 ) -> np.ndarray:
     """Build a synthetic YOLO-pose output tensor [1, 56, N].
 
-    Each box is (cx, cy, w, h, conf) in 640-space; keypoints are 17 (x, y, vis)
-    triples in 640-space. If keypoints_per_box is None, all keypoints are zero.
+    Each box is (cx, cy, w, h, conf) in model-input space; keypoints are 17
+    (x, y, vis) triples in the same space. If keypoints_per_box is None, all
+    keypoints are zero.
     """
     n = len(boxes)
     data = np.zeros((1, 56, n), dtype=np.float32)
@@ -105,6 +106,46 @@ class TestPostprocessConfidenceFilter:
 
 
 class TestPostprocessCoordinateScaling:
+    @pytest.mark.parametrize("orig_w,orig_h", [(1920, 1080), (1080, 1920), (1000, 1000)])
+    @pytest.mark.parametrize("input_size", [640, 1280])
+    def test_bbox_and_keypoints_round_trip_for_every_supported_frame_shape(
+        self, orig_w, orig_h, input_size
+    ):
+        """Issue #86: one shared transform stays exact at 640 and 1280."""
+        from pipeline.preprocessing import letterbox_params
+
+        x1, y1 = orig_w * 0.25, orig_h * 0.20
+        x2, y2 = orig_w * 0.75, orig_h * 0.80
+        keypoint_x, keypoint_y = orig_w * 0.60, orig_h * 0.70
+        scale, pad_x, pad_y = letterbox_params(orig_w, orig_h, input_size)
+
+        def model_x(value):
+            return value * scale + pad_x
+
+        def model_y(value):
+            return value * scale + pad_y
+
+        mx1, my1 = model_x(x1), model_y(y1)
+        mx2, my2 = model_x(x2), model_y(y2)
+        keypoints = [(model_x(keypoint_x), model_y(keypoint_y), 0.9)] * 17
+        output = _make_yolo_output(
+            [((mx1 + mx2) / 2, (my1 + my2) / 2, mx2 - mx1, my2 - my1, 0.9)],
+            [keypoints],
+        )
+
+        [detection] = postprocess(
+            output,
+            orig_w=orig_w,
+            orig_h=orig_h,
+            input_size=input_size,
+        )
+
+        assert detection.bbox == pytest.approx([x1, y1, x2, y2], abs=1e-3)
+        assert [(kp.x, kp.y) for kp in detection.keypoints] == pytest.approx(
+            [(keypoint_x, keypoint_y)] * 17,
+            abs=1e-3,
+        )
+
     def test_maps_bbox_and_keypoints_back_through_the_letterbox(self):
         """Coordinates must be un-padded, then un-scaled by one factor (#83).
 

@@ -16,6 +16,20 @@ from pipeline.pose_detector import PoseDetector, load_pose_model
 
 
 class TestLoadPoseModel:
+    """Public loader contract for fixed-shape YOLO-pose models.
+
+    Issue #86 assumptions recorded before the first RED:
+
+    * Input: exactly one fixed rank-4 image tensor shaped ``[1, 3, S, S]``;
+      ``S`` is a positive integer. Fixed 640 and 1280 are supported.
+    * Output: the loader returns a detector that feeds the session at its
+      declared ``S`` and returns detections in original-frame coordinates.
+    * Errors: dynamic, non-square, wrong-rank, wrong-batch/channel, and
+      otherwise malformed shapes fail at load time with an actionable error.
+    * Boundaries intentionally deferred to later REDs: ROI cropping, benchmark
+      eligibility, production-default selection, and real CUDA performance.
+    """
+
     def test_raises_runtime_error_when_cuda_provider_not_available(self, mocker):
         # Simulate a machine where ONNX Runtime has no CUDAExecutionProvider.
         mocker.patch(
@@ -53,6 +67,10 @@ class TestLoadPoseModel:
             "CUDAExecutionProvider",
             "CPUExecutionProvider",
         ]
+        fake_input = MagicMock()
+        fake_input.name = "images"
+        fake_input.shape = [1, 3, 640, 640]
+        fake_session.get_inputs.return_value = [fake_input]
         mocker.patch(
             "pipeline.pose_detector.ort.InferenceSession",
             return_value=fake_session,
@@ -79,6 +97,10 @@ class TestLoadPoseModel:
             "CUDAExecutionProvider",
             "CPUExecutionProvider",
         ]
+        fake_input = MagicMock()
+        fake_input.name = "images"
+        fake_input.shape = [1, 3, 640, 640]
+        fake_session.get_inputs.return_value = [fake_input]
 
         preload_mock = mocker.patch("pipeline.pose_detector.ort.preload_dlls")
         session_mock = mocker.patch(
@@ -97,6 +119,85 @@ class TestLoadPoseModel:
         session_mock.assert_called_once()
         call_names = [c[0] for c in manager.mock_calls]
         assert call_names.index("preload") < call_names.index("session")
+
+    def test_fixed_1280_model_receives_1280_tensor_and_returns_original_coordinates(self, mocker):
+        mocker.patch(
+            "pipeline.pose_detector.ort.get_available_providers",
+            return_value=["CUDAExecutionProvider", "CPUExecutionProvider"],
+        )
+        fake_session = MagicMock()
+        fake_session.get_providers.return_value = ["CUDAExecutionProvider"]
+        fake_input = MagicMock()
+        fake_input.name = "images"
+        fake_input.shape = [1, 3, 1280, 1280]
+        fake_session.get_inputs.return_value = [fake_input]
+
+        # A box at [480, 270, 1440, 810] in a 1920x1080 frame becomes
+        # [320, 460, 960, 820] after a 1280 letterbox (scale=2/3, pad_y=280).
+        keypoints = [(640.0, 640.0, 0.9)] * 17
+        output = np.zeros((1, 56, 1), dtype=np.float32)
+        output[0, 0:5, 0] = [640.0, 640.0, 640.0, 360.0, 0.9]
+        for index, (x, y, visibility) in enumerate(keypoints):
+            base = 5 + index * 3
+            output[0, base : base + 3, 0] = [x, y, visibility]
+        fake_session.run.return_value = [output]
+        mocker.patch("pipeline.pose_detector.ort.InferenceSession", return_value=fake_session)
+
+        detector = load_pose_model("models/fixed-1280.onnx")
+        [detection] = detector.detect(np.zeros((1080, 1920, 3), dtype=np.uint8))
+
+        feed = fake_session.run.call_args.args[1]
+        assert feed["images"].shape == (1, 3, 1280, 1280)
+        assert detection.bbox == pytest.approx([480.0, 270.0, 1440.0, 810.0])
+
+    @pytest.mark.parametrize(
+        ("shape", "reason"),
+        [
+            ([1, 3, "height", "width"], "fixed integer dimensions"),
+            ([1, 3, 640], "rank 4"),
+            ([2, 3, 640, 640], "batch dimension 1"),
+            ([1, 1, 640, 640], "3 channels"),
+            ([1, 3, 640, 1280], "square"),
+            ([1, 3, 0, 0], "positive"),
+        ],
+    )
+    def test_invalid_model_shapes_fail_fast_with_the_violated_constraint(
+        self, mocker, shape, reason
+    ):
+        mocker.patch(
+            "pipeline.pose_detector.ort.get_available_providers",
+            return_value=["CUDAExecutionProvider"],
+        )
+        fake_session = MagicMock()
+        fake_session.get_providers.return_value = ["CUDAExecutionProvider"]
+        fake_input = MagicMock()
+        fake_input.name = "images"
+        fake_input.shape = shape
+        fake_session.get_inputs.return_value = [fake_input]
+        mocker.patch("pipeline.pose_detector.ort.InferenceSession", return_value=fake_session)
+
+        with pytest.raises(RuntimeError, match=reason):
+            load_pose_model("models/invalid-shape.onnx")
+
+    @pytest.mark.parametrize("input_count", [0, 2])
+    def test_loader_rejects_models_without_exactly_one_image_input(self, mocker, input_count):
+        mocker.patch(
+            "pipeline.pose_detector.ort.get_available_providers",
+            return_value=["CUDAExecutionProvider"],
+        )
+        fake_session = MagicMock()
+        fake_session.get_providers.return_value = ["CUDAExecutionProvider"]
+        inputs = []
+        for index in range(input_count):
+            model_input = MagicMock()
+            model_input.name = f"images_{index}"
+            model_input.shape = [1, 3, 640, 640]
+            inputs.append(model_input)
+        fake_session.get_inputs.return_value = inputs
+        mocker.patch("pipeline.pose_detector.ort.InferenceSession", return_value=fake_session)
+
+        with pytest.raises(RuntimeError, match="exactly one image input"):
+            load_pose_model("models/wrong-input-count.onnx")
 
 
 class TestPoseDetectorDetect:
@@ -227,3 +328,52 @@ class TestPoseDetectorZoneAssignment:
         [det] = detector.detect(np.full((640, 640, 3), 128, dtype=np.uint8))
 
         assert det.zone_id is None
+
+
+class TestPoseDetectorInferenceROI:
+    """Issue #86 inference-ROI contract, stated before its first RED.
+
+    The optional top-level ``inference_roi`` names one existing semantic zone
+    and a non-negative pixel margin. Its polygon bounding box plus margin is
+    clipped to each frame and sent through exactly one model call. Returned
+    bbox/keypoints are translated back to full-frame pixels before semantic
+    zone assignment. With the field absent, full-frame inference is unchanged.
+    """
+
+    def test_roi_crop_maps_bbox_and_keypoints_back_before_zone_assignment(self):
+        from pipeline.zones import ZoneConfig
+
+        zones = ZoneConfig.from_dict(
+            {
+                "inference_roi": {"zone_id": "bending-1", "margin_px": 50},
+                "zones": [
+                    {
+                        "id": "bending-1",
+                        "name": "Giętarka 1",
+                        "polygon": [[400, 300], [600, 300], [600, 500], [400, 500]],
+                    }
+                ],
+            }
+        )
+        # The crop is [350,250]–[650,550], a 300x300 square. This model-space
+        # box represents crop-local [50,50]–[250,250], hence full-frame
+        # [400,300]–[600,500]. Its foot lies exactly on the semantic boundary.
+        output = np.zeros((1, 56, 1), dtype=np.float32)
+        scale = 640 / 300
+        output[0, 0:5, 0] = [320, 320, 200 * scale, 200 * scale, 0.9]
+        for index in range(17):
+            base = 5 + index * 3
+            output[0, base : base + 3, 0] = [320, 320, 0.9]
+        fake_session = MagicMock()
+        fake_session.run.return_value = [output]
+        detector = PoseDetector(session=fake_session, input_name="images", zones=zones)
+
+        [detection] = detector.detect(np.zeros((800, 1000, 3), dtype=np.uint8))
+
+        fake_session.run.assert_called_once()
+        assert detection.bbox == pytest.approx([400, 300, 600, 500], abs=1e-3)
+        assert [(kp.x, kp.y) for kp in detection.keypoints] == pytest.approx(
+            [(500, 400)] * 17,
+            abs=1e-3,
+        )
+        assert detection.zone_id == "bending-1"

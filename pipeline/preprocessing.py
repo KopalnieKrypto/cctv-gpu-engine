@@ -1,8 +1,8 @@
 """Image preprocessing for YOLO-pose ONNX inference.
 
-Converts BGR frames into the [1, 3, 640, 640] float32 NCHW tensor that the
-YOLO-pose ONNX model expects, while returning original dimensions so the
-postprocessing stage can scale predictions back to image space.
+Converts BGR frames into the square float32 NCHW tensor declared by the fixed
+YOLO-pose ONNX model (640 or 1280 in issue #86), while returning original
+dimensions so postprocessing can scale predictions back to image space.
 
 The frame is **letterboxed**, not stretched: it is scaled by a single factor
 that fits it inside the square input, and the leftover strip is filled with
@@ -26,8 +26,10 @@ IMG_SIZE = 640
 PAD_VALUE = 114
 
 
-def letterbox_params(orig_w: int, orig_h: int) -> tuple[float, int, int]:
-    """Scale and padding used to fit ``orig_w × orig_h`` into ``IMG_SIZE²``.
+def letterbox_params(
+    orig_w: int, orig_h: int, input_size: int = IMG_SIZE
+) -> tuple[float, int, int]:
+    """Scale and padding used to fit ``orig_w × orig_h`` into ``input_size²``.
 
     Returns ``(scale, pad_x, pad_y)``: multiply original coordinates by
     ``scale`` then add the padding to reach model space, and invert to come
@@ -36,30 +38,30 @@ def letterbox_params(orig_w: int, orig_h: int) -> tuple[float, int, int]:
     so the forward and inverse can never drift apart — a drift would silently
     put every bbox in the wrong place.
     """
-    scale = min(IMG_SIZE / orig_w, IMG_SIZE / orig_h)
+    scale = min(input_size / orig_w, input_size / orig_h)
     new_w = round(orig_w * scale)
     new_h = round(orig_h * scale)
-    return scale, (IMG_SIZE - new_w) // 2, (IMG_SIZE - new_h) // 2
+    return scale, (input_size - new_w) // 2, (input_size - new_h) // 2
 
 
-def preprocess(img_bgr: np.ndarray) -> tuple[np.ndarray, int, int]:
+def preprocess(img_bgr: np.ndarray, input_size: int = IMG_SIZE) -> tuple[np.ndarray, int, int]:
     """Letterbox, normalize, and reshape a BGR image for YOLO-pose inference.
 
     Returns:
-        tensor: float32 array of shape ``(1, 3, IMG_SIZE, IMG_SIZE)`` with
+        tensor: float32 array of shape ``(1, 3, input_size, input_size)`` with
             values in ``[0, 1]``.
         orig_w: original image width in pixels.
         orig_h: original image height in pixels.
     """
     orig_h, orig_w = img_bgr.shape[:2]
-    scale, pad_x, pad_y = letterbox_params(orig_w, orig_h)
+    scale, pad_x, pad_y = letterbox_params(orig_w, orig_h, input_size)
     new_w = round(orig_w * scale)
     new_h = round(orig_h * scale)
 
     img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
     resized = cv2.resize(img_rgb, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
 
-    canvas = np.full((IMG_SIZE, IMG_SIZE, 3), PAD_VALUE, dtype=np.uint8)
+    canvas = np.full((input_size, input_size, 3), PAD_VALUE, dtype=np.uint8)
     canvas[pad_y : pad_y + new_h, pad_x : pad_x + new_w] = resized
 
     arr = canvas.astype(np.float32) / 255.0

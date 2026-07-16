@@ -81,3 +81,33 @@ contributed nothing to `result.json`.
 `--no-tracker` disables tracking entirely and reproduces pre-#32 numbers, where
 every detection counted. It exists for baseline comparison and as a rollback —
 not for production.
+
+## Focused inference ROI (issue #86)
+
+The optional top-level `inference_roi` in `--zones zones.json` focuses the one
+pose call on the bounding rectangle of an existing semantic zone plus an
+explicit fixed pixel margin:
+
+```json
+{
+  "inference_roi": {"zone_id": "bending-1", "margin_px": 160},
+  "zones": [
+    {
+      "id": "bending-1",
+      "name": "Giętarka 1",
+      "polygon": [[1200, 500], [2600, 500], [2600, 1900], [1200, 1900]]
+    }
+  ]
+}
+```
+
+The crop is clipped to each frame and letterboxed to the model's declared
+fixed square input. Bboxes and keypoints are translated back into full-frame
+pixels before semantic zone assignment, tracking, annotation, or reporting.
+The margin must be explicit, finite, and non-negative. A missing field keeps
+full-frame inference; malformed, zero-area, or fully off-frame ROIs fail
+visibly. Geometry above is illustrative only—pilot geometry must come from the
+versioned annotation fixture.
+
+The ROI path is available for issue #86's comparison but is not automatically
+the production default. See [the benchmark runbook](../docs/POSE_RESOLUTION_BENCHMARK.md).

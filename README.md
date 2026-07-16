@@ -174,9 +174,11 @@ sweet spot between detection accuracy and inference latency on RTX 5070.
 For low-latency / VRAM-constrained runs you can swap to **nano** (12 MB);
 for higher accuracy on tougher footage swap up to **m / l / x**.
 
-The pipeline only assumes the standard YOLO11*-pose ONNX shape
-(input `[1,3,640,640]`, output `[1,56,N]` — 4 bbox + 1 conf + 17×3 keypoints),
-so any `yolo11{n,s,m,l,x}-pose` exported at imgsz=640 is a drop-in.
+The pipeline validates a fixed square YOLO11*-pose ONNX input
+(`[1,3,S,S]`) and the standard `[1,56,N]` output layout (4 bbox + 1 conf +
+17×3 keypoints). Existing 640 exports remain the production default. Dynamic
+or non-square inputs fail fast; a fixed 1280 export is supported for the
+measured comparison in issue #86 but is not promoted without benchmark evidence.
 
 **Switch back to nano (pinned release on GH):**
 

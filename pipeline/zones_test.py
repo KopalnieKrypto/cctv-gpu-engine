@@ -142,6 +142,58 @@ class TestConfigValidation:
         # Callers that already catch ValueError keep working.
         assert issubclass(ZoneConfigError, ValueError)
 
+    @pytest.mark.parametrize(
+        ("raw_roi", "polygon", "reason"),
+        [
+            ([], [[0, 0], [100, 0], [100, 100], [0, 100]], "JSON object"),
+            ({"margin_px": 10}, [[0, 0], [100, 0], [100, 100], [0, 100]], "zone_id"),
+            (
+                {"zone_id": "bending-1"},
+                [[0, 0], [100, 0], [100, 100], [0, 100]],
+                "margin_px",
+            ),
+            (
+                {"zone_id": "missing", "margin_px": 10},
+                [[0, 0], [100, 0], [100, 100], [0, 100]],
+                "existing zone",
+            ),
+            (
+                {"zone_id": "bending-1", "margin_px": "10"},
+                [[0, 0], [100, 0], [100, 100], [0, 100]],
+                "finite non-negative number",
+            ),
+            (
+                {"zone_id": "bending-1", "margin_px": float("inf")},
+                [[0, 0], [100, 0], [100, 100], [0, 100]],
+                "finite non-negative number",
+            ),
+            (
+                {"zone_id": "bending-1", "margin_px": -1},
+                [[0, 0], [100, 0], [100, 100], [0, 100]],
+                "finite non-negative number",
+            ),
+            (
+                {"zone_id": "bending-1", "margin_px": 10},
+                [[50, 0], [50, 50], [50, 100]],
+                "non-zero area",
+            ),
+        ],
+    )
+    def test_inference_roi_is_fully_validated_at_config_load(self, raw_roi, polygon, reason):
+        with pytest.raises(ZoneConfigError, match=reason):
+            ZoneConfig.from_dict(
+                {
+                    "inference_roi": raw_roi,
+                    "zones": [
+                        {
+                            "id": "bending-1",
+                            "name": "Giętarka 1",
+                            "polygon": polygon,
+                        }
+                    ],
+                }
+            )
+
 
 class TestConfigLoading:
     def test_load_reads_and_parses_a_json_file(self, tmp_path):
@@ -179,6 +231,36 @@ class TestConfigLoading:
         assert zone.name == "Giętarka 1"
         assert zone.polygon[0] == (0.0, 0.0)
         assert zone.rules == {"type": "bending"}
+
+
+class TestInferenceROIBounds:
+    def _config(self, polygon) -> ZoneConfig:
+        return ZoneConfig.from_dict(
+            {
+                "inference_roi": {"zone_id": "bending-1", "margin_px": 25},
+                "zones": [
+                    {
+                        "id": "bending-1",
+                        "name": "Giętarka 1",
+                        "polygon": polygon,
+                    }
+                ],
+            }
+        )
+
+    def test_crop_and_margin_are_clipped_to_the_frame(self):
+        config = self._config([[0, 0], [80, 0], [80, 80], [0, 80]])
+
+        assert config.inference_bounds(frame_width=100, frame_height=100) == (0, 0, 100, 100)
+
+    def test_absent_inference_roi_keeps_full_frame_mode(self):
+        assert _square_config().inference_bounds(100, 100) is None
+
+    def test_roi_with_no_pixels_inside_the_frame_fails_visibly(self):
+        config = self._config([[200, 200], [300, 200], [300, 300], [200, 300]])
+
+        with pytest.raises(ZoneConfigError, match="no pixels inside the frame"):
+            config.inference_bounds(frame_width=100, frame_height=100)
 
 
 class TestRuleTypeDispatch:

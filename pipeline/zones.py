@@ -31,6 +31,7 @@ through.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, time, timedelta, tzinfo
 from pathlib import Path
@@ -184,12 +185,21 @@ class ShiftSchedule:
 
 
 @dataclass
+class InferenceROI:
+    """One semantic zone whose bounding box focuses pose inference (#86)."""
+
+    zone_id: str
+    margin_px: float
+
+
+@dataclass
 class ZoneConfig:
     """Loaded zones config: the zone list plus opaque shift metadata."""
 
     zones: list[Zone]
     recording_start: str | None = None
     shift: dict[str, Any] | None = None
+    inference_roi: InferenceROI | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ZoneConfig:
@@ -206,10 +216,12 @@ class ZoneConfig:
             raise ZoneConfigError("zones config must have a 'zones' list")
 
         zones = [_parse_zone(raw) for raw in raw_zones]
+        inference_roi = _parse_inference_roi(data.get("inference_roi"), zones)
         config = cls(
             zones=zones,
             recording_start=data.get("recording_start"),
             shift=data.get("shift"),
+            inference_roi=inference_roi,
         )
         # Build the shift schedule once so a malformed shift block fails at
         # load time, not deep inside aggregation (issue #79).
@@ -237,6 +249,30 @@ class ZoneConfig:
         """Return the zone id for ``det``'s foot point, or ``None`` if outside all."""
         fx, fy = foot_point(det)
         return self.zone_for_point(fx, fy)
+
+    def inference_bounds(
+        self, frame_width: int, frame_height: int
+    ) -> tuple[int, int, int, int] | None:
+        """Return the clipped inference crop as ``(x1, y1, x2, y2)``."""
+        if self.inference_roi is None:
+            return None
+        zone = next(zone for zone in self.zones if zone.id == self.inference_roi.zone_id)
+        xs = [point[0] for point in zone.polygon]
+        ys = [point[1] for point in zone.polygon]
+        margin = self.inference_roi.margin_px
+        bounds = (
+            math.floor(max(0.0, min(xs) - margin)),
+            math.floor(max(0.0, min(ys) - margin)),
+            math.ceil(min(float(frame_width), max(xs) + margin)),
+            math.ceil(min(float(frame_height), max(ys) + margin)),
+        )
+        x1, y1, x2, y2 = bounds
+        if x1 >= x2 or y1 >= y2:
+            raise ZoneConfigError(
+                f"inference_roi zone {self.inference_roi.zone_id!r} has no pixels "
+                f"inside the frame ({frame_width}x{frame_height})"
+            )
+        return bounds
 
     @property
     def shift_schedule(self) -> ShiftSchedule | None:
@@ -380,6 +416,42 @@ def _parse_zone(raw: Any) -> Zone:
     # inside aggregation (#82).
     _resolve_rule_type(rules, zone_id)
     return Zone(id=zone_id, name=name, polygon=polygon, rules=rules)
+
+
+def _parse_inference_roi(raw: Any, zones: list[Zone]) -> InferenceROI | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ZoneConfigError(f"inference_roi must be a JSON object, got {type(raw).__name__}")
+    zone_id = raw.get("zone_id")
+    if not isinstance(zone_id, str) or not zone_id:
+        raise ZoneConfigError("inference_roi 'zone_id' must be a non-empty string")
+    if "margin_px" not in raw:
+        raise ZoneConfigError("inference_roi must have an explicit 'margin_px'")
+    margin = raw["margin_px"]
+    if (
+        not isinstance(margin, (int, float))
+        or isinstance(margin, bool)
+        or not math.isfinite(margin)
+        or margin < 0
+    ):
+        raise ZoneConfigError("inference_roi 'margin_px' must be a finite non-negative number")
+    zone = next((zone for zone in zones if zone.id == zone_id), None)
+    if zone is None:
+        raise ZoneConfigError(f"inference_roi 'zone_id' must name an existing zone: {zone_id!r}")
+    doubled_area = abs(
+        sum(
+            x1 * y2 - x2 * y1
+            for (x1, y1), (x2, y2) in zip(
+                zone.polygon,
+                zone.polygon[1:] + zone.polygon[:1],
+                strict=True,
+            )
+        )
+    )
+    if doubled_area == 0:
+        raise ZoneConfigError(f"inference_roi zone {zone_id!r} polygon must have non-zero area")
+    return InferenceROI(zone_id=zone_id, margin_px=float(margin))
 
 
 def _parse_polygon(raw: Any, zone_id: str) -> list[Point]:

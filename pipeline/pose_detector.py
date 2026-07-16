@@ -20,10 +20,36 @@ import onnxruntime as ort
 
 from pipeline.activity_classifier import classify_activity
 from pipeline.postprocessing import Detection, postprocess
-from pipeline.preprocessing import preprocess
+from pipeline.preprocessing import IMG_SIZE, preprocess
 from pipeline.zones import ZoneConfig
 
 CUDA_PROVIDER = "CUDAExecutionProvider"
+
+
+def _validated_input_size(shape: object) -> int:
+    """Return ``S`` for a supported fixed ``[1, 3, S, S]`` model input."""
+
+    def invalid(reason: str) -> RuntimeError:
+        return RuntimeError(
+            f"Invalid pose model input shape {shape!r}: {reason}; expected a "
+            "fixed rank 4 [1, 3, S, S] tensor with a positive integer square "
+            "size. Dynamic and non-square inputs are unsupported."
+        )
+
+    if not isinstance(shape, (list, tuple)) or len(shape) != 4:
+        raise invalid("input must have rank 4")
+    if any(not isinstance(dim, int) or isinstance(dim, bool) for dim in shape):
+        raise invalid("all dimensions must be fixed integer dimensions")
+    batch, channels, height, width = shape
+    if batch != 1:
+        raise invalid("input must have batch dimension 1")
+    if channels != 3:
+        raise invalid("input must have 3 channels")
+    if height != width:
+        raise invalid("height and width must be square")
+    if height <= 0:
+        raise invalid("square size must be positive")
+    return height
 
 
 @dataclass
@@ -32,16 +58,38 @@ class PoseDetector:
 
     session: ort.InferenceSession
     input_name: str
+    input_size: int = IMG_SIZE
     # Optional ROI zones (issue #78). When set, each detection is stamped with
     # the zone its foot point falls in; when None, ``zone_id`` stays None.
     zones: ZoneConfig | None = None
 
     def detect(self, img_bgr: np.ndarray) -> list[Detection]:
         """Run pose inference on a single BGR frame."""
-        tensor, orig_w, orig_h = preprocess(img_bgr)
+        inference_frame = img_bgr
+        offset_x = 0
+        offset_y = 0
+        if self.zones is not None:
+            frame_h, frame_w = img_bgr.shape[:2]
+            bounds = self.zones.inference_bounds(frame_w, frame_h)
+            if bounds is not None:
+                x1, y1, x2, y2 = bounds
+                inference_frame = img_bgr[y1:y2, x1:x2]
+                offset_x, offset_y = x1, y1
+
+        tensor, orig_w, orig_h = preprocess(inference_frame, input_size=self.input_size)
         outputs = self.session.run(None, {self.input_name: tensor})
-        detections = postprocess(outputs[0], orig_w=orig_w, orig_h=orig_h)
+        detections = postprocess(
+            outputs[0], orig_w=orig_w, orig_h=orig_h, input_size=self.input_size
+        )
         for det in detections:
+            if offset_x or offset_y:
+                det.bbox[0] += offset_x
+                det.bbox[1] += offset_y
+                det.bbox[2] += offset_x
+                det.bbox[3] += offset_y
+                for keypoint in det.keypoints:
+                    keypoint.x += offset_x
+                    keypoint.y += offset_y
             det.activity = classify_activity(det)
             if self.zones is not None:
                 det.zone_id = self.zones.zone_for_detection(det)
@@ -83,5 +131,18 @@ def load_pose_model(model_path: str, zones: ZoneConfig | None = None) -> PoseDet
             "(microsoft/onnxruntime#25145) — refusing to run."
         )
 
-    input_name = session.get_inputs()[0].name
-    return PoseDetector(session=session, input_name=input_name, zones=zones)
+    model_inputs = session.get_inputs()
+    if len(model_inputs) != 1:
+        raise RuntimeError(
+            "Invalid pose model interface: expected exactly one image input, "
+            f"found {len(model_inputs)}."
+        )
+    model_input = model_inputs[0]
+    input_name = model_input.name
+    input_size = _validated_input_size(model_input.shape)
+    return PoseDetector(
+        session=session,
+        input_name=input_name,
+        input_size=input_size,
+        zones=zones,
+    )

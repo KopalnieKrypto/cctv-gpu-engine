@@ -404,7 +404,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Full-video mode: ROI zone config (issues #78/#79). Each detection "
         "is assigned to a zone by its foot point (per-zone posture breakdown); an "
         "optional 'shift' schedule plus 'recording_start' gates analysis to the "
-        "working windows minus breaks. Default: off (no zone/shift section).",
+        "working windows minus breaks. An optional top-level 'inference_roi' "
+        "focuses the single pose call on one named zone plus margin while keeping "
+        "all returned coordinates in full-frame pixels. Default: off.",
     )
     return parser
 

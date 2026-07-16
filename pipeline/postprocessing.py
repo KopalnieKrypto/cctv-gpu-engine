@@ -3,11 +3,11 @@
 The YOLO-pose ONNX output has shape ``[1, 56, N]`` where N is the number of
 candidate detections. Channel layout per detection:
 
-* rows 0-3: cx, cy, w, h (bbox center+size, in 640-space)
+* rows 0-3: cx, cy, w, h (bbox center+size, in model-input space)
 * row 4: confidence
 * rows 5-55: 17 COCO keypoints × (x, y, visibility)
 
-Coordinates are mapped back from 640-space to original image pixels before
+Coordinates are mapped back from the model's fixed square to original pixels before
 detections are returned to callers. That means inverting the **letterbox**
 :mod:`pipeline.preprocessing` applied — strip the padding band, then divide by
 the single scale factor. Both directions read the transform from
@@ -20,7 +20,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from pipeline.preprocessing import letterbox_params
+from pipeline.preprocessing import IMG_SIZE, letterbox_params
 
 CONFIDENCE_THRESHOLD = 0.25
 NMS_IOU_THRESHOLD = 0.45
@@ -84,6 +84,7 @@ def postprocess(
     output: np.ndarray,
     orig_w: int,
     orig_h: int,
+    input_size: int = IMG_SIZE,
 ) -> list[Detection]:
     """Parse a YOLO-pose ``[1, 56, N]`` tensor into Detection objects."""
     data = output[0]  # → [56, N]
@@ -91,7 +92,7 @@ def postprocess(
     # Invert the letterbox that preprocess applied: strip the padding, then
     # undo the single scale. Both sides read the transform from the same helper
     # so they cannot drift (issue #83).
-    scale, pad_x, pad_y = letterbox_params(orig_w, orig_h)
+    scale, pad_x, pad_y = letterbox_params(orig_w, orig_h, input_size)
 
     def to_orig_x(x: float) -> float:
         return (x - pad_x) / scale
