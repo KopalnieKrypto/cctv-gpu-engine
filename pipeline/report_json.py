@@ -15,11 +15,13 @@ import cv2
 
 from pipeline.aggregator import ACTIVITIES, Keyframe, ReportData, ShiftSummary, ZoneReport
 from pipeline.annotator import annotate_frame
+from pipeline.presence import Absence, Interval, ZonePresence
 
-# 3 (issue #79): added the ``shift`` gating summary. 2 (issue #78) added the
+# 4 (issue #80): each zone now carries an anchored-worker ``presence`` block. 3
+# (issue #79) added the ``shift`` gating summary; 2 (issue #78) added the
 # per-zone ``zones[]`` section; 1 was the original posture-only contract (issue
 # #72). Bump whenever the top-level shape changes.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def _encode_keyframe_to_base64_jpeg(frame_bgr) -> str:
@@ -51,6 +53,37 @@ def _keyframe_to_dict(kf: Keyframe) -> dict:
     }
 
 
+def _interval_to_dict(iv: Interval) -> dict:
+    return {"start_s": iv.start_s, "end_s": iv.end_s, "duration_s": iv.duration_s}
+
+
+def _absence_to_dict(a: Absence) -> dict:
+    return {
+        "start_s": a.start_s,
+        "end_s": a.end_s,
+        "duration_s": a.duration_s,
+        "flagged": a.flagged,
+    }
+
+
+def _presence_to_dict(presence: ZonePresence | None) -> dict | None:
+    # ``null`` when no anchored-worker analysis ran for this zone (no zone
+    # config, or tracking disabled). Otherwise the anchor id, total present /
+    # absent / work seconds, and the interval lists — absences carry a
+    # ``flagged`` bool for those past the zone's ``flag_after_s`` (issue #80).
+    if presence is None:
+        return None
+    return {
+        "anchored_track_id": presence.anchored_track_id,
+        "present_s": float(presence.present_s),
+        "absent_s": float(presence.absent_s),
+        "work_s": float(presence.work_s),
+        "presence_intervals": [_interval_to_dict(iv) for iv in presence.presence_intervals],
+        "absence_intervals": [_absence_to_dict(a) for a in presence.absence_intervals],
+        "work_intervals": [_interval_to_dict(iv) for iv in presence.work_intervals],
+    }
+
+
 def _zone_to_dict(zone: ZoneReport) -> dict:
     # Emit all four buckets so the platform never branches on a missing key —
     # an activity that never occurred in this zone is 0.0, not absent.
@@ -58,6 +91,7 @@ def _zone_to_dict(zone: ZoneReport) -> dict:
         "zone_id": zone.zone_id,
         "name": zone.name,
         "person_minutes": {a: float(zone.person_minutes.get(a, 0.0)) for a in ACTIVITIES},
+        "presence": _presence_to_dict(zone.presence),
     }
 
 

@@ -15,6 +15,7 @@ import numpy as np
 
 from pipeline.aggregator import Keyframe, ReportData, ShiftSummary, TimelineBin, ZoneReport
 from pipeline.postprocessing import Detection, Keypoint
+from pipeline.presence import Absence, Interval, ZonePresence
 from pipeline.report_json import render_report_json
 
 
@@ -57,6 +58,12 @@ def _make_report_data() -> ReportData:
                 zone_id="bending-1",
                 name="Giętarka 1",
                 person_minutes={"sitting": 3.0, "standing": 0.5, "walking": 0.0, "running": 0.0},
+                presence=ZonePresence(
+                    anchored_track_id=1,
+                    presence_intervals=(Interval(0.0, 100.0), Interval(300.0, 400.0)),
+                    absence_intervals=(Absence(100.0, 300.0, flagged=True),),
+                    work_intervals=(Interval(10.0, 50.0),),
+                ),
             ),
         ],
     )
@@ -66,7 +73,7 @@ class TestRenderReportJson:
     def test_emits_json_bytes_with_schema_version_and_summary_fields(self):
         payload = json.loads(render_report_json(_make_report_data()))
 
-        assert payload["schema_version"] == 3
+        assert payload["schema_version"] == 4
         assert payload["video_duration_s"] == 125.0
         assert payload["total_frames"] == 125
         assert payload["peak_persons"] == 4
@@ -136,7 +143,7 @@ class TestRenderReportJson:
 
         assert len(payload["zones"]) == 1
         zone = payload["zones"][0]
-        assert set(zone.keys()) == {"zone_id", "name", "person_minutes"}
+        assert set(zone.keys()) == {"zone_id", "name", "person_minutes", "presence"}
         assert zone["zone_id"] == "bending-1"
         assert zone["name"] == "Giętarka 1"
         assert set(zone["person_minutes"]) == {"sitting", "standing", "walking", "running"}
@@ -150,6 +157,42 @@ class TestRenderReportJson:
         payload = json.loads(render_report_json(data))
 
         assert payload["zones"] == []
+
+    def test_zone_presence_block_carries_anchor_totals_and_intervals(self):
+        zone = json.loads(render_report_json(_make_report_data()))["zones"][0]
+        presence = zone["presence"]
+
+        assert set(presence.keys()) == {
+            "anchored_track_id",
+            "present_s",
+            "absent_s",
+            "work_s",
+            "presence_intervals",
+            "absence_intervals",
+            "work_intervals",
+        }
+        assert presence["anchored_track_id"] == 1
+        # 0–100 + 300–400 present, 100–300 absent, 10–50 working.
+        assert presence["present_s"] == 200.0
+        assert presence["absent_s"] == 200.0
+        assert presence["work_s"] == 40.0
+        assert all(isinstance(presence[k], float) for k in ("present_s", "absent_s", "work_s"))
+
+    def test_zone_absence_intervals_carry_duration_and_flag(self):
+        zone = json.loads(render_report_json(_make_report_data()))["zones"][0]
+
+        absences = zone["presence"]["absence_intervals"]
+        assert absences == [
+            {"start_s": 100.0, "end_s": 300.0, "duration_s": 200.0, "flagged": True}
+        ]
+
+    def test_zone_presence_is_null_when_no_anchor_analysis_ran(self):
+        data = _make_report_data()
+        data.zones[0].presence = None
+
+        zone = json.loads(render_report_json(data))["zones"][0]
+
+        assert zone["presence"] is None
 
     def test_shift_is_null_when_no_schedule_gated_the_run(self):
         data = _make_report_data()  # shift defaults to None

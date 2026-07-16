@@ -491,3 +491,95 @@ class TestAggregatorShiftGating:
 
         assert report.shift is None
         assert report.person_minutes["walking"] == pytest.approx(1.0)
+
+
+def _tracked_det(track_id: int, zone_id: str, foot_x: float = 100.0) -> Detection:
+    """A zoned detection with a track id and a foot point at ``foot_x``."""
+    det = Detection(
+        bbox=[foot_x - 5.0, 180.0, foot_x + 5.0, 200.0],  # foot = (foot_x, 200)
+        confidence=0.9,
+        keypoints=[Keypoint(0.0, 0.0, 0.0)] * 17,
+    )
+    det.activity = "standing"
+    det.track_id = track_id
+    det.zone_id = zone_id
+    return det
+
+
+class TestAggregatorZonePresence:
+    """Issue #80 — per-zone anchored-worker presence attached to each ZoneReport.
+
+    The aggregator feeds each shift-active frame's in-zone ``{track_id:
+    foot_point}`` to a per-zone presence analyzer, so ``ZoneReport.presence``
+    reports who the worker is (longest dwell) and when they were away — never a
+    passer-by.
+    """
+
+    def _zone(self, rules=None) -> Zone:
+        tri = [(0.0, 0.0), (1000.0, 0.0), (1000.0, 1000.0), (0.0, 1000.0)]
+        return Zone(id="bending-1", name="Giętarka 1", polygon=tri, rules=rules or {})
+
+    def test_presence_anchors_on_the_long_dwelling_track(self):
+        agg = Aggregator(fps=1, zones=[self._zone()])
+        # Track 1 works the station for 60 frames; track 2 just passes through.
+        for t in range(60):
+            dets = [_tracked_det(1, "bending-1")]
+            if t in (30, 31):
+                dets.append(_tracked_det(2, "bending-1", foot_x=400.0))
+            agg.add_frame(float(t), _frame(), dets)
+
+        presence = agg.build_report_data().zones[0].presence
+
+        assert presence is not None
+        assert presence.anchored_track_id == 1
+
+    def test_anchor_is_none_when_detections_carry_no_track_ids(self):
+        # --no-tracker leaves track_id None, so nothing can anchor.
+        agg = Aggregator(fps=1, zones=[self._zone()])
+        for t in range(10):
+            agg.add_frame(float(t), _frame(), [_zoned_det("standing", "bending-1")])
+
+        presence = agg.build_report_data().zones[0].presence
+
+        assert presence is not None
+        assert presence.anchored_track_id is None
+
+    def test_zone_rules_configure_the_absence_flag_threshold(self):
+        agg = Aggregator(fps=1, zones=[self._zone(rules={"absence": {"flag_after_s": 60.0}})])
+        # Present 0–9 s, away, back 110–119 s: a 101 s gap the default (180 s)
+        # would pass but the configured 60 s threshold flags.
+        for t in list(range(10)) + list(range(110, 120)):
+            agg.add_frame(float(t), _frame(), [_tracked_det(1, "bending-1")])
+
+        (absence,) = agg.build_report_data().zones[0].presence.absence_intervals
+
+        assert absence.duration_s == pytest.approx(101.0)
+        assert absence.flagged is True
+
+    def test_zone_rules_configure_min_move_px(self):
+        agg = Aggregator(fps=1, zones=[self._zone(rules={"work": {"min_move_px": 10.0}})])
+        # Foot point advances 20 px/frame — below the default 40 but above the
+        # configured 10, so it registers as working.
+        for t in range(10):
+            agg.add_frame(float(t), _frame(), [_tracked_det(1, "bending-1", foot_x=t * 20.0)])
+
+        work = agg.build_report_data().zones[0].presence.work_intervals
+
+        assert len(work) == 1
+
+    def test_presence_only_reflects_shift_active_frames(self):
+        schedule = ShiftSchedule.from_config(
+            "2026-07-16T06:00:00+02:00", {"windows": [["07:00", "15:00"]]}
+        )
+        agg = Aggregator(fps=1, zones=[self._zone()], shift=schedule)
+        # 06:00 (before the shift) the worker is in the zone but excluded; the
+        # analysed presence must start at 07:00, not 06:00.
+        for t in range(60):  # 06:00:00–06:00:59, excluded
+            agg.add_frame(float(t), _frame(), [_tracked_det(1, "bending-1")])
+        for t in range(3600, 3660):  # 07:00:00–07:00:59, in shift
+            agg.add_frame(float(t), _frame(), [_tracked_det(1, "bending-1")])
+
+        presence = agg.build_report_data().zones[0].presence
+
+        assert presence.anchored_track_id == 1
+        assert presence.presence_intervals[0].start_s == 3600.0

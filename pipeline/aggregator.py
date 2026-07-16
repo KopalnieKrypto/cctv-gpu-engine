@@ -22,7 +22,13 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from pipeline.postprocessing import Detection
-from pipeline.zones import ShiftSchedule, Zone
+from pipeline.presence import (
+    DEFAULT_FLAG_AFTER_S,
+    DEFAULT_MIN_MOVE_PX,
+    ZonePresence,
+    ZonePresenceAnalyzer,
+)
+from pipeline.zones import ShiftSchedule, Zone, foot_point
 
 ACTIVITIES = ("sitting", "standing", "walking", "running")
 
@@ -67,6 +73,11 @@ class ZoneReport:
     zone_id: str
     name: str
     person_minutes: dict[str, float]
+    # Anchored-worker presence/absence + work (issue #80). ``None`` before slice
+    # 2 wired it or when no zone config is active; otherwise a ZonePresence whose
+    # ``anchored_track_id`` is ``None`` if no track ever dwelt here (e.g. tracking
+    # disabled).
+    presence: ZonePresence | None = None
 
 
 @dataclass
@@ -104,6 +115,25 @@ class ReportData:
     shift: ShiftSummary | None = None
 
 
+def _presence_analyzer_for(zone: Zone, sampling_step_s: float) -> ZonePresenceAnalyzer:
+    """Build a zone's presence analyzer, honouring its ``rules`` config (#80).
+
+    ``rules.absence.flag_after_s`` and ``rules.work.min_move_px`` override the
+    module defaults; a missing or non-object rule section falls back cleanly so a
+    zone with no explicit rules still gets sensible presence analysis.
+    """
+
+    def _section(name: str) -> dict:
+        section = zone.rules.get(name)
+        return section if isinstance(section, dict) else {}
+
+    return ZonePresenceAnalyzer(
+        sampling_step_s=sampling_step_s,
+        flag_after_s=_section("absence").get("flag_after_s", DEFAULT_FLAG_AFTER_S),
+        min_move_px=_section("work").get("min_move_px", DEFAULT_MIN_MOVE_PX),
+    )
+
+
 class Aggregator:
     """Accumulates per-frame detections into a final :class:`ReportData`."""
 
@@ -135,6 +165,13 @@ class Aggregator:
         self._zones: list[Zone] = list(zones) if zones else []
         self._zone_person_frames: dict[str, dict[str, int]] = {
             zone.id: dict.fromkeys(ACTIVITIES, 0) for zone in self._zones
+        }
+        # Per-zone anchored-worker presence (issue #80). Each analyzer is fed the
+        # in-zone {track_id: foot_point} of every shift-active frame; its rules
+        # come from the zone config, falling back to module defaults.
+        sampling_step_s = 1.0 / fps
+        self._zone_presence: dict[str, ZonePresenceAnalyzer] = {
+            zone.id: _presence_analyzer_for(zone, sampling_step_s) for zone in self._zones
         }
         self._last_timestamp_s = 0.0
         self._bins: dict[int, TimelineBin] = {}
@@ -180,6 +217,7 @@ class Aggregator:
                 zone_counter = self._zone_person_frames.get(det.zone_id)
                 if zone_counter is not None:
                     zone_counter[det.activity] += 1
+        self._observe_zone_presence(timestamp_s, detections)
         if person_count > 0:
             # Keep a copy of the frame because the caller will overwrite the
             # buffer on the next ffmpeg read.
@@ -192,6 +230,24 @@ class Aggregator:
             self._candidates.append(candidate)
             self._update_activity_best(candidate)
             self._evict_if_over_capacity()
+
+    def _observe_zone_presence(self, timestamp_s: float, detections: list[Detection]) -> None:
+        """Feed this (shift-active) frame's in-zone foot points to each analyzer.
+
+        Only detections carrying both a ``zone_id`` for a configured zone and a
+        ``track_id`` count — a foot point without an identity can't be anchored
+        (issue #80). Runs after the shift gate, so excluded frames never register
+        as presence.
+        """
+        if not self._zone_presence:
+            return
+        per_zone: dict[str, dict[int, tuple[float, float]]] = {}
+        for det in detections:
+            if det.track_id is None or det.zone_id not in self._zone_presence:
+                continue
+            per_zone.setdefault(det.zone_id, {})[det.track_id] = foot_point(det)
+        for zone_id, sightings in per_zone.items():
+            self._zone_presence[zone_id].observe(timestamp_s, sightings)
 
     @property
     def candidate_count(self) -> int:
@@ -302,6 +358,7 @@ class Aggregator:
                     activity: self._zone_person_frames[zone.id][activity] / self.fps / 60.0
                     for activity in ACTIVITIES
                 },
+                presence=self._zone_presence[zone.id].result(),
             )
             for zone in self._zones
         ]
