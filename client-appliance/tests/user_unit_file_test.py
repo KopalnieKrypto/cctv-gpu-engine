@@ -34,10 +34,23 @@ def test_user_unit_file_exists() -> None:
 
 
 def test_user_unit_has_no_user_directive(unit: configparser.ConfigParser) -> None:
-    """A ``--user`` unit already runs as the owning user, and systemd *rejects*
-    ``User=``/``Group=`` there ("Unit ... has User= set, refusing"). Copying
-    the root unit's ``User=cctv`` across is the single most likely way to make
-    this file fail to start, so we pin the absence explicitly."""
+    """A ``--user`` unit already runs as the owning user; ``User=``/``Group=``
+    cannot work there because an unprivileged manager may not setuid/setgid.
+
+    Copying the root unit's ``User=cctv`` across is the likeliest way to break
+    this file, and nothing upstream of a deploy catches it. Probed on cameraboy
+    (systemd 255) with a throwaway unit::
+
+        $ systemctl --user show zz-probe -p LoadState -p Result -p ExecMainStatus
+        LoadState=loaded          # parses and loads *fine*
+        Result=exit-code
+        ExecMainStatus=216        # 216/GROUP — dies only at spawn
+
+    So it is not a parse error, and ``systemd-analyze --user verify`` passes it
+    too (verified). The unit looks correct, loads correct, and then fails at
+    runtime with an opaque 216/GROUP. This test is the only gate that catches
+    it before an operator does.
+    """
     service = unit["Service"] if unit.has_section("Service") else {}
     assert "User" not in service, "User= is invalid in a --user unit"
     assert "Group" not in service, "Group= is invalid in a --user unit"
