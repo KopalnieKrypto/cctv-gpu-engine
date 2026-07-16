@@ -1,0 +1,21 @@
+{
+  "inference_roi": {
+    "zone_id": "bending-1",
+    "margin_px": 160
+  },
+  "zones": [
+    {
+      "id": "bending-1",
+      "name": "Giętarka 1",
+      "polygon": [
+        [1280, 0],
+        [2560, 0],
+        [2560, 720],
+        [1280, 720]
+      ],
+      "rules": {
+        "type": "bending"
+      }
+    }
+  ]
+}
