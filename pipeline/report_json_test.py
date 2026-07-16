@@ -13,7 +13,7 @@ import json
 
 import numpy as np
 
-from pipeline.aggregator import Keyframe, ReportData, TimelineBin, ZoneReport
+from pipeline.aggregator import Keyframe, ReportData, ShiftSummary, TimelineBin, ZoneReport
 from pipeline.postprocessing import Detection, Keypoint
 from pipeline.report_json import render_report_json
 
@@ -66,7 +66,7 @@ class TestRenderReportJson:
     def test_emits_json_bytes_with_schema_version_and_summary_fields(self):
         payload = json.loads(render_report_json(_make_report_data()))
 
-        assert payload["schema_version"] == 2
+        assert payload["schema_version"] == 3
         assert payload["video_duration_s"] == 125.0
         assert payload["total_frames"] == 125
         assert payload["peak_persons"] == 4
@@ -150,6 +150,30 @@ class TestRenderReportJson:
         payload = json.loads(render_report_json(data))
 
         assert payload["zones"] == []
+
+    def test_shift_is_null_when_no_schedule_gated_the_run(self):
+        data = _make_report_data()  # shift defaults to None
+
+        payload = json.loads(render_report_json(data))
+
+        assert payload["shift"] is None
+
+    def test_shift_carries_windows_breaks_and_excluded_duration(self):
+        data = _make_report_data()
+        data.shift = ShiftSummary(
+            windows=[("07:00", "15:00")],
+            breaks=[("11:00", "11:20")],
+            excluded_duration_s=1200.0,
+        )
+
+        shift = json.loads(render_report_json(data))["shift"]
+
+        assert set(shift.keys()) == {"windows", "breaks", "excluded_duration_s"}
+        # Tuples serialize to JSON arrays; the platform reads [start, end] pairs.
+        assert shift["windows"] == [["07:00", "15:00"]]
+        assert shift["breaks"] == [["11:00", "11:20"]]
+        assert shift["excluded_duration_s"] == 1200.0
+        assert isinstance(shift["excluded_duration_s"], float)
 
     def test_canonical_output_has_no_brand_or_presentation_strings(self):
         """Acceptance criterion #2 — presentation is the platform's job.

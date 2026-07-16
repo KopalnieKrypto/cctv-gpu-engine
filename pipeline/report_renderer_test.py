@@ -13,7 +13,7 @@ import re
 import cv2
 import numpy as np
 
-from pipeline.aggregator import Keyframe, ReportData, TimelineBin, ZoneReport
+from pipeline.aggregator import Keyframe, ReportData, ShiftSummary, TimelineBin, ZoneReport
 from pipeline.annotator import annotate_frame
 from pipeline.postprocessing import Detection, Keypoint
 from pipeline.report_renderer import JPEG_QUALITY, render_report
@@ -127,6 +127,34 @@ class TestZoneSection:
 
         assert 'id="zones"' not in html
         assert "Giętarka 1" not in html
+
+
+class TestShiftSection:
+    """Issue #79 — the report shows the analysed shift windows + excluded time."""
+
+    def _with_shift(self) -> ReportData:
+        data = _make_report_data()
+        data.shift = ShiftSummary(
+            windows=[("07:00", "15:00")],
+            breaks=[("11:00", "11:20")],
+            excluded_duration_s=1200.0,  # 20 min dropped
+        )
+        return data
+
+    def test_renders_analyzed_windows_breaks_and_excluded_duration(self):
+        html = render_report(self._with_shift())
+
+        assert 'id="shift"' in html
+        assert "07:00" in html and "15:00" in html  # analysed working window
+        assert "11:00" in html and "11:20" in html  # excluded break
+        assert "20.0" in html  # 1200 s excluded, surfaced as 20.0 min
+
+    def test_no_shift_block_when_no_schedule_gated_the_run(self):
+        data = _make_report_data()  # shift defaults to None
+
+        html = render_report(data)
+
+        assert 'id="shift"' not in html
 
 
 def _noisy_1080p_frame(rng) -> np.ndarray:

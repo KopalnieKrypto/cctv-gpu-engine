@@ -44,6 +44,12 @@ dependencies = [
     # register / push_cameras / heartbeat. httpx (sync API) is paired
     # with respx in tests; both are small (~2MB combined), pure Python.
     "httpx>=0.27",
+    # First-party IANA tz database for ``zoneinfo`` — powers the DST-safe
+    # shift-window gating (issue #79, ``pipeline.zones.ShiftSchedule``).
+    # Pure-Python, ~5MB. A direct dep so ``ZoneInfo("Europe/Warsaw")`` resolves
+    # even where the base image ships no system /usr/share/zoneinfo, keeping the
+    # gating deterministic across the container and dev boxes.
+    "tzdata>=2024.1",
 ]
 
 # ONNX Runtime is opt-in to keep `uv sync` lightweight (~50MB instead of ~1.5GB).

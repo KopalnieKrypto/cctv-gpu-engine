@@ -15,21 +15,26 @@ worker with a foot planted on the zone boundary is at the station, and edge
 flicker between "in" and "out" would corrupt person-minute totals.
 
 Only the pieces slice 0 needs are validated here. ``recording_start`` and
-``shift`` are parsed and retained verbatim for the shift-gating slice (#79) but
-are otherwise opaque; per-zone ``rules`` are likewise carried through untyped
-until the rule-abstraction slice (#82).
+``shift`` are parsed into a :class:`ShiftSchedule` for the shift-gating slice
+(#79) that maps a frame's ``timestamp_s`` onto wall-clock time and decides
+whether that moment falls inside an active working window; per-zone ``rules``
+are still carried through untyped until the rule-abstraction slice (#82).
 """
 
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, time, timedelta, tzinfo
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pipeline.postprocessing import Detection
 
 Point = tuple[float, float]
+# A shift window or break: a half-open [start, end) time-of-day interval.
+Interval = tuple[time, time]
 
 
 class ZoneConfigError(ValueError):
@@ -59,6 +64,86 @@ class Zone:
         return _point_in_polygon(x, y, self.polygon)
 
 
+@dataclass(frozen=True)
+class ShiftSchedule:
+    """Wall-clock gating for the configured working period (issue #79).
+
+    Built from ``recording_start`` (the wall-clock anchor of ``timestamp_s ==
+    0``) plus a ``shift`` block of working ``windows`` and ``breaks``. A frame's
+    ``timestamp_s`` (elapsed real seconds into the recording) maps to a
+    wall-clock instant, and :meth:`is_active` reports whether that instant falls
+    inside a window and outside every break — the only frames the analysis
+    counts.
+
+    The mapping is DST-safe: elapsed seconds are added on the absolute UTC
+    timeline, then projected back into ``project_tz``. With an IANA
+    ``shift.timezone`` (e.g. ``"Europe/Warsaw"``) a recording that crosses a DST
+    transition shifts its wall clock by the hour exactly as real clocks do;
+    without one it falls back to ``recording_start``'s fixed offset (correct as
+    long as the recording does not cross a transition).
+
+    Windows and breaks are half-open ``[start, end)`` time-of-day intervals that
+    recur every day, so a recording spanning a day rollover reuses the same
+    schedule.
+    """
+
+    start_instant: datetime  # tz-aware absolute instant of timestamp_s == 0
+    project_tz: tzinfo  # zone used to project wall-clock (DST-aware if IANA)
+    windows: tuple[Interval, ...]
+    breaks: tuple[Interval, ...]
+
+    @classmethod
+    def from_config(cls, recording_start: str, shift: dict[str, Any]) -> ShiftSchedule:
+        """Build a :class:`ShiftSchedule` from the raw config fields.
+
+        Raises:
+            ZoneConfigError: on a malformed ``recording_start``, an unknown
+                ``shift.timezone``, or a window/break that is not a list of
+                ``[start, end]`` ``HH:MM`` pairs with ``start < end``.
+        """
+        if not isinstance(shift, dict):
+            raise ZoneConfigError(f"shift must be a JSON object, got {type(shift).__name__}")
+        project_tz = _parse_timezone(shift.get("timezone"))
+        start = _parse_recording_start(recording_start, project_tz)
+        if project_tz is None:
+            project_tz = start.tzinfo
+        windows = _parse_intervals(shift.get("windows"), "windows")
+        breaks = _parse_intervals(shift.get("breaks"), "breaks")
+        return cls(start_instant=start, project_tz=project_tz, windows=windows, breaks=breaks)
+
+    def wall_clock_at(self, timestamp_s: float) -> datetime:
+        """Map ``timestamp_s`` (elapsed real seconds) to a wall-clock datetime.
+
+        DST-safe: the elapsed seconds are added on the UTC timeline (which has
+        no offset jumps), then the instant is projected into ``project_tz``.
+        """
+        instant = self.start_instant.astimezone(UTC) + timedelta(seconds=timestamp_s)
+        return instant.astimezone(self.project_tz)
+
+    def is_active(self, timestamp_s: float) -> bool:
+        """Whether the frame at ``timestamp_s`` falls inside an active window.
+
+        Active = inside some working window and outside every break. Interval
+        bounds are half-open ``[start, end)``: a frame exactly at a window's
+        start counts as working, one exactly at its end does not; a frame at a
+        break's start is excluded, one at its end is back to work.
+        """
+        tod = self.wall_clock_at(timestamp_s).time()
+        if not any(start <= tod < end for start, end in self.windows):
+            return False
+        return not any(start <= tod < end for start, end in self.breaks)
+
+    @property
+    def window_labels(self) -> list[tuple[str, str]]:
+        """Working windows as ``(start, end)`` ``HH:MM`` label pairs for reports."""
+        return [_interval_labels(iv) for iv in self.windows]
+
+    @property
+    def break_labels(self) -> list[tuple[str, str]]:
+        """Breaks as ``(start, end)`` ``HH:MM`` label pairs for reports."""
+        return [_interval_labels(iv) for iv in self.breaks]
+
+
 @dataclass
 class ZoneConfig:
     """Loaded zones config: the zone list plus opaque shift metadata."""
@@ -82,11 +167,15 @@ class ZoneConfig:
             raise ZoneConfigError("zones config must have a 'zones' list")
 
         zones = [_parse_zone(raw) for raw in raw_zones]
-        return cls(
+        config = cls(
             zones=zones,
             recording_start=data.get("recording_start"),
             shift=data.get("shift"),
         )
+        # Build the shift schedule once so a malformed shift block fails at
+        # load time, not deep inside aggregation (issue #79).
+        _ = config.shift_schedule
+        return config
 
     @classmethod
     def load(cls, path: str | Path) -> ZoneConfig:
@@ -109,6 +198,20 @@ class ZoneConfig:
         """Return the zone id for ``det``'s foot point, or ``None`` if outside all."""
         fx, fy = foot_point(det)
         return self.zone_for_point(fx, fy)
+
+    @property
+    def shift_schedule(self) -> ShiftSchedule | None:
+        """The parsed shift-gating schedule, or ``None`` when no shift is set.
+
+        Raises:
+            ZoneConfigError: if a ``shift`` block is present without a
+                ``recording_start`` anchor, or the shift block is malformed.
+        """
+        if self.shift is None:
+            return None
+        if self.recording_start is None:
+            raise ZoneConfigError("a 'shift' schedule requires a 'recording_start' anchor")
+        return ShiftSchedule.from_config(self.recording_start, self.shift)
 
 
 def foot_point(det: Detection) -> Point:
@@ -145,6 +248,74 @@ def _parse_polygon(raw: Any, zone_id: str) -> list[Point]:
             raise ZoneConfigError(f"zone {zone_id!r} polygon coordinates must be numbers")
         points.append((float(x), float(y)))
     return points
+
+
+def _parse_timezone(raw: Any) -> tzinfo | None:
+    """Resolve an optional IANA ``shift.timezone`` name to a tzinfo, or None."""
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or not raw:
+        raise ZoneConfigError("shift 'timezone' must be a non-empty IANA name string")
+    try:
+        return ZoneInfo(raw)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ZoneConfigError(f"shift 'timezone' {raw!r} is not a known IANA zone") from exc
+
+
+def _parse_recording_start(raw: Any, project_tz: tzinfo | None) -> datetime:
+    """Parse ``recording_start`` into a tz-aware instant.
+
+    A naive timestamp is localized into ``project_tz`` when one is supplied;
+    otherwise it is rejected — the anchor must be unambiguous in absolute time.
+    """
+    if not isinstance(raw, str):
+        raise ZoneConfigError("recording_start must be an ISO 8601 timestamp string")
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError as exc:
+        raise ZoneConfigError(f"recording_start {raw!r} is not a valid ISO 8601 timestamp") from exc
+    if dt.tzinfo is None:
+        if project_tz is None:
+            raise ZoneConfigError(
+                "recording_start needs a UTC offset or a shift.timezone to anchor it in time"
+            )
+        dt = dt.replace(tzinfo=project_tz)
+    return dt
+
+
+def _parse_intervals(raw: Any, field_name: str) -> tuple[Interval, ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise ZoneConfigError(f"shift {field_name!r} must be a list of [start, end] pairs")
+    intervals: list[Interval] = []
+    for pair in raw:
+        if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+            raise ZoneConfigError(f"shift {field_name!r} entries must be [start, end] pairs")
+        start = _parse_hhmm(pair[0], field_name)
+        end = _parse_hhmm(pair[1], field_name)
+        if not start < end:
+            raise ZoneConfigError(
+                f"shift {field_name!r} interval {list(pair)} must have start earlier than end"
+            )
+        intervals.append((start, end))
+    return tuple(intervals)
+
+
+def _interval_labels(interval: Interval) -> tuple[str, str]:
+    start, end = interval
+    return (start.strftime("%H:%M"), end.strftime("%H:%M"))
+
+
+def _parse_hhmm(raw: Any, field_name: str) -> time:
+    if not isinstance(raw, str):
+        raise ZoneConfigError(f"shift {field_name!r} times must be 'HH:MM' strings")
+    try:
+        return datetime.strptime(raw, "%H:%M").time()
+    except ValueError as exc:
+        raise ZoneConfigError(
+            f"shift {field_name!r} time {raw!r} is not a valid 'HH:MM' time"
+        ) from exc
 
 
 def _on_segment(px: float, py: float, ax: float, ay: float, bx: float, by: float) -> bool:

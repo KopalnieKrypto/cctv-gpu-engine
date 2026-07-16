@@ -123,7 +123,11 @@ def _analyze_to_report_data(
     from pipeline.detections_dump import DetectionsDumpWriter
 
     detector = load_pose_model(model_path, zones=zones)
-    aggregator = Aggregator(fps=fps, zones=zones.zones if zones is not None else None)
+    aggregator = Aggregator(
+        fps=fps,
+        zones=zones.zones if zones is not None else None,
+        shift=zones.shift_schedule if zones is not None else None,
+    )
 
     # Identity first, then the min-track-length gate: the tracker decides *who*
     # each detection is, the filter decides whether that identity has earned the
@@ -397,9 +401,10 @@ def _build_parser() -> argparse.ArgumentParser:
         type=str,
         default=None,
         metavar="zones.json",
-        help="Full-video mode: ROI zone config (issue #78). Each detection is "
-        "assigned to a zone by its foot point, and the report gains a per-zone "
-        "posture breakdown. Default: off (no zone section).",
+        help="Full-video mode: ROI zone config (issues #78/#79). Each detection "
+        "is assigned to a zone by its foot point (per-zone posture breakdown); an "
+        "optional 'shift' schedule plus 'recording_start' gates analysis to the "
+        "working windows minus breaks. Default: off (no zone/shift section).",
     )
     return parser
 

@@ -13,12 +13,13 @@ import json
 
 import cv2
 
-from pipeline.aggregator import ACTIVITIES, Keyframe, ReportData, ZoneReport
+from pipeline.aggregator import ACTIVITIES, Keyframe, ReportData, ShiftSummary, ZoneReport
 from pipeline.annotator import annotate_frame
 
-# 2 (issue #78): added the per-zone ``zones[]`` section. 1 was the original
-# posture-only contract (issue #72). Bump whenever the top-level shape changes.
-SCHEMA_VERSION = 2
+# 3 (issue #79): added the ``shift`` gating summary. 2 (issue #78) added the
+# per-zone ``zones[]`` section; 1 was the original posture-only contract (issue
+# #72). Bump whenever the top-level shape changes.
+SCHEMA_VERSION = 3
 
 
 def _encode_keyframe_to_base64_jpeg(frame_bgr) -> str:
@@ -60,6 +61,18 @@ def _zone_to_dict(zone: ZoneReport) -> dict:
     }
 
 
+def _shift_to_dict(shift: ShiftSummary | None) -> dict | None:
+    # ``null`` when no shift schedule gated the run; otherwise the analysed
+    # windows/breaks as [start, end] pairs plus the total excluded footage.
+    if shift is None:
+        return None
+    return {
+        "windows": [[start, end] for start, end in shift.windows],
+        "breaks": [[start, end] for start, end in shift.breaks],
+        "excluded_duration_s": float(shift.excluded_duration_s),
+    }
+
+
 def report_data_to_dict(data: ReportData) -> dict:
     """Serialize ``data`` into the canonical ``result.json`` dict."""
     return {
@@ -85,6 +98,8 @@ def report_data_to_dict(data: ReportData) -> dict:
         "keyframes": [_keyframe_to_dict(kf) for kf in data.keyframes],
         # Per-zone posture breakdown (issue #78); [] when no zones config ran.
         "zones": [_zone_to_dict(z) for z in data.zones],
+        # Shift-window gating summary (issue #79); null when no shift gated it.
+        "shift": _shift_to_dict(data.shift),
     }
 
 

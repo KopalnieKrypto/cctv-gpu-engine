@@ -14,9 +14,14 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from pipeline.aggregator import MAX_KEYFRAME_CANDIDATES, Aggregator, ReportData, ZoneReport
+from pipeline.aggregator import (
+    MAX_KEYFRAME_CANDIDATES,
+    Aggregator,
+    ReportData,
+    ZoneReport,
+)
 from pipeline.postprocessing import Detection, Keypoint
-from pipeline.zones import Zone
+from pipeline.zones import ShiftSchedule, Zone
 
 
 def _det(activity: str, bbox=(0.0, 0.0, 10.0, 20.0), confidence: float = 0.9) -> Detection:
@@ -377,3 +382,112 @@ class TestAggregatorPerZone:
         by_id = {z.zone_id: z for z in report.zones}
         assert by_id["bending-1"].person_minutes["walking"] == pytest.approx(0.0)
         assert by_id["welding-1"].person_minutes["walking"] == pytest.approx(0.0)
+
+
+class TestAggregatorShiftGating:
+    """Issue #79 — only frames inside an active shift window are analysed.
+
+    With a :class:`ShiftSchedule`, a frame whose wall-clock falls outside every
+    working window (or inside a break) is dropped from *all* analysis counters —
+    person-minutes, timeline, peak/average, keyframes — while the raw video
+    length (``video_duration_s``) still reflects the whole recording. The report
+    carries a summary of the analysed windows plus the total excluded duration.
+    Without a schedule the aggregator behaves exactly as before.
+    """
+
+    def _schedule(self) -> ShiftSchedule:
+        # Recording anchored at 06:00; window 07:00–15:00 minus an 11:00–11:20
+        # break. So timestamp 3600 s → 07:00 (in), 0 s → 06:00 (before),
+        # 18000 s → 11:00 (break), 36000 s → 16:00 (after).
+        return ShiftSchedule.from_config(
+            "2026-07-16T06:00:00+02:00",
+            {"windows": [["07:00", "15:00"]], "breaks": [["11:00", "11:20"]]},
+        )
+
+    def test_frames_before_the_window_are_excluded_from_person_minutes(self):
+        agg = Aggregator(fps=1, shift=self._schedule())
+        for t in range(60):  # 06:00:00–06:00:59, before the shift → dropped
+            agg.add_frame(float(t), _frame(), [_det("walking")])
+        for t in range(3600, 3660):  # 07:00:00–07:00:59, in shift → 1.0 min
+            agg.add_frame(float(t), _frame(), [_det("walking")])
+
+        report = agg.build_report_data()
+
+        assert report.person_minutes["walking"] == pytest.approx(1.0)
+        assert report.total_frames == 60
+
+    def test_frames_inside_a_break_are_excluded(self):
+        agg = Aggregator(fps=1, shift=self._schedule())
+        for t in range(18000, 18060):  # 11:00, inside the break → dropped
+            agg.add_frame(float(t), _frame(), [_det("sitting")])
+
+        report = agg.build_report_data()
+
+        assert report.person_minutes["sitting"] == pytest.approx(0.0)
+        assert report.total_frames == 0
+
+    def test_excluded_frames_produce_no_timeline_bins(self):
+        agg = Aggregator(fps=1, shift=self._schedule())
+        for t in range(60):  # 06:00, excluded
+            agg.add_frame(float(t), _frame(), [_det("walking")])
+        for t in range(3600, 3660):  # 07:00 → minute 60
+            agg.add_frame(float(t), _frame(), [_det("standing")])
+
+        minutes = [b.minute for b in agg.build_report_data().timeline]
+
+        assert minutes == [60]  # the 06:00 minute never appears
+
+    def test_excluded_frames_do_not_affect_peak_or_average(self):
+        agg = Aggregator(fps=1, shift=self._schedule())
+        agg.add_frame(0.0, _frame(), [_det("standing")] * 10)  # 06:00, crowded, excluded
+        agg.add_frame(3600.0, _frame(), [_det("standing")])  # 07:00, one person
+
+        report = agg.build_report_data()
+
+        assert report.peak_persons == 1
+        assert report.avg_persons == pytest.approx(1.0)
+
+    def test_excluded_frames_are_not_selected_as_keyframes(self):
+        agg = Aggregator(
+            fps=1, keyframe_count=8, keyframe_min_spacing_s=0.0, shift=self._schedule()
+        )
+        agg.add_frame(0.0, _frame(), [_det("standing")] * 5)  # 06:00, excluded
+        agg.add_frame(3600.0, _frame(), [_det("walking")])  # 07:00, included
+
+        timestamps = [kf.timestamp_s for kf in agg.build_report_data().keyframes]
+
+        assert timestamps == pytest.approx([3600.0])
+
+    def test_report_carries_shift_summary_with_windows_breaks_and_excluded_duration(self):
+        agg = Aggregator(fps=1, shift=self._schedule())
+        for t in range(60):  # 06:00 → 60 s excluded
+            agg.add_frame(float(t), _frame(), [_det("walking")])
+        for t in range(3600, 3660):  # 07:00 included
+            agg.add_frame(float(t), _frame(), [_det("walking")])
+
+        summary = agg.build_report_data().shift
+
+        assert summary is not None
+        assert summary.windows == [("07:00", "15:00")]
+        assert summary.breaks == [("11:00", "11:20")]
+        assert summary.excluded_duration_s == pytest.approx(60.0)
+
+    def test_video_duration_reflects_full_length_including_an_excluded_tail(self):
+        agg = Aggregator(fps=1, shift=self._schedule())
+        agg.add_frame(3600.0, _frame(), [_det("walking")])  # 07:00, included
+        agg.add_frame(36000.0, _frame(), [])  # 16:00, after shift → excluded, last frame
+
+        report = agg.build_report_data()
+
+        assert report.video_duration_s == pytest.approx(36000.0)
+        assert report.total_frames == 1
+
+    def test_without_a_schedule_the_summary_is_none_and_all_frames_count(self):
+        agg = Aggregator(fps=1)
+        for t in range(60):
+            agg.add_frame(float(t), _frame(), [_det("walking")])
+
+        report = agg.build_report_data()
+
+        assert report.shift is None
+        assert report.person_minutes["walking"] == pytest.approx(1.0)

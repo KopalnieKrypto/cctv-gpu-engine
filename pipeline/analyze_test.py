@@ -187,7 +187,7 @@ class TestAnalyzeFullVideoMode:
 
         assert exit_code == 0
         payload = json.loads(out_path.read_text(encoding="utf-8"))
-        assert payload["schema_version"] == 2
+        assert payload["schema_version"] == 3
         assert payload["total_frames"] == 2
 
     def test_output_mode_writes_standalone_html_with_summary(self, mocker, tmp_path):
@@ -764,7 +764,7 @@ class TestRunFullVideoToJson:
 
         assert isinstance(raw, bytes)
         payload = json.loads(raw)
-        assert payload["schema_version"] == 2
+        assert payload["schema_version"] == 3
         assert payload["total_frames"] == 3
         assert payload["peak_persons"] == 1
         # The heuristic smoother reclassifies synthetic keypoints, so the exact
@@ -972,7 +972,7 @@ class TestZonesIntegration:
         assert main(["video.mp4", "--output", str(out_path), "--zones", str(zones_path)]) == 0
 
         payload = json.loads(out_path.read_text(encoding="utf-8"))
-        assert payload["schema_version"] == 2
+        assert payload["schema_version"] == 3
         assert len(payload["zones"]) == 1
         zone = payload["zones"][0]
         assert zone["zone_id"] == "bending-1"
@@ -1014,6 +1014,49 @@ class TestZonesIntegration:
 
         payload = json.loads(out_path.read_text(encoding="utf-8"))
         assert payload["zones"] == []
+
+    def test_cli_shift_config_excludes_out_of_window_frames(self, mocker, tmp_path):
+        # Issue #79 — a shift schedule in the --zones config gates the run
+        # end-to-end. Anchored two seconds before the 07:00 window opens, the
+        # frames at t=0,1 (06:59:58/59) fall outside it and the t=2,3,4 frames
+        # (07:00:00+) are analysed. --no-tracker keeps the min-track-length
+        # delay out of the picture so the gate is what's under test.
+        frame = np.full((640, 640, 3), 128, dtype=np.uint8)
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            return_value=iter([(float(t), frame) for t in range(5)]),
+        )
+        self._real_detector_factory(mocker)
+        zones_path = tmp_path / "zones.json"
+        zones_path.write_text(
+            json.dumps(
+                {
+                    "recording_start": "2026-07-16T06:59:58+02:00",
+                    "shift": {"windows": [["07:00", "15:00"]], "breaks": []},
+                    "zones": [
+                        {
+                            "id": "bending-1",
+                            "name": "Giętarka 1",
+                            "polygon": [[0, 400], [640, 400], [640, 640], [0, 640]],
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        out_path = tmp_path / "result.json"
+        exit_code = main(
+            ["video.mp4", "--output", str(out_path), "--zones", str(zones_path), "--no-tracker"]
+        )
+        assert exit_code == 0
+
+        payload = json.loads(out_path.read_text(encoding="utf-8"))
+        assert payload["shift"]["windows"] == [["07:00", "15:00"]]
+        assert payload["shift"]["breaks"] == []
+        assert payload["shift"]["excluded_duration_s"] == pytest.approx(2.0)
+        # Only the 3 in-window frames are analysed — the gate dropped 2 of 5.
+        assert payload["total_frames"] == 3
 
     def test_malformed_zones_config_exits_nonzero_without_traceback(self, mocker, tmp_path, capsys):
         # A bad --zones file must fail fast with a clean error, not crash the

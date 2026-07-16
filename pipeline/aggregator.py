@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from pipeline.postprocessing import Detection
-from pipeline.zones import Zone
+from pipeline.zones import ShiftSchedule, Zone
 
 ACTIVITIES = ("sitting", "standing", "walking", "running")
 
@@ -70,6 +70,21 @@ class ZoneReport:
 
 
 @dataclass
+class ShiftSummary:
+    """Shift-window gating summary for the report (issue #79).
+
+    ``windows``/``breaks`` are the analysed working windows and the excluded
+    breaks as ``(start, end)`` ``HH:MM`` label pairs; ``excluded_duration_s`` is
+    the total footage, in seconds, dropped because it fell outside an active
+    window. Present only when a shift schedule gated the run.
+    """
+
+    windows: list[tuple[str, str]]
+    breaks: list[tuple[str, str]]
+    excluded_duration_s: float
+
+
+@dataclass
 class ReportData:
     """The full data model passed to :func:`pipeline.report_renderer.render_report`."""
 
@@ -84,6 +99,9 @@ class ReportData:
     # Per-zone posture breakdown (issue #78); empty when no zones config is
     # active. One entry per configured zone, in config order.
     zones: list[ZoneReport] = field(default_factory=list)
+    # Shift-window gating summary (issue #79); ``None`` when no shift schedule
+    # gated the run. Carries the analysed windows and total excluded duration.
+    shift: ShiftSummary | None = None
 
 
 class Aggregator:
@@ -95,10 +113,16 @@ class Aggregator:
         keyframe_count: int = 8,
         keyframe_min_spacing_s: float = 30.0,
         zones: list[Zone] | None = None,
+        shift: ShiftSchedule | None = None,
     ) -> None:
         self.fps = fps
         self.keyframe_count = keyframe_count
         self.keyframe_min_spacing_s = keyframe_min_spacing_s
+        # Shift-window gate (issue #79). When set, frames whose wall-clock falls
+        # outside an active window are dropped from every analysis counter and
+        # only tallied into ``_excluded_frames`` for the report's summary.
+        self._shift = shift
+        self._excluded_frames = 0
         self._total_frames = 0
         self._person_count_sum = 0
         self._peak_persons = 0
@@ -130,13 +154,20 @@ class Aggregator:
         detections: list[Detection],
     ) -> None:
         """Record one processed frame and its per-person detections."""
+        # video_duration_s reflects the whole recording, so advance it even for
+        # frames the shift gate is about to drop (issue #79).
+        if timestamp_s > self._last_timestamp_s:
+            self._last_timestamp_s = timestamp_s
+        # Shift gating: a frame whose wall-clock is outside every active window
+        # (or inside a break) contributes to nothing but the excluded tally.
+        if self._shift is not None and not self._shift.is_active(timestamp_s):
+            self._excluded_frames += 1
+            return
         self._total_frames += 1
         person_count = len(detections)
         self._person_count_sum += person_count
         if person_count > self._peak_persons:
             self._peak_persons = person_count
-        if timestamp_s > self._last_timestamp_s:
-            self._last_timestamp_s = timestamp_s
         minute = int(timestamp_s // 60)
         bin_ = self._bins.get(minute)
         if bin_ is None:
@@ -275,6 +306,14 @@ class Aggregator:
             for zone in self._zones
         ]
 
+        shift = None
+        if self._shift is not None:
+            shift = ShiftSummary(
+                windows=self._shift.window_labels,
+                breaks=self._shift.break_labels,
+                excluded_duration_s=self._excluded_frames / self.fps,
+            )
+
         return ReportData(
             video_duration_s=self._last_timestamp_s,
             total_frames=self._total_frames,
@@ -285,4 +324,5 @@ class Aggregator:
             timeline=[self._bins[m] for m in sorted(self._bins)],
             keyframes=self._select_keyframes(),
             zones=zones,
+            shift=shift,
         )

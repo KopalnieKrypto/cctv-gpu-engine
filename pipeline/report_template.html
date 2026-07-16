@@ -62,6 +62,21 @@
 </section>
 {% endif %}
 
+{% if data.shift %}
+<section id="shift">
+  <h2>Analyzed shift windows</h2>
+  <table class="summary">
+    {% for start, end in data.shift.windows %}
+    <tr><td>Working window</td><td>{{ start }}&ndash;{{ end }}</td></tr>
+    {% endfor %}
+    {% for start, end in data.shift.breaks %}
+    <tr><td>Break (excluded)</td><td>{{ start }}&ndash;{{ end }}</td></tr>
+    {% endfor %}
+    <tr><td>Excluded duration</td><td>{{ "%.1f"|format(data.shift.excluded_duration_s / 60) }} min</td></tr>
+  </table>
+</section>
+{% endif %}
+
 <section id="keyframes">
   <h2>Keyframes</h2>
   {% if data.keyframes %}
