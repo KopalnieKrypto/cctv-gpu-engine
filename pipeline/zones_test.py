@@ -16,7 +16,13 @@ import json
 import pytest
 
 from pipeline.postprocessing import Detection, Keypoint
-from pipeline.zones import Zone, ZoneConfig, ZoneConfigError
+from pipeline.zones import (
+    UnsupportedRuleTypeError,
+    Zone,
+    ZoneConfig,
+    ZoneConfigError,
+    build_zone_ruleset,
+)
 
 
 def _square_config() -> ZoneConfig:
@@ -173,3 +179,107 @@ class TestConfigLoading:
         assert zone.name == "Giętarka 1"
         assert zone.polygon[0] == (0.0, 0.0)
         assert zone.rules == {"type": "bending"}
+
+
+class TestRuleTypeDispatch:
+    """Issue #82 — per-zone rules are dispatched on ``rules.type``.
+
+    ``bending`` is the only implemented ruleset (slices 2–3). An unimplemented
+    type — the future ``welding`` station — must fail at config-load time with a
+    typed error that names the supported types, not blow up untyped deep inside
+    aggregation.
+    """
+
+    def _welding_config(self):
+        return ZoneConfig.from_dict(
+            {
+                "zones": [
+                    {
+                        "id": "welding-1",
+                        "name": "Spawalnia 1",
+                        "polygon": [[0, 0], [100, 0], [100, 100], [0, 100]],
+                        "rules": {"type": "welding"},
+                    }
+                ]
+            }
+        )
+
+    def test_unknown_rule_type_raises_typed_error_naming_supported_types(self):
+        with pytest.raises(UnsupportedRuleTypeError) as exc:
+            self._welding_config()
+
+        message = str(exc.value)
+        assert "welding" in message  # the rejected type
+        assert "bending" in message  # the supported type it should have been
+
+    def test_unsupported_rule_type_error_is_a_zone_config_error(self):
+        # A ZoneConfigError subclass, so callers already catching bad-config
+        # errors keep catching an unknown rule type without special-casing.
+        assert issubclass(UnsupportedRuleTypeError, ZoneConfigError)
+        with pytest.raises(ZoneConfigError):
+            self._welding_config()
+
+
+def _bending_zone(rules: dict | None = None) -> Zone:
+    """A bending zone; ``rules`` merges over the default ``{"type": "bending"}``."""
+    return Zone(
+        id="bending-1",
+        name="Giętarka 1",
+        polygon=[(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0)],
+        rules={"type": "bending", **(rules or {})},
+    )
+
+
+class TestBendingRulesetDispatch:
+    """The dispatch turns a bending zone into a ruleset that derives both modes.
+
+    ``build_zone_ruleset`` is the seam the aggregator now routes through: fed the
+    same per-frame ``{track_id: foot_point}`` sightings, a bending ruleset must
+    derive presence/absence + work (slice 2) and conversation (slice 3) — the
+    mode-derivation logic extracted out of the aggregator with no behaviour change.
+    """
+
+    def test_bending_ruleset_derives_presence_and_conversation(self):
+        ruleset = build_zone_ruleset(_bending_zone(), sampling_step_s=1.0)
+
+        # Two tracks stand together, close and still, across three frames:
+        # each anchors presence, and the pair reads as a conversation.
+        for t in (0.0, 1.0, 2.0):
+            ruleset.observe(t, {1: (10.0, 10.0), 2: (20.0, 10.0)})
+        modes = ruleset.result()
+
+        assert modes.presence.anchored_track_id in (1, 2)
+        assert modes.presence.present_s > 0
+        assert modes.conversation.conversation_s > 0
+
+    def test_ruleset_honours_zone_conversation_rules(self):
+        # proximity_px=5 is tighter than the 10px gap between the two tracks, so
+        # the same sightings that conversed above now read as no conversation —
+        # proving the zone's rules flow through the dispatch, not module defaults.
+        ruleset = build_zone_ruleset(
+            _bending_zone({"conversation": {"proximity_px": 5.0}}), sampling_step_s=1.0
+        )
+
+        for t in (0.0, 1.0, 2.0):
+            ruleset.observe(t, {1: (10.0, 10.0), 2: (20.0, 10.0)})
+
+        assert ruleset.result().conversation.conversation_s == 0
+
+    def test_zone_without_explicit_type_defaults_to_bending(self):
+        # A zone whose rules omit "type" must behave exactly like an explicit
+        # bending zone — so no pre-#82 config silently changes meaning.
+        explicit = build_zone_ruleset(_bending_zone(), sampling_step_s=1.0)
+        implicit = build_zone_ruleset(
+            Zone(
+                id="bending-1",
+                name="Giętarka 1",
+                polygon=[(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0)],
+                rules={},
+            ),
+            sampling_step_s=1.0,
+        )
+        for t in (0.0, 1.0, 2.0):
+            explicit.observe(t, {1: (10.0, 10.0), 2: (20.0, 10.0)})
+            implicit.observe(t, {1: (10.0, 10.0), 2: (20.0, 10.0)})
+
+        assert implicit.result() == explicit.result()

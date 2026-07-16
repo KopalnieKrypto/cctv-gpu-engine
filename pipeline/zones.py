@@ -14,11 +14,18 @@ The polygon test treats a point exactly on an edge or vertex as *inside*: a
 worker with a foot planted on the zone boundary is at the station, and edge
 flicker between "in" and "out" would corrupt person-minute totals.
 
-Only the pieces slice 0 needs are validated here. ``recording_start`` and
-``shift`` are parsed into a :class:`ShiftSchedule` for the shift-gating slice
-(#79) that maps a frame's ``timestamp_s`` onto wall-clock time and decides
-whether that moment falls inside an active working window; per-zone ``rules``
-are still carried through untyped until the rule-abstraction slice (#82).
+``recording_start`` and ``shift`` are parsed into a :class:`ShiftSchedule` for
+the shift-gating slice (#79) that maps a frame's ``timestamp_s`` onto wall-clock
+time and decides whether that moment falls inside an active working window.
+
+Per-zone ``rules`` are dispatched on ``rules.type`` (#82): the type selects a
+*ruleset* — the set of semantic modes derived for the zone. ``bending`` (slices
+2–3: presence/work + conversation) is the only implemented type and the default
+when ``type`` is omitted, so no pre-#82 config changes meaning; an unknown type
+is rejected at load time with :class:`UnsupportedRuleTypeError`. A future welding
+station registers its own ruleset in ``_RULESETS`` without touching the bending
+analyzers. :func:`build_zone_ruleset` is the dispatch the aggregator routes
+through.
 """
 
 from __future__ import annotations
@@ -30,11 +37,33 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from pipeline.conversation import (
+    DEFAULT_PROXIMITY_PX,
+    ConversationAnalyzer,
+    ZoneConversation,
+)
 from pipeline.postprocessing import Detection
+from pipeline.presence import (
+    DEFAULT_FLAG_AFTER_S,
+    DEFAULT_MIN_MOVE_PX,
+    ZonePresence,
+    ZonePresenceAnalyzer,
+)
 
 Point = tuple[float, float]
+# One analysed frame's in-zone sightings: which tracks stood in a zone and where
+# their foot points were. The unit both the presence and conversation analyzers
+# consume, so the rule dispatch (#82) passes it straight through.
+Sightings = dict[int, Point]
 # A shift window or break: a half-open [start, end) time-of-day interval.
 Interval = tuple[time, time]
+
+# Per-zone rule dispatch (#82). A zone's ``rules.type`` selects its ruleset — the
+# set of semantic modes derived for it. ``bending`` (slices 2–3: presence/work +
+# conversation) is the only implemented type; a future ``welding`` station adds
+# its own type to the registry below. A zone that omits ``type`` defaults to
+# ``bending`` so no pre-#82 config changes meaning.
+DEFAULT_RULE_TYPE = "bending"
 
 
 class ZoneConfigError(ValueError):
@@ -46,9 +75,19 @@ class ZoneConfigError(ValueError):
     """
 
 
+class UnsupportedRuleTypeError(ZoneConfigError):
+    """Raised when a zone's ``rules.type`` names an unimplemented ruleset (#82).
+
+    A subclass of :class:`ZoneConfigError` (so callers already catching bad-config
+    errors keep working) that the rule dispatch raises for an unknown type — e.g.
+    a ``welding`` zone before that ruleset ships. Its message lists the supported
+    types so the operator sees what they should have written.
+    """
+
+
 @dataclass(frozen=True)
 class Zone:
-    """One named ROI polygon plus its (untyped-for-now) rule set."""
+    """One named ROI polygon plus its rule set (dispatched on ``rules.type``, #82)."""
 
     id: str
     name: str
@@ -220,6 +259,110 @@ def foot_point(det: Detection) -> Point:
     return ((x1 + x2) / 2.0, y2)
 
 
+def _rule_section(rules: dict[str, Any], name: str) -> dict:
+    """A named sub-object of ``rules`` (e.g. ``work``), or ``{}`` if absent/malformed."""
+    section = rules.get(name)
+    return section if isinstance(section, dict) else {}
+
+
+@dataclass(frozen=True)
+class ZoneModes:
+    """The semantic modes a ruleset derived for one zone, for the report (#82).
+
+    The bending ruleset fills ``presence`` (slice 2) and ``conversation`` (slice
+    3); a future welding ruleset would populate its own mode fields here without
+    touching the bending analyzers.
+    """
+
+    presence: ZonePresence | None = None
+    conversation: ZoneConversation | None = None
+
+
+class BendingRuleset:
+    """Bending-station ruleset (#78–#81): presence/absence + work + conversation.
+
+    Owns the presence and conversation analyzers a bending zone derives, built
+    from the zone's ``rules``: ``absence.flag_after_s`` flags long absences,
+    ``work.min_move_px`` is the moving/idle threshold (shared with conversation,
+    so a track moving enough to be *working* can never simultaneously *converse*),
+    and ``conversation.proximity_px`` is how close two tracks stand to read as
+    together. Fed one :data:`Sightings` map per shift-active frame; :meth:`result`
+    yields the zone's derived modes. A missing rule section falls back to the
+    module default, so a zone with no explicit rules still gets sensible analysis.
+    """
+
+    type = "bending"
+
+    def __init__(self, rules: dict[str, Any], sampling_step_s: float) -> None:
+        min_move_px = _rule_section(rules, "work").get("min_move_px", DEFAULT_MIN_MOVE_PX)
+        self._presence = ZonePresenceAnalyzer(
+            sampling_step_s=sampling_step_s,
+            flag_after_s=_rule_section(rules, "absence").get("flag_after_s", DEFAULT_FLAG_AFTER_S),
+            min_move_px=min_move_px,
+        )
+        self._conversation = ConversationAnalyzer(
+            sampling_step_s=sampling_step_s,
+            proximity_px=_rule_section(rules, "conversation").get(
+                "proximity_px", DEFAULT_PROXIMITY_PX
+            ),
+            min_move_px=min_move_px,
+        )
+
+    def observe(self, timestamp_s: float, sightings: Sightings) -> None:
+        """Feed one frame's in-zone ``{track_id: foot_point}`` to each mode analyzer."""
+        self._presence.observe(timestamp_s, sightings)
+        self._conversation.observe(timestamp_s, sightings)
+
+    def result(self) -> ZoneModes:
+        """Resolve the accumulated sightings into this zone's derived modes."""
+        return ZoneModes(
+            presence=self._presence.result(),
+            conversation=self._conversation.result(),
+        )
+
+
+# The rule registry: ``rules.type`` → ruleset class. Adding a welding station is a
+# new entry here plus its own ruleset — the bending analyzers stay untouched.
+_RULESETS: dict[str, type[BendingRuleset]] = {BendingRuleset.type: BendingRuleset}
+
+# Rule types this build implements, derived from the registry (single source of
+# truth) so the constant and the dispatch can never drift apart.
+SUPPORTED_RULE_TYPES: tuple[str, ...] = tuple(_RULESETS)
+
+
+def _resolve_rule_type(rules: dict[str, Any], zone_id: str) -> str:
+    """Return the ruleset type for ``rules``, defaulting to ``bending`` (#82).
+
+    A zone that omits ``rules.type`` keeps the pre-#82 behaviour (the bending
+    ruleset of slices 2–3), so no existing config changes meaning.
+
+    Raises:
+        UnsupportedRuleTypeError: if ``rules.type`` names a type this build does
+            not implement; the message lists the supported types.
+    """
+    rule_type = rules.get("type", DEFAULT_RULE_TYPE)
+    if rule_type not in _RULESETS:
+        supported = ", ".join(SUPPORTED_RULE_TYPES)
+        raise UnsupportedRuleTypeError(
+            f"zone {zone_id!r} has unsupported rules.type {rule_type!r}; "
+            f"supported types: {supported}"
+        )
+    return rule_type
+
+
+def build_zone_ruleset(zone: Zone, sampling_step_s: float) -> BendingRuleset:
+    """Instantiate the ruleset selected by ``zone.rules['type']`` (#82).
+
+    The dispatch the aggregator routes through: it resolves the zone's rule type
+    (defaulting to ``bending``) and constructs that ruleset from the zone's
+    ``rules``. Raises :class:`UnsupportedRuleTypeError` for an unknown type — the
+    welding seam. (The return type widens to a shared ruleset protocol once a
+    second ruleset lands.)
+    """
+    rule_type = _resolve_rule_type(zone.rules, zone.id)
+    return _RULESETS[rule_type](zone.rules, sampling_step_s)
+
+
 def _parse_zone(raw: Any) -> Zone:
     if not isinstance(raw, dict):
         raise ZoneConfigError(f"each zone must be a JSON object, got {type(raw).__name__}")
@@ -233,6 +376,9 @@ def _parse_zone(raw: Any) -> Zone:
     rules = raw.get("rules") or {}
     if not isinstance(rules, dict):
         raise ZoneConfigError(f"zone {zone_id!r} 'rules' must be an object")
+    # Fail fast at load time on an unknown rules.type, rather than untyped deep
+    # inside aggregation (#82).
+    _resolve_rule_type(rules, zone_id)
     return Zone(id=zone_id, name=name, polygon=polygon, rules=rules)
 
 

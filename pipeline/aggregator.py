@@ -21,19 +21,10 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from pipeline.conversation import (
-    DEFAULT_PROXIMITY_PX,
-    ConversationAnalyzer,
-    ZoneConversation,
-)
+from pipeline.conversation import ZoneConversation
 from pipeline.postprocessing import Detection
-from pipeline.presence import (
-    DEFAULT_FLAG_AFTER_S,
-    DEFAULT_MIN_MOVE_PX,
-    ZonePresence,
-    ZonePresenceAnalyzer,
-)
-from pipeline.zones import ShiftSchedule, Zone, foot_point
+from pipeline.presence import ZonePresence
+from pipeline.zones import ShiftSchedule, Zone, build_zone_ruleset, foot_point
 
 ACTIVITIES = ("sitting", "standing", "walking", "running")
 
@@ -125,41 +116,6 @@ class ReportData:
     shift: ShiftSummary | None = None
 
 
-def _rule_section(zone: Zone, name: str) -> dict:
-    """A named sub-object of ``zone.rules``, or ``{}`` if absent/malformed."""
-    section = zone.rules.get(name)
-    return section if isinstance(section, dict) else {}
-
-
-def _presence_analyzer_for(zone: Zone, sampling_step_s: float) -> ZonePresenceAnalyzer:
-    """Build a zone's presence analyzer, honouring its ``rules`` config (#80).
-
-    ``rules.absence.flag_after_s`` and ``rules.work.min_move_px`` override the
-    module defaults; a missing or non-object rule section falls back cleanly so a
-    zone with no explicit rules still gets sensible presence analysis.
-    """
-    return ZonePresenceAnalyzer(
-        sampling_step_s=sampling_step_s,
-        flag_after_s=_rule_section(zone, "absence").get("flag_after_s", DEFAULT_FLAG_AFTER_S),
-        min_move_px=_rule_section(zone, "work").get("min_move_px", DEFAULT_MIN_MOVE_PX),
-    )
-
-
-def _conversation_analyzer_for(zone: Zone, sampling_step_s: float) -> ConversationAnalyzer:
-    """Build a zone's conversation analyzer, honouring its ``rules`` config (#81).
-
-    ``rules.conversation.proximity_px`` sets how close two tracks must stand to
-    read as together; the "idle" threshold is shared with work
-    (``rules.work.min_move_px``), so a track moving enough to be *working* can
-    never simultaneously count as *conversing*.
-    """
-    return ConversationAnalyzer(
-        sampling_step_s=sampling_step_s,
-        proximity_px=_rule_section(zone, "conversation").get("proximity_px", DEFAULT_PROXIMITY_PX),
-        min_move_px=_rule_section(zone, "work").get("min_move_px", DEFAULT_MIN_MOVE_PX),
-    )
-
-
 class Aggregator:
     """Accumulates per-frame detections into a final :class:`ReportData`."""
 
@@ -192,18 +148,14 @@ class Aggregator:
         self._zone_person_frames: dict[str, dict[str, int]] = {
             zone.id: dict.fromkeys(ACTIVITIES, 0) for zone in self._zones
         }
-        # Per-zone anchored-worker presence (issue #80). Each analyzer is fed the
-        # in-zone {track_id: foot_point} of every shift-active frame; its rules
-        # come from the zone config, falling back to module defaults.
+        # Per-zone rule dispatch (issue #82). Each zone's rules.type selects a
+        # ruleset that owns its mode analyzers (bending: presence #80 +
+        # conversation #81). It's fed the in-zone {track_id: foot_point} of every
+        # shift-active frame and yields the zone's derived modes at the end — so a
+        # future welding zone adds its modes without touching this wiring.
         sampling_step_s = 1.0 / fps
-        self._zone_presence: dict[str, ZonePresenceAnalyzer] = {
-            zone.id: _presence_analyzer_for(zone, sampling_step_s) for zone in self._zones
-        }
-        # Per-zone conversation mode (issue #81). Fed the same in-zone
-        # {track_id: foot_point} as presence, so it inherits shift gating and the
-        # track-id requirement; its rules come from the zone config.
-        self._zone_conversation: dict[str, ConversationAnalyzer] = {
-            zone.id: _conversation_analyzer_for(zone, sampling_step_s) for zone in self._zones
+        self._zone_rulesets = {
+            zone.id: build_zone_ruleset(zone, sampling_step_s) for zone in self._zones
         }
         self._last_timestamp_s = 0.0
         self._bins: dict[int, TimelineBin] = {}
@@ -271,16 +223,15 @@ class Aggregator:
         for presence (issue #80) or paired for conversation (issue #81). Runs
         after the shift gate, so excluded frames never register in either mode.
         """
-        if not self._zone_presence:
+        if not self._zone_rulesets:
             return
         per_zone: dict[str, dict[int, tuple[float, float]]] = {}
         for det in detections:
-            if det.track_id is None or det.zone_id not in self._zone_presence:
+            if det.track_id is None or det.zone_id not in self._zone_rulesets:
                 continue
             per_zone.setdefault(det.zone_id, {})[det.track_id] = foot_point(det)
         for zone_id, sightings in per_zone.items():
-            self._zone_presence[zone_id].observe(timestamp_s, sightings)
-            self._zone_conversation[zone_id].observe(timestamp_s, sightings)
+            self._zone_rulesets[zone_id].observe(timestamp_s, sightings)
 
     @property
     def candidate_count(self) -> int:
@@ -368,6 +319,25 @@ class Aggregator:
         selected.sort(key=lambda k: k.timestamp_s)
         return selected
 
+    def _build_zone_report(self, zone: Zone) -> ZoneReport:
+        """One zone's report row: posture person-minutes plus its derived modes.
+
+        Posture person-minutes (issue #78) are always tallied; the semantic modes
+        come from the zone's ruleset (issue #82), which resolved from its
+        ``rules.type`` at construction.
+        """
+        modes = self._zone_rulesets[zone.id].result()
+        return ZoneReport(
+            zone_id=zone.id,
+            name=zone.name,
+            person_minutes={
+                activity: self._zone_person_frames[zone.id][activity] / self.fps / 60.0
+                for activity in ACTIVITIES
+            },
+            presence=modes.presence,
+            conversation=modes.conversation,
+        )
+
     def build_report_data(self) -> ReportData:
         person_minutes = {
             activity: self._activity_person_frames[activity] / self.fps / 60.0
@@ -383,19 +353,7 @@ class Aggregator:
             if self._activity_person_frames[dominant] == 0:
                 dominant = "none"
 
-        zones = [
-            ZoneReport(
-                zone_id=zone.id,
-                name=zone.name,
-                person_minutes={
-                    activity: self._zone_person_frames[zone.id][activity] / self.fps / 60.0
-                    for activity in ACTIVITIES
-                },
-                presence=self._zone_presence[zone.id].result(),
-                conversation=self._zone_conversation[zone.id].result(),
-            )
-            for zone in self._zones
-        ]
+        zones = [self._build_zone_report(zone) for zone in self._zones]
 
         shift = None
         if self._shift is not None:
