@@ -100,6 +100,18 @@ class HeartbeatResponse:
 
     config: dict
 
+    @property
+    def settings(self) -> dict | None:
+        """The nested ``config.settings`` block, or ``None`` if absent (#85).
+
+        The platform ships the runtime-config block under ``config`` on every
+        heartbeat (alongside ``config.cameras``). Surfacing it here gives the
+        applier the same ``.settings`` accessor register exposes, so the two
+        deliver paths converge without each call site reaching into the raw
+        config dict. ``None`` (older platform / cameras-only beat) means the
+        box keeps its current values."""
+        return self.config.get("settings")
+
 
 @dataclass(frozen=True)
 class RegisterResponse:
@@ -113,6 +125,15 @@ class RegisterResponse:
 
     appliance_id: str
     tenant_id: str
+    settings: dict | None = None
+    """Platform-delivered runtime config (issue #85).
+
+    Snake-case block (``buffer_hours``, ``polling_interval_seconds``,
+    ``heartbeat_interval_seconds``, ``upload_chunk_bytes``) the platform now
+    ships at register time so the box overrides its install-time env defaults
+    from beat zero, not just after the first heartbeat. ``None`` when the
+    platform predates the feature — the applier then keeps env cold-start
+    values (see :class:`client_agent.runtime_config.RuntimeConfig`)."""
 
 
 class PlatformClient:
@@ -186,6 +207,7 @@ class PlatformClient:
         return RegisterResponse(
             appliance_id=data["appliance_id"],
             tenant_id=data["tenant_id"],
+            settings=data.get("settings"),
         )
 
     def push_cameras(self, cameras: list[dict]) -> None:

@@ -41,6 +41,7 @@ from client_agent.discovery import (
 from client_agent.ffmpeg_trim import trim_and_concat
 from client_agent.platform import HeartbeatResponse, PlatformClient
 from client_agent.poller import TaskPoller
+from client_agent.runtime_config import RuntimeConfig
 from client_agent.snapshot import build_snapshot_grabber
 from client_agent.snapshot_poller import SnapshotPoller
 from client_agent.uploader import PresignedUploader
@@ -335,6 +336,7 @@ def run_platform_session(
     supervision: dict[str, _RecorderBackoff] | None = None,
     hostname: str | None = None,
     version: str = "0.5.0",
+    runtime_config: RuntimeConfig | None = None,
 ) -> HeartbeatResponse:
     """One iteration of the platform-mode loop.
 
@@ -370,10 +372,17 @@ def run_platform_session(
     chunks land in the per-camera rolling buffer for the task poller to
     pick up, not in R2."""
     resolved_hostname = hostname or environ.get("HOSTNAME") or "cctv-appliance"
-    platform_client.register(
+    register_response = platform_client.register(
         agent_version=version,
         host_info={"hostname": resolved_hostname},
     )
+    # Apply the register-delivered settings before anything else so the box is
+    # correct from beat zero (issue #85), not just after the first heartbeat.
+    # On-change dedup means this is a no-op when the values match the env
+    # cold-start seeds. A single-iteration / legacy caller passes no
+    # runtime_config and the settings are simply ignored.
+    if runtime_config is not None:
+        runtime_config.apply(register_response.settings)
 
     cameras = discover_fn()
     if not cameras:
@@ -421,6 +430,11 @@ def run_platform_session(
         status={},
         recording_cameras=list(active_recorders.keys()),
     )
+    # Every heartbeat carries the current settings block; apply on-change so an
+    # admin edit in the platform UI lands on the next beat without an appliance
+    # restart (issue #85).
+    if runtime_config is not None:
+        runtime_config.apply(response.settings)
 
     def _spawn(cam: dict) -> Any:
         rec = recorder_factory()
@@ -503,12 +517,35 @@ def parse_buffer_hours(environ: Mapping[str, str]) -> int:
     return value
 
 
+def parse_positive_int_env(environ: Mapping[str, str], key: str, *, default: int) -> int:
+    """Resolve a positive-int env var, or ``default`` when unset/empty (#85).
+
+    The cold-start fallback for the three runtime settings that gained env
+    configurability with #85 (``POLLING_INTERVAL_SECONDS``,
+    ``HEARTBEAT_INTERVAL_SECONDS``, ``UPLOAD_CHUNK_BYTES``). Mirrors
+    :func:`parse_buffer_hours`: a malformed or non-positive value fails fast at
+    boot — surfacing as a systemd unit failure — rather than casting to int
+    inside a daemon-thread loop 30 min later where the traceback is buried in
+    journald. Platform-delivered values override these once received."""
+    raw = environ.get(key)
+    if raw is None or raw == "":
+        return default
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{key} must be a positive integer (got {raw!r})") from exc
+    if value <= 0:
+        raise ValueError(f"{key} must be > 0 (got {value})")
+    return value
+
+
 def start_poller_thread(
     *,
     platform_client: PlatformClient,
     buffer_dir: Path,
     trim_output_dir: Path,
     environ: Mapping[str, str],
+    runtime_config: RuntimeConfig | None = None,
 ) -> threading.Thread:
     """Build a :class:`TaskPoller` and run it on a daemon background thread.
 
@@ -521,16 +558,35 @@ def start_poller_thread(
     ``daemon=True`` is intentional: on SIGTERM systemd wants the process
     to exit promptly. A non-daemon thread blocking on
     ``platform.fetch_next_task`` would force a stop-timeout SIGKILL.
+
+    When ``runtime_config`` is supplied (platform mode), the poll interval and
+    the uploader's chunk size are seeded from its current values (the boot-time
+    apply may already have overridden the env defaults) and their setters are
+    wired so a later platform edit re-points them in place (issue #85).
     """
     buffer = _build_rolling_buffer(buffer_dir, environ)
-    uploader = PresignedUploader(platform=platform_client)
+    # In platform mode seed the poll interval + chunk size from the (already
+    # boot-applied) runtime config; without it, fall back to the constructor
+    # defaults so legacy / test callers are unaffected.
+    uploader_kwargs: dict[str, Any] = {}
+    poller_kwargs: dict[str, Any] = {}
+    if runtime_config is not None:
+        uploader_kwargs["upload_chunk_bytes"] = runtime_config.upload_chunk_bytes
+        poller_kwargs["poll_interval_s"] = runtime_config.polling_interval_seconds
+    uploader = PresignedUploader(platform=platform_client, **uploader_kwargs)
     poller = TaskPoller(
         platform=platform_client,
         buffer=buffer,
         trim_fn=trim_and_concat,
         output_dir=trim_output_dir,
         uploader=uploader,
+        **poller_kwargs,
     )
+    if runtime_config is not None:
+        runtime_config.wire(
+            set_polling_interval_seconds=poller.set_poll_interval_s,
+            set_upload_chunk_bytes=uploader.set_upload_chunk_bytes,
+        )
     thread = threading.Thread(
         target=poller.run,
         name="cctv-task-poller",
@@ -601,6 +657,7 @@ def start_maintenance_thread(
     interval_s: int = MAINTENANCE_INTERVAL_S,
     now_fn: Callable[[], datetime] = lambda: datetime.now(UTC),
     sleep: Callable[[float], None] = time.sleep,
+    runtime_config: RuntimeConfig | None = None,
 ) -> threading.Thread:
     """Build a :class:`RollingBuffer` and run :func:`_maintenance_loop` on a
     daemon thread. Called once at platform-mode boot alongside the task
@@ -608,8 +665,17 @@ def start_maintenance_thread(
 
     ``daemon=True`` mirrors ``start_poller_thread`` — systemd wants a prompt
     SIGTERM exit, and a non-daemon loop thread would force a stop-timeout
-    SIGKILL (and leak a thread per ``--update`` redeploy)."""
+    SIGKILL (and leak a thread per ``--update`` redeploy).
+
+    When ``runtime_config`` is supplied (platform mode), the trim buffer is
+    seeded to its current ``buffer_hours`` (which the boot-time apply may have
+    already overridden past the env default) and ``set_buffer_hours`` is wired
+    so a later admin edit re-times the trim window in place — no ffmpeg
+    restart (issue #85)."""
     buffer = _build_rolling_buffer(buffer_dir, environ)
+    if runtime_config is not None:
+        buffer.set_buffer_hours(runtime_config.buffer_hours)
+        runtime_config.wire(set_buffer_hours=buffer.set_buffer_hours)
     thread = threading.Thread(
         target=_maintenance_loop,
         args=(buffer,),
@@ -774,10 +840,30 @@ def main(argv: Sequence[str] | None = None) -> None:
         # Managed cameras lister closure can read it. Heartbeat iterations
         # mutate this same dict via ``reconcile_recorders``.
 
+        # Runtime config (issue #85): the four platform-editable settings.
+        # Seeded from env as a cold-start fallback (BUFFER_HOURS et al.); the
+        # boot-time register/heartbeat apply below overrides them, then the
+        # poller / maintenance threads read the post-apply values as their
+        # construction seed and wire their setters so later admin edits land
+        # on the next heartbeat without a restart.
+        runtime_config = RuntimeConfig(
+            buffer_hours=parse_buffer_hours(os.environ),
+            polling_interval_seconds=parse_positive_int_env(
+                os.environ, "POLLING_INTERVAL_SECONDS", default=5
+            ),
+            heartbeat_interval_seconds=parse_positive_int_env(
+                os.environ, "HEARTBEAT_INTERVAL_SECONDS", default=30
+            ),
+            upload_chunk_bytes=parse_positive_int_env(
+                os.environ, "UPLOAD_CHUNK_BYTES", default=52_428_800
+            ),
+        )
+
         # Boot-time session: register, discover, push, heartbeat-once,
         # reconcile. Surfaces fatal config errors (bad token, unreachable
         # platform) early — before waitress binds and systemd treats the
-        # unit as healthy.
+        # unit as healthy. Passing runtime_config applies the register +
+        # first-heartbeat settings so the box is correct from beat zero (#85).
         boot_response = run_platform_session(
             platform_client=platform_client,
             discover_fn=_discover,
@@ -785,6 +871,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             active_recorders=active_recorders,
             supervision=recorder_supervision,
             environ=os.environ,
+            runtime_config=runtime_config,
         )
         # Issue #41: seed the snapshot resolver registry from the boot
         # heartbeat config so a curl right after appliance start (before
@@ -804,7 +891,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         def _heartbeat_loop() -> None:
             while True:
                 try:
-                    _time.sleep(30)
+                    # Sleep the live interval, re-read each tick so a platform
+                    # edit to heartbeat_interval_seconds re-times the cadence
+                    # without a restart (issue #85).
+                    _time.sleep(runtime_config.heartbeat_interval_seconds)
                     response = run_platform_session(
                         platform_client=platform_client,
                         discover_fn=_discover,
@@ -812,6 +902,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                         active_recorders=active_recorders,
                         supervision=recorder_supervision,
                         environ=os.environ,
+                        runtime_config=runtime_config,
                     )
                     # Keep the snapshot resolver registry in lockstep with
                     # the heartbeat config — a camera the operator just
@@ -834,6 +925,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             buffer_dir=buffer_dir,
             trim_output_dir=trim_output_dir,
             environ=os.environ,
+            runtime_config=runtime_config,
         )
 
         # Enforce BUFFER_HOURS (issue #51). Without this daemon the rolling
@@ -842,6 +934,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         start_maintenance_thread(
             buffer_dir=buffer_dir,
             environ=os.environ,
+            runtime_config=runtime_config,
         )
 
         # Spawn the snapshot poller (gpu-exchange #91). Drives

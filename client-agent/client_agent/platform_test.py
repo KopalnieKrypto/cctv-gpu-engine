@@ -155,6 +155,62 @@ def test_register_503_exhausted_raises_unavailable_after_three_attempts() -> Non
     assert sleeps == [1, 2]
 
 
+# ----- 4.5. register: parses the platform-delivered settings block (#85) -----
+
+
+def test_register_parses_settings_block() -> None:
+    """The register response now carries a snake_case ``settings`` block
+    (gpu-exchange 9f4cbc2) so the box is correct from beat zero, not just
+    after the first heartbeat. Parse it onto the response so the runtime-
+    config applier can override the box's install-time env defaults (#85)."""
+    from client_agent.platform import PlatformClient
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/register").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "appliance_id": "app-1",
+                    "tenant_id": "tenant-1",
+                    "installed_at": "2026-07-16T10:00:00Z",
+                    "settings": {
+                        "buffer_hours": 8,
+                        "polling_interval_seconds": 7,
+                        "heartbeat_interval_seconds": 30,
+                        "upload_chunk_bytes": 52428800,
+                    },
+                },
+            )
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        response = client.register(agent_version="v")
+
+    assert response.settings == {
+        "buffer_hours": 8,
+        "polling_interval_seconds": 7,
+        "heartbeat_interval_seconds": 30,
+        "upload_chunk_bytes": 52428800,
+    }
+
+
+def test_register_settings_absent_is_none() -> None:
+    """A platform that predates the settings feature (or a slimmed response)
+    omits ``settings`` entirely. The box must still boot: settings default
+    to ``None`` and the applier falls back to env cold-start values (#85)."""
+    from client_agent.platform import PlatformClient
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/register").mock(
+            return_value=httpx.Response(200, json={"appliance_id": "a", "tenant_id": "t"})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        response = client.register(agent_version="v")
+
+    assert response.settings is None
+
+
 # ----- 5. push_cameras: Bearer + body, returns None on 204 -----
 
 
@@ -239,6 +295,56 @@ def test_heartbeat_posts_status_and_returns_config() -> None:
         "status": {"uptime_s": 1234, "free_disk_gb": 42},
         "recording_cameras": ["cam-1"],
     }
+
+
+# ----- 6.5. heartbeat: exposes the nested settings block (#85) -----
+
+
+def test_heartbeat_exposes_settings_from_config() -> None:
+    """Every heartbeat now carries ``config.settings`` alongside
+    ``config.cameras`` (gpu-exchange 9f4cbc2). Surface it as ``.settings``
+    so the applier reads the same shape from register and heartbeat without
+    reaching into the raw config dict at every call site (#85)."""
+    from client_agent.platform import PlatformClient
+
+    config = {
+        "cameras": [{"id": "cam-1", "enabled": True, "rtsp_url": "rtsp://h/main"}],
+        "settings": {
+            "buffer_hours": 12,
+            "polling_interval_seconds": 5,
+            "heartbeat_interval_seconds": 30,
+            "upload_chunk_bytes": 52428800,
+        },
+    }
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/heartbeat").mock(
+            return_value=httpx.Response(200, json={"config": config})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        result = client.heartbeat(status={}, recording_cameras=[])
+
+    assert result.settings == config["settings"]
+    # The raw config is still intact — cameras reconciliation reads it.
+    assert result.config == config
+
+
+def test_heartbeat_settings_absent_is_none() -> None:
+    """A config with no ``settings`` key (older platform, or a beat that
+    only reconciles cameras) yields ``None`` — the applier no-ops and the
+    box keeps its current values (#85)."""
+    from client_agent.platform import PlatformClient
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/heartbeat").mock(
+            return_value=httpx.Response(200, json={"config": {"cameras": []}})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        result = client.heartbeat(status={}, recording_cameras=[])
+
+    assert result.settings is None
 
 
 # ----- 7. tenant isolation: Bearer per client, never leaks -----

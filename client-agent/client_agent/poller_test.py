@@ -666,3 +666,42 @@ def test_run_loop_survives_transient_exception_in_run_once(tmp_path: Path) -> No
     # being called ≥ 3 times before we tripped the Stop sentinel).
     assert len(iterations) >= 3
     assert fetches[0] >= 3
+
+
+# ----- 13. set_poll_interval_s re-times the idle backoff at runtime (#85) -----
+
+
+def test_set_poll_interval_s_changes_idle_sleep(tmp_path: Path) -> None:
+    """The platform lets an admin edit ``polling_interval_seconds`` at
+    runtime (#85). The poller is one long-lived loop, so the interval must be
+    mutable in place: after ``set_poll_interval_s(7)`` the next idle backoff
+    sleeps 7s, not the constructor's 5s. Driven in-process with a fake sleep
+    that captures the interval and stops the loop."""
+    from client_agent.poller import TaskPoller
+
+    slept: list[float] = []
+
+    class Stop(Exception):
+        pass
+
+    def fake_sleep(seconds: float) -> None:
+        slept.append(seconds)
+        raise Stop()
+
+    poller = TaskPoller(
+        platform=FakePlatform(next_tasks=[]),  # always idle → loop sleeps
+        buffer=FakeBuffer(),
+        trim_fn=lambda **kw: None,
+        output_dir=tmp_path / "out",
+        uploader=FakeUploader(),
+        poll_interval_s=5,
+        sleep=fake_sleep,
+    )
+
+    poller.set_poll_interval_s(7)
+    try:
+        poller.run()
+    except Stop:
+        pass
+
+    assert slept == [7]

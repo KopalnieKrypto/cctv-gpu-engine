@@ -44,6 +44,17 @@ class RollingBuffer:
         self._buffer_hours = buffer_hours
         self._segment_seconds = segment_seconds
 
+    def set_buffer_hours(self, buffer_hours: int) -> None:
+        """Re-point the retention window at runtime (issue #85).
+
+        The maintenance thread holds one long-lived buffer, so an admin
+        editing ``buffer_hours`` in the platform UI must change retention in
+        place — the next :meth:`trim_old_chunks` uses the new window. A larger
+        value keeps more history *going forward* (already-trimmed chunks are
+        gone); a smaller one deletes more on the next pass. No effect on the
+        recorder's ffmpeg — retention is purely a delete-side policy."""
+        self._buffer_hours = buffer_hours
+
     def chunks_in_range(
         self, camera_id: str, *, start: datetime, end: datetime
     ) -> list[BufferChunk]:

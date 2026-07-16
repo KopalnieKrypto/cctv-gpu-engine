@@ -219,3 +219,35 @@ def test_has_recorded_true_when_camera_dir_has_chunks(tmp_path: Path) -> None:
     assert buffer.has_recorded("cam-1") is True
     assert buffer.has_recorded("cam-2") is False
     assert buffer.has_recorded("cam-never") is False
+
+
+# ----- 6. set_buffer_hours re-widens the retention window at runtime (#85) -----
+
+
+def test_set_buffer_hours_changes_retention_window_for_next_trim(tmp_path: Path) -> None:
+    """The platform lets an admin edit ``buffer_hours`` at runtime (#85). The
+    trim cron holds one long-lived buffer, so retention must be mutable in
+    place — no rebuild, no ffmpeg restart. After ``set_buffer_hours(6)`` the
+    very next ``trim_old_chunks`` keeps 6h of history instead of 1h."""
+    from client_agent.buffer import RollingBuffer
+
+    base = tmp_path / "cctv-buffer"
+    cam = "cam-1"
+    now = datetime(2026, 7, 16, 12, 0, 0, tzinfo=UTC)
+    # 10 chunks ending at now-9h … now (one per hour).
+    for i in range(10):
+        end = now - timedelta(hours=9 - i)
+        _make_chunk(base / cam / f"chunk_{i:03d}.mp4", end=end)
+
+    buffer = RollingBuffer(base_dir=base, buffer_hours=1, segment_seconds=3600)
+
+    buffer.set_buffer_hours(6)
+    deleted = buffer.trim_old_chunks(cam, now=now)
+
+    # cutoff = now - 6h; trim deletes chunks whose end is <= cutoff. Ends run
+    # now-9h…now, so now-9h/-8h/-7h/-6h go (the -6h chunk lands on the cutoff
+    # and counts as stale) → 4 deleted, 6 survive. With the seed buffer_hours=1
+    # only the final chunk would have survived — proof the setter took effect.
+    survivors = sorted(p.name for p in (base / cam).glob("chunk_*.mp4"))
+    assert deleted == 4
+    assert survivors == [f"chunk_{i:03d}.mp4" for i in range(4, 10)]

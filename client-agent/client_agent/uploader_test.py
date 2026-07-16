@@ -518,3 +518,25 @@ def test_put_transport_error_returns_failed_result(tmp_path: Path) -> None:
     # Transport errors count against the same 3-attempt / 1s-2s budget as 5xx.
     assert put_urls == [presigned_url, presigned_url, presigned_url]
     assert sleeps == [1, 2]
+
+
+# ----- 10. upload_chunk_bytes: store-only runtime setter (#85) -----
+
+
+def test_upload_chunk_bytes_defaults_and_is_settable() -> None:
+    """The platform delivers ``upload_chunk_bytes`` in its runtime-config
+    block (#85). The uploader currently streams a whole trimmed file per task
+    — there is no byte-splitting path yet — so the value is stored, not acted
+    on: it defaults to 50 MiB and a runtime edit re-points it in place for
+    whenever a chunked uploader lands. Storing it keeps the four-setting
+    apply contract honest without building an unused splitter."""
+    from client_agent.uploader import PresignedUploader
+
+    platform = PlatformClient(base_url="https://platform.example", token="tok")
+    uploader = PresignedUploader(platform=platform)
+
+    assert uploader.upload_chunk_bytes == 52_428_800
+
+    uploader.set_upload_chunk_bytes(10_485_760)
+
+    assert uploader.upload_chunk_bytes == 10_485_760

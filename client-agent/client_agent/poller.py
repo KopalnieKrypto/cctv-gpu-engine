@@ -100,6 +100,17 @@ class TaskPoller:
         self._runner = runner
         self._sleep = sleep
 
+    def set_poll_interval_s(self, seconds: int) -> None:
+        """Re-time the idle backoff at runtime (issue #85).
+
+        The poller runs one long-lived ``run()`` loop, so an admin editing
+        ``polling_interval_seconds`` in the platform UI changes the interval
+        in place — the next idle iteration sleeps the new value. A plain int
+        assignment is atomic in CPython, so no lock is needed for the
+        cross-thread write (the runtime-config applier runs on the heartbeat
+        thread); worst case the change lands one iteration late."""
+        self._poll_interval_s = seconds
+
     def run_once(self) -> bool:
         """Execute one poll-claim-trim cycle.
 

@@ -43,6 +43,12 @@ _PUT_ATTEMPTS = 3
 # ~200MB chunk land on a 6Mbps uplink (the slowest realistic case).
 _PUT_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=300.0, pool=10.0)
 
+# Cold-start default for the platform-delivered ``upload_chunk_bytes`` (#85):
+# 50 MiB, matching the platform's documented default. Stored only — the
+# current uploader streams a whole trimmed file per task, so there is no
+# byte-splitting consumer yet; a future chunked uploader reads this.
+_DEFAULT_UPLOAD_CHUNK_BYTES = 52_428_800
+
 
 @dataclass(frozen=True)
 class UploadResult:
@@ -69,14 +75,32 @@ class PresignedUploader:
         sleep: Callable[[float], None] = time.sleep,
         max_workers: int = 4,
         http_put: Callable[..., httpx.Response] = httpx.put,
+        upload_chunk_bytes: int = _DEFAULT_UPLOAD_CHUNK_BYTES,
     ) -> None:
         self._platform = platform
         self._sleep = sleep
         self._max_workers = max_workers
+        # Store-only (issue #85): the platform-delivered per-chunk byte size.
+        # Public attribute (not name-mangled) because it is read state a
+        # future byte-splitting path — and the current tests — inspect
+        # directly. See :meth:`set_upload_chunk_bytes`.
+        self.upload_chunk_bytes = upload_chunk_bytes
         # Injectable so tests can simulate transport failures deterministically.
         # Production default is ``httpx.put`` (respx patches the transport for
         # the URL-pattern tests, so the default flows through respx unchanged).
         self._http_put = http_put
+
+    def set_upload_chunk_bytes(self, nbytes: int) -> None:
+        """Re-point the per-chunk upload size at runtime (issue #85).
+
+        The platform ships ``upload_chunk_bytes`` on every register/heartbeat;
+        the runtime-config applier calls this on-change. It is store-only for
+        now — the uploader streams a whole trimmed file per task, so nothing
+        splits by byte size yet — but a chunked uploader would read
+        :attr:`upload_chunk_bytes` for the *next* upload (in-flight uploads
+        keep their current size, per the #85 contract). Plain assignment is
+        atomic in CPython, so no lock for the cross-thread write."""
+        self.upload_chunk_bytes = nbytes
 
     def upload_chunks(self, task_id: str, chunks: list[Path]) -> list[UploadResult]:
         """Upload many chunks in parallel; results return in input order.

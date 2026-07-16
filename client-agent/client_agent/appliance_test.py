@@ -202,6 +202,46 @@ def test_parse_buffer_hours_rejects_zero_and_negative() -> None:
         parse_buffer_hours({"BUFFER_HOURS": "-3"})
 
 
+# ----- 2b. parse_positive_int_env: cold-start fallback for #85 settings -----
+
+
+def test_parse_positive_int_env_returns_default_when_unset() -> None:
+    """The three new runtime settings (poll/heartbeat interval, upload chunk
+    bytes) get env cold-start fallbacks so the box has sane values before the
+    first register/heartbeat lands (#85). Unset → the caller's default."""
+    from client_agent.appliance import parse_positive_int_env
+
+    assert parse_positive_int_env({}, "POLLING_INTERVAL_SECONDS", default=5) == 5
+    assert parse_positive_int_env({"X": ""}, "X", default=30) == 30
+
+
+def test_parse_positive_int_env_parses_a_set_value() -> None:
+    """An operator override in ``platform.env`` wins over the default until the
+    platform delivers its own value."""
+    from client_agent.appliance import parse_positive_int_env
+
+    assert (
+        parse_positive_int_env(
+            {"POLLING_INTERVAL_SECONDS": "9"}, "POLLING_INTERVAL_SECONDS", default=5
+        )
+        == 9
+    )
+
+
+def test_parse_positive_int_env_rejects_bad_values() -> None:
+    """A typo fails fast at boot (systemd surfaces the unit failure) rather
+    than casting to int inside a daemon thread 30 min later — same contract
+    as ``parse_buffer_hours``."""
+    import pytest
+
+    from client_agent.appliance import parse_positive_int_env
+
+    with pytest.raises(ValueError, match="POLL"):
+        parse_positive_int_env({"POLL": "five"}, "POLL", default=5)
+    with pytest.raises(ValueError, match="POLL"):
+        parse_positive_int_env({"POLL": "0"}, "POLL", default=5)
+
+
 # ----- 3. CLI parser -----
 
 
@@ -370,6 +410,94 @@ def test_run_platform_session_registers_pushes_and_heartbeats() -> None:
     assert register_route.called
     assert push_route.called
     assert heartbeat_route.called
+
+
+def test_run_platform_session_applies_settings_from_register_and_heartbeat() -> None:
+    """The platform ships a ``settings`` block in both the register and the
+    heartbeat response (#85). A session must feed both to the runtime-config
+    applier — register so the box is correct from beat zero, heartbeat so
+    every subsequent admin edit lands. On-change dedup is the applier's job;
+    the session just hands each block over in order."""
+    import httpx
+    import respx
+
+    from client_agent.appliance import run_platform_session
+    from client_agent.platform import PlatformClient
+
+    applied: list[dict | None] = []
+
+    class RecordingRuntimeConfig:
+        heartbeat_interval_seconds = 30
+
+        def apply(self, settings: dict | None) -> dict:
+            applied.append(settings)
+            return {}
+
+    register_settings = {"buffer_hours": 8, "polling_interval_seconds": 7}
+    heartbeat_settings = {"buffer_hours": 12, "upload_chunk_bytes": 10_485_760}
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/register").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "appliance_id": "a",
+                    "tenant_id": "t",
+                    "settings": register_settings,
+                },
+            )
+        )
+        mock.post("/appliance/cameras").mock(return_value=httpx.Response(204))
+        mock.post("/appliance/heartbeat").mock(
+            return_value=httpx.Response(
+                200, json={"config": {"cameras": [], "settings": heartbeat_settings}}
+            )
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        run_platform_session(
+            platform_client=client,
+            discover_fn=lambda: [_make_camera()],
+            recorder_factory=lambda: MagicMock(),
+            environ={},
+            runtime_config=RecordingRuntimeConfig(),
+        )
+
+    # Register block applied first, then the heartbeat block.
+    assert applied == [register_settings, heartbeat_settings]
+
+
+def test_run_platform_session_without_runtime_config_skips_apply() -> None:
+    """``runtime_config`` is optional — legacy / single-iteration callers and
+    the pre-#85 tests pass none. The session must still register/push/beat
+    without touching settings (no crash on a missing applier)."""
+    import httpx
+    import respx
+
+    from client_agent.appliance import run_platform_session
+    from client_agent.platform import PlatformClient
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/register").mock(
+            return_value=httpx.Response(
+                200, json={"appliance_id": "a", "tenant_id": "t", "settings": {"buffer_hours": 8}}
+            )
+        )
+        mock.post("/appliance/cameras").mock(return_value=httpx.Response(204))
+        heartbeat_route = mock.post("/appliance/heartbeat").mock(
+            return_value=httpx.Response(200, json={"config": {"cameras": []}})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        response = run_platform_session(
+            platform_client=client,
+            discover_fn=lambda: [_make_camera()],
+            recorder_factory=lambda: MagicMock(),
+            environ={},
+        )
+
+    assert heartbeat_route.called
+    assert response.config == {"cameras": []}
 
 
 def test_run_platform_session_falls_back_to_rtsp_default_url_when_discovery_empty() -> None:
@@ -1252,6 +1380,61 @@ def test_start_poller_thread_uses_buffer_hours_from_env(
     assert thread.daemon is True
 
 
+def test_start_poller_thread_seeds_and_wires_from_runtime_config(tmp_path: Path) -> None:
+    """In platform mode the poller's poll interval and the uploader's chunk
+    size come from the runtime-config object (post-boot-apply values), and a
+    later platform edit pushes through the wired setters onto the same live
+    objects — no restart (#85)."""
+    from unittest.mock import MagicMock, patch
+
+    from client_agent.appliance import start_poller_thread
+    from client_agent.runtime_config import RuntimeConfig
+
+    captured: dict[str, object] = {}
+
+    def fake_task_poller(*, poll_interval_s, **kw):
+        poller = MagicMock()
+        poller.run = MagicMock(return_value=None)
+        captured["poll_interval_s"] = poll_interval_s
+        captured["poller"] = poller
+        return poller
+
+    def fake_uploader(*, platform, upload_chunk_bytes, **kw):
+        uploader = MagicMock()
+        captured["upload_chunk_bytes"] = upload_chunk_bytes
+        captured["uploader"] = uploader
+        return uploader
+
+    rc = RuntimeConfig(
+        buffer_hours=1,
+        polling_interval_seconds=7,  # as if boot apply overrode env=5
+        heartbeat_interval_seconds=30,
+        upload_chunk_bytes=10_485_760,
+    )
+
+    with (
+        patch("client_agent.appliance.TaskPoller", side_effect=fake_task_poller),
+        patch("client_agent.appliance.PresignedUploader", side_effect=fake_uploader),
+    ):
+        thread = start_poller_thread(
+            platform_client=MagicMock(),
+            buffer_dir=tmp_path / "buf",
+            trim_output_dir=tmp_path / "trim",
+            environ={"BUFFER_HOURS": "1"},
+            runtime_config=rc,
+        )
+
+    thread.join(timeout=2)
+    # Seeded from the runtime-config current values, not the poller/uploader
+    # constructor defaults (5 / 50 MiB).
+    assert captured["poll_interval_s"] == 7
+    assert captured["upload_chunk_bytes"] == 10_485_760
+    # A later platform edit pushes through the wired setters.
+    rc.apply({"polling_interval_seconds": 9, "upload_chunk_bytes": 20_971_520})
+    captured["poller"].set_poll_interval_s.assert_called_with(9)
+    captured["uploader"].set_upload_chunk_bytes.assert_called_with(20_971_520)
+
+
 def test_main_starts_poller_thread_in_platform_mode(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1317,6 +1500,66 @@ def test_main_starts_poller_thread_in_platform_mode(
     assert "platform_client" in call_kwargs
     assert "buffer_dir" in call_kwargs
     assert "trim_output_dir" in call_kwargs
+
+
+def test_main_applies_boot_settings_and_wires_runtime_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End-to-end wiring guard (#85): env seeds ``BUFFER_HOURS=1`` but the boot
+    register/heartbeat delivers ``buffer_hours=8``. By the time ``main`` builds
+    the poller + maintenance threads, the shared runtime-config they receive
+    must already reflect the platform value (8) — proving the precedence
+    contract (platform wins over env) holds through the real boot path, not
+    just in the applier unit test."""
+    import httpx
+    import respx
+
+    from client_agent.appliance import main
+
+    env_dir = tmp_path / "etc-cctv-client"
+    env_dir.mkdir()
+    (env_dir / "platform.env").write_text(
+        "PLATFORM_URL=https://platform.example\nAPPLIANCE_TOKEN=tok\nBUFFER_HOURS=1\n"
+    )
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    for k in ("PLATFORM_URL", "APPLIANCE_TOKEN", "BUFFER_HOURS"):
+        monkeypatch.delenv(k, raising=False)
+
+    settings = {
+        "buffer_hours": 8,
+        "polling_interval_seconds": 7,
+        "heartbeat_interval_seconds": 45,
+        "upload_chunk_bytes": 10_485_760,
+    }
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/register").mock(
+            return_value=httpx.Response(
+                200, json={"appliance_id": "a", "tenant_id": "t", "settings": settings}
+            )
+        )
+        mock.post("/appliance/cameras").mock(return_value=httpx.Response(204))
+        mock.post("/appliance/heartbeat").mock(
+            return_value=httpx.Response(200, json={"config": {"cameras": [], "settings": settings}})
+        )
+
+        with (
+            patch("client_agent.appliance.serve"),
+            patch("client_agent.appliance.start_poller_thread") as fake_poller,
+            patch("client_agent.appliance.start_maintenance_thread") as fake_maint,
+        ):
+            main(["--env-dir", str(env_dir)])
+
+    poller_rc = fake_poller.call_args.kwargs["runtime_config"]
+    maint_rc = fake_maint.call_args.kwargs["runtime_config"]
+    # Same object handed to both threads, already carrying the platform values.
+    assert poller_rc is maint_rc
+    assert poller_rc.buffer_hours == 8
+    assert poller_rc.polling_interval_seconds == 7
+    assert poller_rc.heartbeat_interval_seconds == 45
+    assert poller_rc.upload_chunk_bytes == 10_485_760
 
 
 def test_main_does_not_start_poller_thread_in_legacy_mode(
@@ -1827,6 +2070,50 @@ def test_start_maintenance_thread_builds_buffer_with_env_hours(
     assert captured["buffer_hours"] == 8
     assert captured["base_dir"] == tmp_path / "buf"
     assert thread.daemon is True
+
+
+def test_start_maintenance_thread_seeds_and_wires_buffer_hours_from_runtime_config(
+    tmp_path: Path,
+) -> None:
+    """In platform mode the maintenance buffer's retention comes from the
+    runtime-config object (post-boot-apply value), not raw env — and a later
+    platform edit must push through to the same live buffer (#85). Seeds the
+    buffer to the current value and wires ``set_buffer_hours`` so a subsequent
+    ``apply`` re-times the trim window without a restart."""
+    from client_agent.appliance import start_maintenance_thread
+    from client_agent.runtime_config import RuntimeConfig
+
+    built: dict[str, object] = {}
+
+    def fake_rolling_buffer(*, base_dir, buffer_hours, **kw):
+        buf = MagicMock()
+        built["buffer"] = buf
+        return buf
+
+    rc = RuntimeConfig(
+        buffer_hours=8,  # as if a boot-time apply already overrode env=1
+        polling_interval_seconds=5,
+        heartbeat_interval_seconds=30,
+        upload_chunk_bytes=52_428_800,
+    )
+
+    with (
+        patch("client_agent.appliance.RollingBuffer", side_effect=fake_rolling_buffer),
+        patch("client_agent.appliance._maintenance_loop"),
+    ):
+        thread = start_maintenance_thread(
+            buffer_dir=tmp_path / "buf",
+            environ={"BUFFER_HOURS": "1"},
+            runtime_config=rc,
+        )
+
+    thread.join(timeout=2)
+    buf = built["buffer"]
+    # Seeded to the runtime-config value (8), not the env value (1).
+    assert buf.set_buffer_hours.call_args_list[0].args == (8,)
+    # A later platform edit pushes through the wired setter.
+    rc.apply({"buffer_hours": 12})
+    assert buf.set_buffer_hours.call_args_list[-1].args == (12,)
 
 
 def test_main_starts_maintenance_thread_in_platform_mode(
