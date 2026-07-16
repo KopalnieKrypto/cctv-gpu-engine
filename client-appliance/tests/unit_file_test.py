@@ -14,40 +14,14 @@ import configparser
 from pathlib import Path
 
 import pytest
+from systemd_unit import directive_values, parse_unit
 
 UNIT_FILE = Path(__file__).resolve().parent.parent / "cctv-client.service"
 
 
-def _parse_unit() -> configparser.ConfigParser:
-    parser = configparser.ConfigParser(strict=False, interpolation=None)
-    parser.optionxform = str  # preserve case (systemd directives are CamelCase)
-    parser.read_string(UNIT_FILE.read_text())
-    return parser
-
-
-def _multi(section: str, key: str) -> list[str]:
-    """Return all values for a directive in ``section``. configparser with
-    ``strict=False`` accepts duplicate keys but silently overwrites — and
-    systemd specifically allows ``EnvironmentFile=`` to repeat. We scan the
-    raw text instead so we see every entry."""
-    in_section = False
-    values: list[str] = []
-    for line in UNIT_FILE.read_text().splitlines():
-        stripped = line.strip()
-        if stripped.startswith("[") and stripped.endswith("]"):
-            in_section = stripped == f"[{section}]"
-            continue
-        if not in_section or not stripped or stripped.startswith("#"):
-            continue
-        k, sep, v = stripped.partition("=")
-        if sep and k.strip() == key:
-            values.append(v.strip())
-    return values
-
-
 @pytest.fixture(scope="module")
 def unit() -> configparser.ConfigParser:
-    return _parse_unit()
+    return parse_unit(UNIT_FILE)
 
 
 def test_unit_file_exists() -> None:
@@ -103,7 +77,7 @@ def test_environment_files_loaded_from_etc(unit: configparser.ConfigParser) -> N
     in real creds, so without the dash the first ``systemctl start`` after
     install would fail with ENOENT. (``r2.env`` was retired in #29 — the
     appliance no longer uses R2 credentials.)"""
-    files = _multi("Service", "EnvironmentFile")
+    files = directive_values(UNIT_FILE, "Service", "EnvironmentFile")
     assert "-/etc/cctv-client/cameras.env" in files
     assert "-/etc/cctv-client/platform.env" in files
 

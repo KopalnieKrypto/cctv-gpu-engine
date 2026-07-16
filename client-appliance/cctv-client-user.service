@@ -1,0 +1,15 @@
+[Unit]
+Description=CCTV client-agent (recorder + ONVIF discovery), user-mode
+
+[Service]
+Type=simple
+EnvironmentFile=-%h/.config/cctv-client/cameras.env
+EnvironmentFile=-%h/.config/cctv-client/platform.env
+ExecStart=%h/.local/share/cctv-client/bin/python -m client_agent.appliance --env-dir %h/.config/cctv-client
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

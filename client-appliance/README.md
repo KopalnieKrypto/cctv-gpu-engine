@@ -65,6 +65,99 @@ UI dostępne na `http://<ip-urządzenia>:8080/`.
 `install.sh` jest idempotentny — możesz go uruchomić ponownie po pull-u
 nowej wersji repo i nie nadpisze plików w `/etc/cctv-client/`.
 
+## Instalacja user-mode (bez roota) — issue #84
+
+Jeśli na urządzeniu **nie masz hasła sudo**, użyj `install-user.sh` zamiast
+`install.sh`. Wybór jest binarny:
+
+| Masz roota / hasło sudo? | Skrypt | Layout | Unit |
+|---|---|---|---|
+| **Tak** (domyślnie) | `sudo ./client-appliance/install.sh` | user `cctv`, `/opt/cctv-client`, `/etc/cctv-client` | `/etc/systemd/system/cctv-client.service` (`WantedBy=multi-user.target`) |
+| **Nie** | `./client-appliance/install-user.sh` (**nie** przez sudo) | wszystko w `$HOME`: `~/.local/share/cctv-client`, `~/.config/cctv-client` | `~/.config/systemd/user/cctv-client.service` (z `cctv-client-user.service`, `WantedBy=default.target`) |
+
+Preferuj wariant root, jeśli masz wybór — jeden appliance na maszynę, config
+w `/etc`, standardowe `systemctl status`. Wariant user-mode istnieje dla
+sytuacji, w której root jest niedostępny operacyjnie.
+
+```bash
+git clone https://github.com/KopalnieKrypto/cctv-gpu-engine.git ~/cctv-gpu-engine
+cd ~/cctv-gpu-engine
+./client-appliance/install-user.sh          # BEZ sudo — skrypt odmówi startu jako root
+nano ~/.config/cctv-client/cameras.env
+nano ~/.config/cctv-client/platform.env
+systemctl --user restart cctv-client
+```
+
+Komendy operatorskie mają **`--user`** (unit żyje w user managerze, nie w
+systemowym):
+
+```bash
+systemctl --user status cctv-client
+systemctl --user restart cctv-client
+journalctl --user -u cctv-client -f
+```
+
+### Linger — warunek konieczny startu po reboocie
+
+Unit `--user` startuje przy boocie **tylko** gdy dla użytkownika włączony jest
+**linger**. Bez niego systemd ubija user managera (i appliance razem z nim) w
+momencie zakończenia ostatniej sesji SSH — appliance przeżyje `exit`, ale
+zniknie po reboocie, **cicho**. To dokładnie ten tryb awarii, który kosztował
+~18 h przestoju na `cameraboy` (2026-07-14 → 2026-07-16).
+
+`install-user.sh` włącza linger sam i **weryfikuje**, że się udało (jeśli nie —
+kończy się błędem, zamiast zostawić appliance, który działa do pierwszego
+restartu):
+
+```bash
+loginctl enable-linger "$(id -un)"
+loginctl show-user "$(id -un)" --property=Linger   # oczekiwane: Linger=yes
+```
+
+**Czy to wymaga roota?** Zweryfikowane na `cameraboy` (Ubuntu 24.04, systemd
+255): **nie**. Akcja polkit `org.freedesktop.login1.set-self-linger` ma
+domyślnie `allow_any=yes`, więc użytkownik włączający linger *sobie samemu*
+nie przechodzi żadnej autoryzacji. Uwaga: dotyczy to wyłącznie wariantu "sobie
+samemu" — podanie **cudzej** nazwy użytkownika trafia w
+`set-user-linger`, które autoryzacji wymaga.
+
+Jeśli na innym site'cie polityka polkit jest zaostrzona i `install-user.sh`
+zakończy się błędem `linger is still disabled`, potrzebna jest **jednorazowa**
+akcja admina (`sudo loginctl enable-linger <user>`) — nadal nieporównanie mniej
+niż pełny layout roota.
+
+### Czego user unit nie ma (i dlaczego)
+
+- **Brak `User=`/`Group=`** — unit `--user` z definicji działa jako właściciel;
+  systemd odrzuca te dyrektywy w user managerze.
+- **Brak `After=/Wants=network-online.target`** — ten target istnieje tylko w
+  managerze systemowym (`systemctl --user show network-online.target` →
+  `LoadState=not-found`). Skopiowanie go z root unita nic nie daje: `Wants=` na
+  nieistniejącym unicie to słaba zależność, więc systemd tylko ostrzeże i
+  pojedzie dalej — błąd przeżyłby review i niczego nie kupił. Appliance i tak
+  retry'uje, a twarde wyjście łapie `Restart=on-failure`.
+- **Reszta jest 1:1 z root unitem**: `Type=simple`, `Restart=on-failure`,
+  `RestartSec=5`, logi do journalda.
+
+### Migracja z ręcznego `nohup` (site `cameraboy`)
+
+Site'y bootstrapowane przed #84 mają checkout w `~/cctv-gpu-engine`, env dir w
+`~/cctv-client-<site>-production` i proces odpalony z ręki. Migracja:
+
+```bash
+pkill -f "client_agent.appliance"                      # ubij ręczny proces
+mkdir -p ~/.config/cctv-client
+cp ~/cctv-client-*-production/*.env ~/.config/cctv-client/   # przenieś creds
+cd ~/cctv-gpu-engine && git pull --ff-only
+./client-appliance/install-user.sh
+systemctl --user status cctv-client
+```
+
+`install-user.sh` kopiuje `client_agent` do site-packages venva, więc unit
+**nie potrzebuje** `PYTHONPATH` — w przeciwieństwie do starego launchera, który
+działał wyłącznie dzięki `PYTHONPATH` eksportowanemu w shellu operatora
+(systemd unit nie dziedziczy środowiska shella).
+
 ## Update
 
 Aktualizacja do nowej wersji:
@@ -148,8 +241,10 @@ Cel: krok 1–5 ≤ 5 min. Jeśli przekracza, problem zwykle leży w sieci
 
 | Plik | Opis |
 |------|------|
-| `cctv-client.service` | systemd unit (Type=simple, EnvironmentFile dla `cameras.env` i `platform.env`, ExecStart na venv `/opt/cctv-client`) |
-| `install.sh` | idempotentny installer (user `cctv`, venv, deps via uv/pip, kopiowanie pakietów, etc) |
+| `cctv-client.service` | systemd unit — **root** (Type=simple, EnvironmentFile dla `cameras.env` i `platform.env`, ExecStart na venv `/opt/cctv-client`, `WantedBy=multi-user.target`) |
+| `cctv-client-user.service` | systemd unit — **user-mode** (#84; bez `User=`, ścieżki przez `%h`, `WantedBy=default.target`) |
+| `install.sh` | idempotentny installer **root** (user `cctv`, venv, deps via uv/pip, kopiowanie pakietów, etc) |
+| `install-user.sh` | idempotentny installer **user-mode** (#84; venv + config w `$HOME`, linger, `systemctl --user`) |
 | `cameras.env.example` | template dla `/etc/cctv-client/cameras.env` (RTSP_DEFAULT_USER/PASS + opcjonalne per-IP) |
 | `platform.env.example` | template dla `/etc/cctv-client/platform.env` (PLATFORM_URL, APPLIANCE_TOKEN, opcjonalny BUFFER_HOURS) |
 

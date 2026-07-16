@@ -121,3 +121,45 @@ def test_section_documents_buffer_hours() -> None:
     assert "buffer_hours" in text, "README must document BUFFER_HOURS"
     # Surface the prod guidance — accept either '8' or '8h' verbatim.
     assert "8" in text, "README must document the 8h+ production guidance"
+
+
+# --- user-mode install path (issue #84) -------------------------------------
+
+
+def test_documents_user_mode_install() -> None:
+    """AC 9: the README must surface the no-root path and its artifacts.
+
+    A no-sudo site that cannot find this section falls back to the hand-rolled
+    `nohup` launcher — which is precisely the unsupervised setup that cost the
+    ~18 h cameraboy outage."""
+    text = _text()
+    assert "install-user.sh" in text, "README must document install-user.sh"
+    assert "cctv-client-user.service" in text, "README must reference the user unit"
+
+
+def test_documents_root_vs_user_choice() -> None:
+    """AC 9: an operator must be able to tell *which* installer to run before
+    running one. Both must be named in the same breath as the deciding
+    factor — whether root/sudo is available."""
+    text = _text().lower()
+    assert "install.sh" in text and "install-user.sh" in text
+    assert "sudo" in text or "root" in text
+
+
+def test_documents_linger_requirement() -> None:
+    """AC 8/9: linger is the one non-obvious prerequisite of the user path —
+    without it the unit dies with the operator's SSH session and never comes
+    back after reboot, silently. The README must name it so an operator
+    debugging a vanished appliance has a term to search for."""
+    text = _text().lower()
+    assert "linger" in text, "README must document the linger requirement"
+    assert "loginctl" in text, "README must show the loginctl command"
+
+
+def test_documents_user_mode_journal_and_status() -> None:
+    """The user-mode operator commands differ from the root ones (`--user` on
+    every call). Documenting the root forms only would send them to a unit
+    that does not exist in the system manager."""
+    text = _text()
+    assert "systemctl --user" in text, "README must document `systemctl --user` commands"
+    assert "journalctl --user" in text, "README must document `journalctl --user` for logs"
