@@ -15,13 +15,16 @@ import cv2
 
 from pipeline.aggregator import ACTIVITIES, Keyframe, ReportData, ShiftSummary, ZoneReport
 from pipeline.annotator import annotate_frame
+from pipeline.conversation import ZoneConversation
 from pipeline.presence import Absence, Interval, ZonePresence
 
-# 4 (issue #80): each zone now carries an anchored-worker ``presence`` block. 3
-# (issue #79) added the ``shift`` gating summary; 2 (issue #78) added the
-# per-zone ``zones[]`` section; 1 was the original posture-only contract (issue
-# #72). Bump whenever the top-level shape changes.
-SCHEMA_VERSION = 4
+# 5 (issue #81): each zone now carries a ``conversation`` block alongside
+# ``presence``, completing the work / conversation / absent mode set. 4 (issue
+# #80) added the anchored-worker ``presence`` block; 3 (issue #79) added the
+# ``shift`` gating summary; 2 (issue #78) added the per-zone ``zones[]`` section;
+# 1 was the original posture-only contract (issue #72). Bump whenever the
+# top-level shape changes.
+SCHEMA_VERSION = 5
 
 
 def _encode_keyframe_to_base64_jpeg(frame_bgr) -> str:
@@ -84,6 +87,18 @@ def _presence_to_dict(presence: ZonePresence | None) -> dict | None:
     }
 
 
+def _conversation_to_dict(conversation: ZoneConversation | None) -> dict | None:
+    # ``null`` when no conversation analysis ran for this zone (no zone config,
+    # or tracking disabled). Otherwise the total conversing seconds plus the
+    # interval list — two idle, proximate tracks standing together (issue #81).
+    if conversation is None:
+        return None
+    return {
+        "conversation_s": float(conversation.conversation_s),
+        "intervals": [_interval_to_dict(iv) for iv in conversation.intervals],
+    }
+
+
 def _zone_to_dict(zone: ZoneReport) -> dict:
     # Emit all four buckets so the platform never branches on a missing key —
     # an activity that never occurred in this zone is 0.0, not absent.
@@ -92,6 +107,7 @@ def _zone_to_dict(zone: ZoneReport) -> dict:
         "name": zone.name,
         "person_minutes": {a: float(zone.person_minutes.get(a, 0.0)) for a in ACTIVITIES},
         "presence": _presence_to_dict(zone.presence),
+        "conversation": _conversation_to_dict(zone.conversation),
     }
 
 

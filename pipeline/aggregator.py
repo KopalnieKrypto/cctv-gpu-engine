@@ -21,6 +21,11 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from pipeline.conversation import (
+    DEFAULT_PROXIMITY_PX,
+    ConversationAnalyzer,
+    ZoneConversation,
+)
 from pipeline.postprocessing import Detection
 from pipeline.presence import (
     DEFAULT_FLAG_AFTER_S,
@@ -78,6 +83,11 @@ class ZoneReport:
     # ``anchored_track_id`` is ``None`` if no track ever dwelt here (e.g. tracking
     # disabled).
     presence: ZonePresence | None = None
+    # Zone-level conversation mode (issue #81): two idle, proximate tracks
+    # standing together, completing the work / conversation / absent set. ``None``
+    # when no zone config is active; otherwise a ZoneConversation whose intervals
+    # are empty if no conversation occurred (or tracking disabled).
+    conversation: ZoneConversation | None = None
 
 
 @dataclass
@@ -115,6 +125,12 @@ class ReportData:
     shift: ShiftSummary | None = None
 
 
+def _rule_section(zone: Zone, name: str) -> dict:
+    """A named sub-object of ``zone.rules``, or ``{}`` if absent/malformed."""
+    section = zone.rules.get(name)
+    return section if isinstance(section, dict) else {}
+
+
 def _presence_analyzer_for(zone: Zone, sampling_step_s: float) -> ZonePresenceAnalyzer:
     """Build a zone's presence analyzer, honouring its ``rules`` config (#80).
 
@@ -122,15 +138,25 @@ def _presence_analyzer_for(zone: Zone, sampling_step_s: float) -> ZonePresenceAn
     module defaults; a missing or non-object rule section falls back cleanly so a
     zone with no explicit rules still gets sensible presence analysis.
     """
-
-    def _section(name: str) -> dict:
-        section = zone.rules.get(name)
-        return section if isinstance(section, dict) else {}
-
     return ZonePresenceAnalyzer(
         sampling_step_s=sampling_step_s,
-        flag_after_s=_section("absence").get("flag_after_s", DEFAULT_FLAG_AFTER_S),
-        min_move_px=_section("work").get("min_move_px", DEFAULT_MIN_MOVE_PX),
+        flag_after_s=_rule_section(zone, "absence").get("flag_after_s", DEFAULT_FLAG_AFTER_S),
+        min_move_px=_rule_section(zone, "work").get("min_move_px", DEFAULT_MIN_MOVE_PX),
+    )
+
+
+def _conversation_analyzer_for(zone: Zone, sampling_step_s: float) -> ConversationAnalyzer:
+    """Build a zone's conversation analyzer, honouring its ``rules`` config (#81).
+
+    ``rules.conversation.proximity_px`` sets how close two tracks must stand to
+    read as together; the "idle" threshold is shared with work
+    (``rules.work.min_move_px``), so a track moving enough to be *working* can
+    never simultaneously count as *conversing*.
+    """
+    return ConversationAnalyzer(
+        sampling_step_s=sampling_step_s,
+        proximity_px=_rule_section(zone, "conversation").get("proximity_px", DEFAULT_PROXIMITY_PX),
+        min_move_px=_rule_section(zone, "work").get("min_move_px", DEFAULT_MIN_MOVE_PX),
     )
 
 
@@ -172,6 +198,12 @@ class Aggregator:
         sampling_step_s = 1.0 / fps
         self._zone_presence: dict[str, ZonePresenceAnalyzer] = {
             zone.id: _presence_analyzer_for(zone, sampling_step_s) for zone in self._zones
+        }
+        # Per-zone conversation mode (issue #81). Fed the same in-zone
+        # {track_id: foot_point} as presence, so it inherits shift gating and the
+        # track-id requirement; its rules come from the zone config.
+        self._zone_conversation: dict[str, ConversationAnalyzer] = {
+            zone.id: _conversation_analyzer_for(zone, sampling_step_s) for zone in self._zones
         }
         self._last_timestamp_s = 0.0
         self._bins: dict[int, TimelineBin] = {}
@@ -217,7 +249,7 @@ class Aggregator:
                 zone_counter = self._zone_person_frames.get(det.zone_id)
                 if zone_counter is not None:
                     zone_counter[det.activity] += 1
-        self._observe_zone_presence(timestamp_s, detections)
+        self._observe_zone_tracks(timestamp_s, detections)
         if person_count > 0:
             # Keep a copy of the frame because the caller will overwrite the
             # buffer on the next ffmpeg read.
@@ -231,13 +263,13 @@ class Aggregator:
             self._update_activity_best(candidate)
             self._evict_if_over_capacity()
 
-    def _observe_zone_presence(self, timestamp_s: float, detections: list[Detection]) -> None:
+    def _observe_zone_tracks(self, timestamp_s: float, detections: list[Detection]) -> None:
         """Feed this (shift-active) frame's in-zone foot points to each analyzer.
 
         Only detections carrying both a ``zone_id`` for a configured zone and a
         ``track_id`` count — a foot point without an identity can't be anchored
-        (issue #80). Runs after the shift gate, so excluded frames never register
-        as presence.
+        for presence (issue #80) or paired for conversation (issue #81). Runs
+        after the shift gate, so excluded frames never register in either mode.
         """
         if not self._zone_presence:
             return
@@ -248,6 +280,7 @@ class Aggregator:
             per_zone.setdefault(det.zone_id, {})[det.track_id] = foot_point(det)
         for zone_id, sightings in per_zone.items():
             self._zone_presence[zone_id].observe(timestamp_s, sightings)
+            self._zone_conversation[zone_id].observe(timestamp_s, sightings)
 
     @property
     def candidate_count(self) -> int:
@@ -359,6 +392,7 @@ class Aggregator:
                     for activity in ACTIVITIES
                 },
                 presence=self._zone_presence[zone.id].result(),
+                conversation=self._zone_conversation[zone.id].result(),
             )
             for zone in self._zones
         ]

@@ -14,6 +14,7 @@ import json
 import numpy as np
 
 from pipeline.aggregator import Keyframe, ReportData, ShiftSummary, TimelineBin, ZoneReport
+from pipeline.conversation import ZoneConversation
 from pipeline.postprocessing import Detection, Keypoint
 from pipeline.presence import Absence, Interval, ZonePresence
 from pipeline.report_json import render_report_json
@@ -64,6 +65,9 @@ def _make_report_data() -> ReportData:
                     absence_intervals=(Absence(100.0, 300.0, flagged=True),),
                     work_intervals=(Interval(10.0, 50.0),),
                 ),
+                conversation=ZoneConversation(
+                    intervals=(Interval(20.0, 40.0), Interval(70.0, 90.0)),
+                ),
             ),
         ],
     )
@@ -73,7 +77,7 @@ class TestRenderReportJson:
     def test_emits_json_bytes_with_schema_version_and_summary_fields(self):
         payload = json.loads(render_report_json(_make_report_data()))
 
-        assert payload["schema_version"] == 4
+        assert payload["schema_version"] == 5
         assert payload["video_duration_s"] == 125.0
         assert payload["total_frames"] == 125
         assert payload["peak_persons"] == 4
@@ -143,7 +147,7 @@ class TestRenderReportJson:
 
         assert len(payload["zones"]) == 1
         zone = payload["zones"][0]
-        assert set(zone.keys()) == {"zone_id", "name", "person_minutes", "presence"}
+        assert set(zone.keys()) == {"zone_id", "name", "person_minutes", "presence", "conversation"}
         assert zone["zone_id"] == "bending-1"
         assert zone["name"] == "Giętarka 1"
         assert set(zone["person_minutes"]) == {"sitting", "standing", "walking", "running"}
@@ -193,6 +197,27 @@ class TestRenderReportJson:
         zone = json.loads(render_report_json(data))["zones"][0]
 
         assert zone["presence"] is None
+
+    def test_zone_conversation_block_carries_total_and_intervals(self):
+        zone = json.loads(render_report_json(_make_report_data()))["zones"][0]
+        conversation = zone["conversation"]
+
+        assert set(conversation.keys()) == {"conversation_s", "intervals"}
+        # 20–40 + 70–90 conversing => 40 s total across two intervals.
+        assert conversation["conversation_s"] == 40.0
+        assert isinstance(conversation["conversation_s"], float)
+        assert conversation["intervals"] == [
+            {"start_s": 20.0, "end_s": 40.0, "duration_s": 20.0},
+            {"start_s": 70.0, "end_s": 90.0, "duration_s": 20.0},
+        ]
+
+    def test_zone_conversation_is_null_when_no_conversation_analysis_ran(self):
+        data = _make_report_data()
+        data.zones[0].conversation = None
+
+        zone = json.loads(render_report_json(data))["zones"][0]
+
+        assert zone["conversation"] is None
 
     def test_shift_is_null_when_no_schedule_gated_the_run(self):
         data = _make_report_data()  # shift defaults to None

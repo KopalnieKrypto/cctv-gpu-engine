@@ -187,7 +187,7 @@ class TestAnalyzeFullVideoMode:
 
         assert exit_code == 0
         payload = json.loads(out_path.read_text(encoding="utf-8"))
-        assert payload["schema_version"] == 4
+        assert payload["schema_version"] == 5
         assert payload["total_frames"] == 2
 
     def test_output_mode_writes_standalone_html_with_summary(self, mocker, tmp_path):
@@ -764,7 +764,7 @@ class TestRunFullVideoToJson:
 
         assert isinstance(raw, bytes)
         payload = json.loads(raw)
-        assert payload["schema_version"] == 4
+        assert payload["schema_version"] == 5
         assert payload["total_frames"] == 3
         assert payload["peak_persons"] == 1
         # The heuristic smoother reclassifies synthetic keypoints, so the exact
@@ -972,7 +972,7 @@ class TestZonesIntegration:
         assert main(["video.mp4", "--output", str(out_path), "--zones", str(zones_path)]) == 0
 
         payload = json.loads(out_path.read_text(encoding="utf-8"))
-        assert payload["schema_version"] == 4
+        assert payload["schema_version"] == 5
         assert len(payload["zones"]) == 1
         zone = payload["zones"][0]
         assert zone["zone_id"] == "bending-1"

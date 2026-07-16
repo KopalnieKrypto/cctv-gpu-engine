@@ -583,3 +583,94 @@ class TestAggregatorZonePresence:
 
         assert presence.anchored_track_id == 1
         assert presence.presence_intervals[0].start_s == 3600.0
+
+
+class TestAggregatorZoneConversation:
+    """Issue #81 — per-zone conversation mode attached to each ZoneReport.
+
+    The aggregator feeds each shift-active frame's in-zone ``{track_id:
+    foot_point}`` to a per-zone conversation analyzer as well, so
+    ``ZoneReport.conversation`` reports when two idle, proximate tracks stood
+    together — completing the work / conversation / absent mode set.
+    """
+
+    def _zone(self, rules=None) -> Zone:
+        square = [(0.0, 0.0), (1000.0, 0.0), (1000.0, 1000.0), (0.0, 1000.0)]
+        return Zone(id="bending-1", name="Giętarka 1", polygon=square, rules=rules or {})
+
+    def test_two_proximate_idle_tracks_yield_a_conversation(self):
+        agg = Aggregator(fps=1, zones=[self._zone()])
+        # Two workers stand 50 px apart, unmoving, for 10 s — a conversation.
+        for t in range(10):
+            agg.add_frame(
+                float(t),
+                _frame(),
+                [
+                    _tracked_det(1, "bending-1", foot_x=100.0),
+                    _tracked_det(2, "bending-1", foot_x=150.0),
+                ],
+            )
+
+        conversation = agg.build_report_data().zones[0].conversation
+
+        assert conversation is not None
+        assert conversation.conversation_s == pytest.approx(9.0)
+
+    def test_zone_rules_configure_conversation_proximity(self):
+        # Two idle tracks 200 px apart: past the default 150, within a 250 rule.
+        def conversation_for(rules):
+            agg = Aggregator(fps=1, zones=[self._zone(rules=rules)])
+            for t in range(10):
+                agg.add_frame(
+                    float(t),
+                    _frame(),
+                    [
+                        _tracked_det(1, "bending-1", foot_x=100.0),
+                        _tracked_det(2, "bending-1", foot_x=300.0),
+                    ],
+                )
+            return agg.build_report_data().zones[0].conversation
+
+        assert conversation_for({}).intervals == ()  # default 150 keeps them apart
+        assert conversation_for({"conversation": {"proximity_px": 250.0}}).conversation_s == 9.0
+
+    def test_conversation_reuses_the_work_min_move_rule(self):
+        # Two tracks drift 20 px/frame in step, 50 px apart. Under the default
+        # move threshold (40) they read as idle-and-together; a stricter
+        # work.min_move_px (10) makes that drift count as work, not conversation.
+        def intervals_for(rules):
+            agg = Aggregator(fps=1, zones=[self._zone(rules=rules)])
+            for t in range(10):
+                agg.add_frame(
+                    float(t),
+                    _frame(),
+                    [
+                        _tracked_det(1, "bending-1", foot_x=t * 20.0),
+                        _tracked_det(2, "bending-1", foot_x=t * 20.0 + 50.0),
+                    ],
+                )
+            return agg.build_report_data().zones[0].conversation.intervals
+
+        assert len(intervals_for({})) == 1
+        assert intervals_for({"work": {"min_move_px": 10.0}}) == ()
+
+    def test_conversation_only_reflects_shift_active_frames(self):
+        schedule = ShiftSchedule.from_config(
+            "2026-07-16T06:00:00+02:00", {"windows": [["07:00", "15:00"]]}
+        )
+        agg = Aggregator(fps=1, zones=[self._zone()], shift=schedule)
+
+        def pair(t):
+            return [
+                _tracked_det(1, "bending-1", foot_x=100.0),
+                _tracked_det(2, "bending-1", foot_x=150.0),
+            ]
+
+        for t in range(60):  # 06:00 — before the shift, excluded
+            agg.add_frame(float(t), _frame(), pair(t))
+        for t in range(3600, 3610):  # 07:00 — in shift
+            agg.add_frame(float(t), _frame(), pair(t))
+
+        (interval,) = agg.build_report_data().zones[0].conversation.intervals
+
+        assert interval.start_s == 3600.0
