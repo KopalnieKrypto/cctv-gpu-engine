@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from pipeline.postprocessing import Detection
+from pipeline.zones import Zone
 
 ACTIVITIES = ("sitting", "standing", "walking", "running")
 
@@ -55,6 +56,20 @@ class Keyframe:
 
 
 @dataclass
+class ZoneReport:
+    """Per-zone posture breakdown (issue #78).
+
+    A named ROI's slice of the video: person-minutes per activity for the
+    detections whose foot point fell inside this zone. Slice 0 carries the
+    posture breakdown only; semantic modes / timelines arrive in later slices.
+    """
+
+    zone_id: str
+    name: str
+    person_minutes: dict[str, float]
+
+
+@dataclass
 class ReportData:
     """The full data model passed to :func:`pipeline.report_renderer.render_report`."""
 
@@ -66,6 +81,9 @@ class ReportData:
     person_minutes: dict[str, float]
     timeline: list[TimelineBin]
     keyframes: list[Keyframe]
+    # Per-zone posture breakdown (issue #78); empty when no zones config is
+    # active. One entry per configured zone, in config order.
+    zones: list[ZoneReport] = field(default_factory=list)
 
 
 class Aggregator:
@@ -76,6 +94,7 @@ class Aggregator:
         fps: int = 1,
         keyframe_count: int = 8,
         keyframe_min_spacing_s: float = 30.0,
+        zones: list[Zone] | None = None,
     ) -> None:
         self.fps = fps
         self.keyframe_count = keyframe_count
@@ -84,6 +103,15 @@ class Aggregator:
         self._person_count_sum = 0
         self._peak_persons = 0
         self._activity_person_frames: dict[str, int] = dict.fromkeys(ACTIVITIES, 0)
+        # Per-zone posture accumulation (issue #78). ``_zones`` preserves config
+        # order and id→name; ``_zone_person_frames`` mirrors the global
+        # per-activity counter but keyed by zone id. Detections with a
+        # ``zone_id`` outside this set (or None) accrue only to the global
+        # totals, never to a zone.
+        self._zones: list[Zone] = list(zones) if zones else []
+        self._zone_person_frames: dict[str, dict[str, int]] = {
+            zone.id: dict.fromkeys(ACTIVITIES, 0) for zone in self._zones
+        }
         self._last_timestamp_s = 0.0
         self._bins: dict[int, TimelineBin] = {}
         # Frames with ≥1 person are kept as keyframe candidates, capped at
@@ -118,6 +146,9 @@ class Aggregator:
             if det.activity in self._activity_person_frames:
                 self._activity_person_frames[det.activity] += 1
                 setattr(bin_, det.activity, getattr(bin_, det.activity) + 1)
+                zone_counter = self._zone_person_frames.get(det.zone_id)
+                if zone_counter is not None:
+                    zone_counter[det.activity] += 1
         if person_count > 0:
             # Keep a copy of the frame because the caller will overwrite the
             # buffer on the next ffmpeg read.
@@ -232,6 +263,18 @@ class Aggregator:
             if self._activity_person_frames[dominant] == 0:
                 dominant = "none"
 
+        zones = [
+            ZoneReport(
+                zone_id=zone.id,
+                name=zone.name,
+                person_minutes={
+                    activity: self._zone_person_frames[zone.id][activity] / self.fps / 60.0
+                    for activity in ACTIVITIES
+                },
+            )
+            for zone in self._zones
+        ]
+
         return ReportData(
             video_duration_s=self._last_timestamp_s,
             total_frames=self._total_frames,
@@ -241,4 +284,5 @@ class Aggregator:
             person_minutes=person_minutes,
             timeline=[self._bins[m] for m in sorted(self._bins)],
             keyframes=self._select_keyframes(),
+            zones=zones,
         )

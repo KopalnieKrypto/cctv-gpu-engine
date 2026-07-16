@@ -13,7 +13,7 @@ import json
 
 import numpy as np
 
-from pipeline.aggregator import Keyframe, ReportData, TimelineBin
+from pipeline.aggregator import Keyframe, ReportData, TimelineBin, ZoneReport
 from pipeline.postprocessing import Detection, Keypoint
 from pipeline.report_json import render_report_json
 
@@ -52,6 +52,13 @@ def _make_report_data() -> ReportData:
                 detections=[_det("walking")],
             ),
         ],
+        zones=[
+            ZoneReport(
+                zone_id="bending-1",
+                name="Giętarka 1",
+                person_minutes={"sitting": 3.0, "standing": 0.5, "walking": 0.0, "running": 0.0},
+            ),
+        ],
     )
 
 
@@ -59,7 +66,7 @@ class TestRenderReportJson:
     def test_emits_json_bytes_with_schema_version_and_summary_fields(self):
         payload = json.loads(render_report_json(_make_report_data()))
 
-        assert payload["schema_version"] == 1
+        assert payload["schema_version"] == 2
         assert payload["video_duration_s"] == 125.0
         assert payload["total_frames"] == 125
         assert payload["peak_persons"] == 4
@@ -123,6 +130,26 @@ class TestRenderReportJson:
         payload = json.loads(render_report_json(data))
 
         assert payload["keyframes"][0]["activities"] == ["walking", "sitting"]
+
+    def test_zones_section_carries_per_zone_person_minutes(self):
+        payload = json.loads(render_report_json(_make_report_data()))
+
+        assert len(payload["zones"]) == 1
+        zone = payload["zones"][0]
+        assert set(zone.keys()) == {"zone_id", "name", "person_minutes"}
+        assert zone["zone_id"] == "bending-1"
+        assert zone["name"] == "Giętarka 1"
+        assert set(zone["person_minutes"]) == {"sitting", "standing", "walking", "running"}
+        assert zone["person_minutes"]["sitting"] == 3.0
+        assert all(isinstance(v, float) for v in zone["person_minutes"].values())
+
+    def test_zones_section_is_empty_list_when_no_zones_configured(self):
+        data = _make_report_data()
+        data.zones = []
+
+        payload = json.loads(render_report_json(data))
+
+        assert payload["zones"] == []
 
     def test_canonical_output_has_no_brand_or_presentation_strings(self):
         """Acceptance criterion #2 — presentation is the platform's job.

@@ -37,6 +37,7 @@ from pipeline.report_renderer import render_report
 from pipeline.track_filter import MinTrackLengthFilter
 from pipeline.tracker import DEFAULT_MAX_TRACK_AGE_S, PersonTracker
 from pipeline.video_frames import iter_frames
+from pipeline.zones import ZoneConfig, ZoneConfigError
 
 DEFAULT_FPS = 1
 
@@ -82,6 +83,7 @@ def _analyze_to_report_data(
     track_persons: bool = True,
     reid_model_path: str = DEFAULT_REID_MODEL_PATH,
     max_track_age_s: float = DEFAULT_MAX_TRACK_AGE_S,
+    zones: ZoneConfig | None = None,
 ) -> ReportData:
     """Run YOLO-pose pipeline across one or more MP4 chunks → :class:`ReportData`.
 
@@ -120,8 +122,8 @@ def _analyze_to_report_data(
     )
     from pipeline.detections_dump import DetectionsDumpWriter
 
-    detector = load_pose_model(model_path)
-    aggregator = Aggregator(fps=fps)
+    detector = load_pose_model(model_path, zones=zones)
+    aggregator = Aggregator(fps=fps, zones=zones.zones if zones is not None else None)
 
     # Identity first, then the min-track-length gate: the tracker decides *who*
     # each detection is, the filter decides whether that identity has earned the
@@ -254,6 +256,7 @@ def run_full_video_to_json(
     track_persons: bool = True,
     reid_model_path: str = DEFAULT_REID_MODEL_PATH,
     max_track_age_s: float = DEFAULT_MAX_TRACK_AGE_S,
+    zones: ZoneConfig | None = None,
 ) -> bytes:
     """Run the pipeline and return the canonical ``result.json`` bytes (issue #72).
 
@@ -261,7 +264,8 @@ def run_full_video_to_json(
     platform renders it natively in React, so the JSON is pure data (base64
     JPEG keyframes, no brand/i18n/presentation strings). See
     :func:`_analyze_to_report_data` for the
-    ``progress``/``classifier``/``dump_detections``/``track_persons`` contract.
+    ``progress``/``classifier``/``dump_detections``/``track_persons``/``zones``
+    contract.
     """
     return render_report_json(
         _analyze_to_report_data(
@@ -274,6 +278,7 @@ def run_full_video_to_json(
             track_persons=track_persons,
             reid_model_path=reid_model_path,
             max_track_age_s=max_track_age_s,
+            zones=zones,
         )
     )
 
@@ -288,6 +293,7 @@ def run_full_video_to_html(
     track_persons: bool = True,
     reid_model_path: str = DEFAULT_REID_MODEL_PATH,
     max_track_age_s: float = DEFAULT_MAX_TRACK_AGE_S,
+    zones: ZoneConfig | None = None,
 ) -> bytes:
     """Run the pipeline and return a standalone HTML report as bytes.
 
@@ -307,6 +313,7 @@ def run_full_video_to_html(
             track_persons=track_persons,
             reid_model_path=reid_model_path,
             max_track_age_s=max_track_age_s,
+            zones=zones,
         )
     ).encode("utf-8")
 
@@ -385,6 +392,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "at PATH (one line per frame; opt-in, for post-hoc analysis). "
         "Default: off.",
     )
+    parser.add_argument(
+        "--zones",
+        type=str,
+        default=None,
+        metavar="zones.json",
+        help="Full-video mode: ROI zone config (issue #78). Each detection is "
+        "assigned to a zone by its foot point, and the report gains a per-zone "
+        "posture breakdown. Default: off (no zone section).",
+    )
     return parser
 
 
@@ -412,6 +428,7 @@ def _run_full_video(args: argparse.Namespace) -> int:
     render = run_full_video_to_html if args.format == "html" else run_full_video_to_json
     dump_path = Path(args.dump_detections) if args.dump_detections else None
     try:
+        zones = ZoneConfig.load(args.zones) if args.zones else None
         payload = render(
             chunks=[Path(args.video)],
             model_path=args.model,
@@ -421,8 +438,9 @@ def _run_full_video(args: argparse.Namespace) -> int:
             track_persons=args.track_persons,
             reid_model_path=args.reid_model,
             max_track_age_s=args.max_track_age,
+            zones=zones,
         )
-    except RuntimeError as exc:
+    except (RuntimeError, ZoneConfigError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

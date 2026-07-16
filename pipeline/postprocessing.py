@@ -47,6 +47,10 @@ class Detection:
     # Stable within-video person identity, stamped by pipeline.tracker
     # (issue #32). None until the tracker has seen this detection.
     track_id: int | None = None
+    # Id of the ROI zone this detection's foot point falls in, stamped by
+    # pipeline.pose_detector when a zones config is supplied (issue #78). None
+    # when no config is active or the person stands outside every zone.
+    zone_id: str | None = None
 
 
 def _iou(a: list[float], b: list[float]) -> float:

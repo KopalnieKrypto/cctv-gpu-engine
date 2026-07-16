@@ -172,3 +172,58 @@ class TestPoseDetectorDetect:
         detections = detector.detect(img)
 
         assert detections == []
+
+
+class TestPoseDetectorZoneAssignment:
+    """Issue #78 — the detector stamps ``Detection.zone_id`` from a foot point.
+
+    A zone config is optional: with none supplied every detection keeps
+    ``zone_id`` ``None`` (existing behaviour). With one, each detection is
+    assigned by the midpoint of its bbox bottom edge, so a person standing in
+    the ROI is attributed to it and a person outside every ROI stays ``None``.
+    """
+
+    def _output_for_bbox(self, cx: float, cy: float, w: float, h: float) -> np.ndarray:
+        data = np.zeros((1, 56, 1), dtype=np.float32)
+        data[0, 0, 0] = cx
+        data[0, 1, 0] = cy
+        data[0, 2, 0] = w
+        data[0, 3, 0] = h
+        data[0, 4, 0] = 0.9  # confidence above threshold
+        return data
+
+    def _detector_with_zone(self, polygon):
+        from pipeline.zones import ZoneConfig
+
+        config = ZoneConfig.from_dict(
+            {"zones": [{"id": "bending-1", "name": "Giętarka 1", "polygon": polygon}]}
+        )
+        fake_session = MagicMock()
+        # cx=320, cy=320, w=80, h=400 → bbox [280,120,360,520], foot=(320,520)
+        fake_session.run.return_value = [self._output_for_bbox(320, 320, 80, 400)]
+        return PoseDetector(session=fake_session, input_name="images", zones=config)
+
+    def test_zone_id_none_when_no_zone_config(self):
+        fake_session = MagicMock()
+        fake_session.run.return_value = [self._output_for_bbox(320, 320, 80, 400)]
+        detector = PoseDetector(session=fake_session, input_name="images")
+
+        [det] = detector.detect(np.full((640, 640, 3), 128, dtype=np.uint8))
+
+        assert det.zone_id is None
+
+    def test_zone_id_set_when_foot_point_inside_zone(self):
+        # Lower band contains the foot point (320, 520).
+        detector = self._detector_with_zone([[0, 300], [640, 300], [640, 640], [0, 640]])
+
+        [det] = detector.detect(np.full((640, 640, 3), 128, dtype=np.uint8))
+
+        assert det.zone_id == "bending-1"
+
+    def test_zone_id_none_when_foot_point_outside_zone(self):
+        # Upper band does NOT contain the foot point (320, 520).
+        detector = self._detector_with_zone([[0, 0], [640, 0], [640, 300], [0, 300]])
+
+        [det] = detector.detect(np.full((640, 640, 3), 128, dtype=np.uint8))
+
+        assert det.zone_id is None

@@ -13,7 +13,7 @@ import re
 import cv2
 import numpy as np
 
-from pipeline.aggregator import Keyframe, ReportData, TimelineBin
+from pipeline.aggregator import Keyframe, ReportData, TimelineBin, ZoneReport
 from pipeline.annotator import annotate_frame
 from pipeline.postprocessing import Detection, Keypoint
 from pipeline.report_renderer import JPEG_QUALITY, render_report
@@ -51,6 +51,13 @@ def _make_report_data() -> ReportData:
                 person_count=4,
                 frame=_solid_frame((10, 20, 30)),
                 detections=[_det("walking")],
+            ),
+        ],
+        zones=[
+            ZoneReport(
+                zone_id="bending-1",
+                name="Giętarka 1",
+                person_minutes={"sitting": 3.7, "standing": 0.5, "walking": 0.0, "running": 0.0},
             ),
         ],
     )
@@ -100,6 +107,26 @@ class TestRenderReport:
         """The quality lives in one reviewable module-level constant (issue
         #65), not buried as a magic number in the encoder call."""
         assert JPEG_QUALITY == 85
+
+
+class TestZoneSection:
+    """Issue #78 — the report shows a posture breakdown scoped to each zone."""
+
+    def test_renders_a_per_zone_block_with_name_and_minutes(self):
+        html = render_report(_make_report_data())
+
+        assert 'id="zones"' in html
+        assert "Giętarka 1" in html
+        assert "3.7" in html  # bending-1 sitting person-minutes surfaced
+
+    def test_no_zone_block_when_no_zones_configured(self):
+        data = _make_report_data()
+        data.zones = []
+
+        html = render_report(data)
+
+        assert 'id="zones"' not in html
+        assert "Giętarka 1" not in html
 
 
 def _noisy_1080p_frame(rng) -> np.ndarray:

@@ -13,10 +13,12 @@ import json
 
 import cv2
 
-from pipeline.aggregator import ACTIVITIES, Keyframe, ReportData
+from pipeline.aggregator import ACTIVITIES, Keyframe, ReportData, ZoneReport
 from pipeline.annotator import annotate_frame
 
-SCHEMA_VERSION = 1
+# 2 (issue #78): added the per-zone ``zones[]`` section. 1 was the original
+# posture-only contract (issue #72). Bump whenever the top-level shape changes.
+SCHEMA_VERSION = 2
 
 
 def _encode_keyframe_to_base64_jpeg(frame_bgr) -> str:
@@ -48,6 +50,16 @@ def _keyframe_to_dict(kf: Keyframe) -> dict:
     }
 
 
+def _zone_to_dict(zone: ZoneReport) -> dict:
+    # Emit all four buckets so the platform never branches on a missing key —
+    # an activity that never occurred in this zone is 0.0, not absent.
+    return {
+        "zone_id": zone.zone_id,
+        "name": zone.name,
+        "person_minutes": {a: float(zone.person_minutes.get(a, 0.0)) for a in ACTIVITIES},
+    }
+
+
 def report_data_to_dict(data: ReportData) -> dict:
     """Serialize ``data`` into the canonical ``result.json`` dict."""
     return {
@@ -71,6 +83,8 @@ def report_data_to_dict(data: ReportData) -> dict:
             for b in data.timeline
         ],
         "keyframes": [_keyframe_to_dict(kf) for kf in data.keyframes],
+        # Per-zone posture breakdown (issue #78); [] when no zones config ran.
+        "zones": [_zone_to_dict(z) for z in data.zones],
     }
 
 

@@ -46,6 +46,22 @@
   </div>
 </section>
 
+{% if data.zones %}
+<section id="zones">
+  <h2>Per-zone breakdown (person-minutes)</h2>
+  {% for zone in data.zones %}
+    <div class="zone">
+      <h3>{{ zone.name }}</h3>
+      <table class="summary">
+        {% for activity in activity_labels %}
+        <tr><td>{{ activity }}</td><td>{{ "%.1f"|format(zone.person_minutes[activity]) }}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+  {% endfor %}
+</section>
+{% endif %}
+
 <section id="keyframes">
   <h2>Keyframes</h2>
   {% if data.keyframes %}

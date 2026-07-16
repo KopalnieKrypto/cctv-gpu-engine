@@ -187,7 +187,7 @@ class TestAnalyzeFullVideoMode:
 
         assert exit_code == 0
         payload = json.loads(out_path.read_text(encoding="utf-8"))
-        assert payload["schema_version"] == 1
+        assert payload["schema_version"] == 2
         assert payload["total_frames"] == 2
 
     def test_output_mode_writes_standalone_html_with_summary(self, mocker, tmp_path):
@@ -764,7 +764,7 @@ class TestRunFullVideoToJson:
 
         assert isinstance(raw, bytes)
         payload = json.loads(raw)
-        assert payload["schema_version"] == 1
+        assert payload["schema_version"] == 2
         assert payload["total_frames"] == 3
         assert payload["peak_persons"] == 1
         # The heuristic smoother reclassifies synthetic keypoints, so the exact
@@ -914,3 +914,114 @@ class TestTrackingIntegration:
         payload = json.loads(out_path.read_text(encoding="utf-8"))
         assert payload["peak_persons"] == 2
         assert payload["person_minutes"]["sitting"] == pytest.approx(10 / 60)
+
+
+class TestZonesIntegration:
+    """Issue #78 — ``--zones`` wired through the full-video path.
+
+    The detector is a *real* PoseDetector wrapped around a fake ONNX session,
+    so zone stamping (pose_detector), per-zone accumulation (aggregator) and the
+    result.json ``zones[]`` section all run end-to-end. Only the GPU boundary
+    (the session) and the frame iterator are faked.
+    """
+
+    def _yolo_output(self, cx, cy, w, h, conf=0.9):
+        data = np.zeros((1, 56, 1), dtype=np.float32)
+        data[0, 0, 0] = cx
+        data[0, 1, 0] = cy
+        data[0, 2, 0] = w
+        data[0, 3, 0] = h
+        data[0, 4, 0] = conf
+        return data
+
+    def _real_detector_factory(self, mocker):
+        """Patch load_pose_model to build a real PoseDetector around a fake session.
+
+        The person's bbox is [280, 260, 360, 620] in a 640×640 frame (no
+        letterbox rescale), so the foot point is (320, 620).
+        """
+        from pipeline.pose_detector import PoseDetector
+
+        fake_session = MagicMock()
+        fake_session.run.return_value = [self._yolo_output(320, 440, 80, 360)]
+
+        def fake_load(model_path, zones=None):
+            return PoseDetector(session=fake_session, input_name="images", zones=zones)
+
+        mocker.patch("pipeline.analyze.load_pose_model", side_effect=fake_load)
+
+    def _write_zones(self, tmp_path, polygon):
+        path = tmp_path / "zones.json"
+        path.write_text(
+            json.dumps({"zones": [{"id": "bending-1", "name": "Giętarka 1", "polygon": polygon}]}),
+            encoding="utf-8",
+        )
+        return path
+
+    def test_cli_zones_flag_scopes_person_minutes_to_the_zone(self, mocker, tmp_path):
+        frame = np.full((640, 640, 3), 128, dtype=np.uint8)
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            return_value=iter([(float(t), frame) for t in range(5)]),
+        )
+        self._real_detector_factory(mocker)
+        # Lower band contains the foot point (320, 620).
+        zones_path = self._write_zones(tmp_path, [[0, 400], [640, 400], [640, 640], [0, 640]])
+
+        out_path = tmp_path / "result.json"
+        assert main(["video.mp4", "--output", str(out_path), "--zones", str(zones_path)]) == 0
+
+        payload = json.loads(out_path.read_text(encoding="utf-8"))
+        assert payload["schema_version"] == 2
+        assert len(payload["zones"]) == 1
+        zone = payload["zones"][0]
+        assert zone["zone_id"] == "bending-1"
+        assert zone["name"] == "Giętarka 1"
+        # The lone worker spends the whole clip in the zone, so the zone's
+        # posture minutes equal the global posture minutes (and are non-zero).
+        zone_total = sum(zone["person_minutes"].values())
+        global_total = sum(payload["person_minutes"].values())
+        assert zone_total == pytest.approx(global_total)
+        assert zone_total > 0
+
+    def test_person_outside_the_zone_leaves_it_empty(self, mocker, tmp_path):
+        frame = np.full((640, 640, 3), 128, dtype=np.uint8)
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            return_value=iter([(float(t), frame) for t in range(5)]),
+        )
+        self._real_detector_factory(mocker)
+        # Upper band does NOT contain the foot point (320, 620).
+        zones_path = self._write_zones(tmp_path, [[0, 0], [640, 0], [640, 300], [0, 300]])
+
+        out_path = tmp_path / "result.json"
+        assert main(["video.mp4", "--output", str(out_path), "--zones", str(zones_path)]) == 0
+
+        payload = json.loads(out_path.read_text(encoding="utf-8"))
+        assert sum(payload["person_minutes"].values()) > 0  # person still counted globally
+        assert sum(payload["zones"][0]["person_minutes"].values()) == pytest.approx(0.0)
+
+    def test_no_zones_flag_leaves_zones_section_empty(self, mocker, tmp_path):
+        frame = np.full((640, 640, 3), 128, dtype=np.uint8)
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            return_value=iter([(float(t), frame) for t in range(5)]),
+        )
+        self._real_detector_factory(mocker)
+
+        out_path = tmp_path / "result.json"
+        assert main(["video.mp4", "--output", str(out_path)]) == 0
+
+        payload = json.loads(out_path.read_text(encoding="utf-8"))
+        assert payload["zones"] == []
+
+    def test_malformed_zones_config_exits_nonzero_without_traceback(self, mocker, tmp_path, capsys):
+        # A bad --zones file must fail fast with a clean error, not crash the
+        # worker with an unhandled exception mid-job.
+        bad = tmp_path / "zones.json"
+        bad.write_text('{"zones": [{"name": "no id", "polygon": [[0,0],[1,0],[1,1]]}]}', "utf-8")
+
+        exit_code = main(["video.mp4", "--output", str(tmp_path / "r.json"), "--zones", str(bad)])
+
+        assert exit_code == 1
+        assert "error:" in capsys.readouterr().err

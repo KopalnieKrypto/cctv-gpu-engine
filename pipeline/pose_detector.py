@@ -21,6 +21,7 @@ import onnxruntime as ort
 from pipeline.activity_classifier import classify_activity
 from pipeline.postprocessing import Detection, postprocess
 from pipeline.preprocessing import preprocess
+from pipeline.zones import ZoneConfig
 
 CUDA_PROVIDER = "CUDAExecutionProvider"
 
@@ -31,6 +32,9 @@ class PoseDetector:
 
     session: ort.InferenceSession
     input_name: str
+    # Optional ROI zones (issue #78). When set, each detection is stamped with
+    # the zone its foot point falls in; when None, ``zone_id`` stays None.
+    zones: ZoneConfig | None = None
 
     def detect(self, img_bgr: np.ndarray) -> list[Detection]:
         """Run pose inference on a single BGR frame."""
@@ -39,11 +43,16 @@ class PoseDetector:
         detections = postprocess(outputs[0], orig_w=orig_w, orig_h=orig_h)
         for det in detections:
             det.activity = classify_activity(det)
+            if self.zones is not None:
+                det.zone_id = self.zones.zone_for_detection(det)
         return detections
 
 
-def load_pose_model(model_path: str) -> PoseDetector:
+def load_pose_model(model_path: str, zones: ZoneConfig | None = None) -> PoseDetector:
     """Load a YOLO-pose ONNX model on the CUDA execution provider.
+
+    ``zones`` — optional ROI config (issue #78). When given, the returned
+    detector stamps each detection's ``zone_id`` from its foot point.
 
     Raises:
         RuntimeError: if ``CUDAExecutionProvider`` is not registered with the
@@ -75,4 +84,4 @@ def load_pose_model(model_path: str) -> PoseDetector:
         )
 
     input_name = session.get_inputs()[0].name
-    return PoseDetector(session=session, input_name=input_name)
+    return PoseDetector(session=session, input_name=input_name, zones=zones)

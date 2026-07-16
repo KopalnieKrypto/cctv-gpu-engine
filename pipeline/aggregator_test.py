@@ -14,8 +14,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from pipeline.aggregator import MAX_KEYFRAME_CANDIDATES, Aggregator, ReportData
+from pipeline.aggregator import MAX_KEYFRAME_CANDIDATES, Aggregator, ReportData, ZoneReport
 from pipeline.postprocessing import Detection, Keypoint
+from pipeline.zones import Zone
 
 
 def _det(activity: str, bbox=(0.0, 0.0, 10.0, 20.0), confidence: float = 0.9) -> Detection:
@@ -25,6 +26,12 @@ def _det(activity: str, bbox=(0.0, 0.0, 10.0, 20.0), confidence: float = 0.9) ->
         keypoints=[Keypoint(0.0, 0.0, 0.0)] * 17,
     )
     det.activity = activity
+    return det
+
+
+def _zoned_det(activity: str, zone_id: str | None) -> Detection:
+    det = _det(activity)
+    det.zone_id = zone_id
     return det
 
 
@@ -302,3 +309,71 @@ class TestAggregatorCandidateBuffer:
         retained_bytes = sum(c.frame.nbytes for c in agg._candidates)
 
         assert retained_bytes <= 2 * MAX_KEYFRAME_CANDIDATES * frame_bytes
+
+
+class TestAggregatorPerZone:
+    """Issue #78 — person-minutes bucketed per ROI zone.
+
+    Without a zone config the aggregator behaves exactly as before (no zone
+    breakdown). With one, each detection accrues to the zone stamped on its
+    ``zone_id``; the global totals are unchanged so existing consumers keep
+    working, and every configured zone always emits a full four-bucket row.
+    """
+
+    def _zones(self) -> list[Zone]:
+        tri = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)]
+        return [
+            Zone(id="bending-1", name="Giętarka 1", polygon=tri, rules={}),
+            Zone(id="welding-1", name="Spawalnia 1", polygon=tri, rules={}),
+        ]
+
+    def test_no_zone_breakdown_without_config(self):
+        agg = Aggregator(fps=1)
+        for t in range(60):
+            agg.add_frame(float(t), _frame(), [_det("walking")])
+
+        assert agg.build_report_data().zones == []
+
+    def test_two_detections_in_different_zones_aggregate_separately(self):
+        agg = Aggregator(fps=1, zones=self._zones())
+        # 60 frames: one worker sitting in bending-1, one standing in welding-1.
+        for t in range(60):
+            agg.add_frame(
+                float(t),
+                _frame(),
+                [_zoned_det("sitting", "bending-1"), _zoned_det("standing", "welding-1")],
+            )
+
+        by_id = {z.zone_id: z for z in agg.build_report_data().zones}
+        assert set(by_id) == {"bending-1", "welding-1"}
+        assert isinstance(by_id["bending-1"], ZoneReport)
+        assert by_id["bending-1"].name == "Giętarka 1"
+        assert by_id["bending-1"].person_minutes["sitting"] == pytest.approx(1.0)
+        assert by_id["bending-1"].person_minutes["standing"] == pytest.approx(0.0)
+        assert by_id["welding-1"].person_minutes["standing"] == pytest.approx(1.0)
+        assert by_id["welding-1"].person_minutes["sitting"] == pytest.approx(0.0)
+
+    def test_every_configured_zone_emits_all_four_buckets_even_when_empty(self):
+        agg = Aggregator(fps=1, zones=self._zones())
+        agg.add_frame(0.0, _frame(), [_zoned_det("sitting", "bending-1")])
+
+        by_id = {z.zone_id: z for z in agg.build_report_data().zones}
+        assert set(by_id["bending-1"].person_minutes) == {
+            "sitting",
+            "standing",
+            "walking",
+            "running",
+        }
+        # welding-1 saw nobody but still reports a zero row.
+        assert by_id["welding-1"].person_minutes["sitting"] == pytest.approx(0.0)
+
+    def test_unzoned_detection_counts_globally_but_in_no_zone(self):
+        agg = Aggregator(fps=1, zones=self._zones())
+        for t in range(60):
+            agg.add_frame(float(t), _frame(), [_zoned_det("walking", None)])
+
+        report = agg.build_report_data()
+        assert report.person_minutes["walking"] == pytest.approx(1.0)  # global unchanged
+        by_id = {z.zone_id: z for z in report.zones}
+        assert by_id["bending-1"].person_minutes["walking"] == pytest.approx(0.0)
+        assert by_id["welding-1"].person_minutes["walking"] == pytest.approx(0.0)
