@@ -53,6 +53,9 @@ class GpuInfo:
 # VRAM_BUDGET_MB at runtime.
 DEFAULT_BUDGETS_MB: dict[str, int] = {
     "heuristic": 1024,
+    # Issue #34 same-image Film 1 peak: 540 MiB. Rounded to 768 MiB for
+    # allocator/driver variation; raw 0.5-second samples are committed.
+    "mlp": 768,
     "vlm": 7168,
 }
 

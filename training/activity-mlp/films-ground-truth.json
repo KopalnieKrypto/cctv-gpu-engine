@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "source": "jobs/notes.md",
+  "interval_semantics": "integer seconds, start inclusive, end exclusive",
+  "films": [
+    {
+      "film_id": "film-1",
+      "source_job_id": "job-3ffe5068f6e7",
+      "video_sha256": "2f6ef8a0eaa1b1c96f3171ea48f5e25e6008ca7af4c04d634945220717dbceb8",
+      "intervals": [
+        {"start_s": 27, "end_s": 40, "activity": "walking"},
+        {"start_s": 41, "end_s": 42, "activity": "standing"},
+        {"start_s": 42, "end_s": 60, "activity": "walking"},
+        {"start_s": 60, "end_s": 65, "activity": "walking"},
+        {"start_s": 80, "end_s": 85, "activity": "walking"},
+        {"start_s": 87, "end_s": 105, "activity": "sitting"},
+        {"start_s": 106, "end_s": 115, "activity": "walking"},
+        {"start_s": 115, "end_s": 122, "activity": "walking"},
+        {"start_s": 125, "end_s": 138, "activity": "sitting"},
+        {"start_s": 138, "end_s": 145, "activity": "walking"},
+        {"start_s": 150, "end_s": 156, "activity": "walking"},
+        {"start_s": 157, "end_s": 161, "activity": "walking"},
+        {"start_s": 171, "end_s": 175, "activity": "walking"},
+        {"start_s": 176, "end_s": 184, "activity": "standing"},
+        {"start_s": 185, "end_s": 195, "activity": "standing"},
+        {"start_s": 196, "end_s": 198, "activity": "walking"}
+      ]
+    },
+    {
+      "film_id": "film-2",
+      "source_job_id": "job-0b1699e6ec20",
+      "video_sha256": "652f133d155eab6fd681d74158fc86e8b39bd8ce655fc383950573340c552c95",
+      "intervals": [
+        {"start_s": 25, "end_s": 40, "activity": "walking"},
+        {"start_s": 40, "end_s": 43, "activity": "walking"},
+        {"start_s": 53, "end_s": 58, "activity": "walking"},
+        {"start_s": 58, "end_s": 74, "activity": "sitting"},
+        {"start_s": 75, "end_s": 82, "activity": "walking"},
+        {"start_s": 85, "end_s": 100, "activity": "sitting"},
+        {"start_s": 102, "end_s": 105, "activity": "walking"},
+        {"start_s": 166, "end_s": 172, "activity": "walking"},
+        {"start_s": 173, "end_s": 185, "activity": "sitting"},
+        {"start_s": 186, "end_s": 190, "activity": "walking"},
+        {"start_s": 195, "end_s": 199, "activity": "walking"}
+      ]
+    }
+  ]
+}

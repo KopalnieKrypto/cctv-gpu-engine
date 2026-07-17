@@ -41,6 +41,10 @@ class TestResolveRequiredMb:
     def test_vlm_classifier_uses_7168_mib_default(self) -> None:
         assert resolve_required_mb(classifier="vlm", env_override=None) == 7168
 
+    def test_mlp_classifier_uses_measured_peak_plus_rounded_headroom(self) -> None:
+        # Issue #34 measured 540 MiB on the same-image Film 1 benchmark.
+        assert resolve_required_mb(classifier="mlp", env_override=None) == 768
+
     def test_empty_string_env_override_falls_back_to_classifier_default(self) -> None:
         # Docker's missing-env vs empty-env distinction: `-e VRAM_BUDGET_MB=`
         # gives "". Treat as "not set" — otherwise int("") crashes boot.
