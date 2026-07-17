@@ -189,7 +189,9 @@ def main(argv: list[str] | None = None) -> int:
         "methodology": {
             "sample_rate_fps": 1,
             "scored_scope": "annotated seconds only; visible-presence gaps excluded",
-            "person_selection": "longest-lived stable track_id per film",
+            "person_selection": (
+                "runtime-confirmed track present per second; ties by total sightings then track_id"
+            ),
             "agreement_floor": AGREEMENT_FLOOR,
         },
         "results": results,
