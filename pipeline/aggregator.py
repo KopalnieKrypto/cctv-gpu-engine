@@ -114,6 +114,8 @@ class ReportData:
     # Shift-window gating summary (issue #79); ``None`` when no shift schedule
     # gated the run. Carries the analysed windows and total excluded duration.
     shift: ShiftSummary | None = None
+    # Runtime classifier/model identity for reproducibility (issue #34).
+    diagnostics: dict | None = None
 
 
 class Aggregator:

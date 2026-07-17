@@ -18,13 +18,14 @@ from pipeline.annotator import annotate_frame
 from pipeline.conversation import ZoneConversation
 from pipeline.presence import Absence, Interval, ZonePresence
 
-# 5 (issue #81): each zone now carries a ``conversation`` block alongside
+# 6 (issue #34): top-level classifier/model diagnostics. 5 (issue #81): each
+# zone carries a ``conversation`` block alongside
 # ``presence``, completing the work / conversation / absent mode set. 4 (issue
 # #80) added the anchored-worker ``presence`` block; 3 (issue #79) added the
 # ``shift`` gating summary; 2 (issue #78) added the per-zone ``zones[]`` section;
 # 1 was the original posture-only contract (issue #72). Bump whenever the
 # top-level shape changes.
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def _encode_keyframe_to_base64_jpeg(frame_bgr) -> str:
@@ -150,6 +151,7 @@ def report_data_to_dict(data: ReportData) -> dict:
         "zones": [_zone_to_dict(z) for z in data.zones],
         # Shift-window gating summary (issue #79); null when no shift gated it.
         "shift": _shift_to_dict(data.shift),
+        "diagnostics": data.diagnostics,
     }
 
 

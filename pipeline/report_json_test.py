@@ -70,6 +70,7 @@ def _make_report_data() -> ReportData:
                 ),
             ),
         ],
+        diagnostics={"classifier": "mlp", "activity_model": {"version": "v1"}},
     )
 
 
@@ -77,12 +78,20 @@ class TestRenderReportJson:
     def test_emits_json_bytes_with_schema_version_and_summary_fields(self):
         payload = json.loads(render_report_json(_make_report_data()))
 
-        assert payload["schema_version"] == 5
+        assert payload["schema_version"] == 6
         assert payload["video_duration_s"] == 125.0
         assert payload["total_frames"] == 125
         assert payload["peak_persons"] == 4
         assert payload["avg_persons"] == 2.5
         assert payload["dominant_activity"] == "walking"
+
+    def test_emits_classifier_and_model_diagnostics(self):
+        payload = json.loads(render_report_json(_make_report_data()))
+
+        assert payload["diagnostics"] == {
+            "classifier": "mlp",
+            "activity_model": {"version": "v1"},
+        }
 
     def test_person_minutes_has_all_four_activity_buckets_as_floats(self):
         payload = json.loads(render_report_json(_make_report_data()))

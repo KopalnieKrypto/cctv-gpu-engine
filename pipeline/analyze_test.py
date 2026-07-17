@@ -187,7 +187,7 @@ class TestAnalyzeFullVideoMode:
 
         assert exit_code == 0
         payload = json.loads(out_path.read_text(encoding="utf-8"))
-        assert payload["schema_version"] == 5
+        assert payload["schema_version"] == 6
         assert payload["total_frames"] == 2
 
     def test_output_mode_writes_standalone_html_with_summary(self, mocker, tmp_path):
@@ -764,7 +764,7 @@ class TestRunFullVideoToJson:
 
         assert isinstance(raw, bytes)
         payload = json.loads(raw)
-        assert payload["schema_version"] == 5
+        assert payload["schema_version"] == 6
         assert payload["total_frames"] == 3
         assert payload["peak_persons"] == 1
         # The heuristic smoother reclassifies synthetic keypoints, so the exact
@@ -916,6 +916,74 @@ class TestTrackingIntegration:
         assert payload["person_minutes"]["sitting"] == pytest.approx(10 / 60)
 
 
+class TestMlpClassifierIntegration:
+    def test_two_people_keep_independent_predictions_through_every_output(
+        self, mocker, tmp_path
+    ) -> None:
+        from pathlib import Path
+
+        from pipeline.analyze import run_full_video_to_json
+
+        fake_frame = np.zeros((40, 60, 3), dtype=np.uint8)
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            return_value=iter([(0.0, fake_frame), (1.0, fake_frame), (2.0, fake_frame)]),
+        )
+
+        def two_people():
+            return [
+                _detection(bbox=(100.0, 100.0, 200.0, 400.0)),
+                _detection(bbox=(700.0, 100.0, 800.0, 400.0)),
+            ]
+
+        detector = MagicMock()
+        detector.detect.side_effect = [two_people(), two_people(), two_people()]
+        mocker.patch("pipeline.analyze.load_pose_model", return_value=detector)
+
+        classifier = MagicMock()
+        classifier.model_version = "activity-mlp-v1.0.0"
+        classifier.model_sha256 = "4835d97e"
+        classifier.classify.side_effect = lambda detection: (
+            "sitting" if detection.bbox[0] < 500 else "walking"
+        )
+        load_mlp = mocker.patch(
+            "pipeline.mlp_classifier.load_activity_mlp", return_value=classifier
+        )
+        dump_path = tmp_path / "detections.jsonl"
+
+        result_bytes = run_full_video_to_json(
+            [Path("v.mp4")],
+            classifier="mlp",
+            activity_model_path="models/activity-mlp-v1.0.0.onnx",
+            activity_model_metadata_path="models/activity-mlp-v1.0.0.json",
+            dump_detections=dump_path,
+        )
+
+        load_mlp.assert_called_once_with(
+            "models/activity-mlp-v1.0.0.onnx", "models/activity-mlp-v1.0.0.json"
+        )
+        assert classifier.classify.call_count == 6
+        records = [json.loads(line) for line in dump_path.read_text().splitlines()]
+        assert all(
+            {person["activity"] for person in record["persons"]} == {"sitting", "walking"}
+            for record in records
+        )
+        assert all(
+            len({person["track_id"] for person in record["persons"]}) == 2 for record in records
+        )
+        result = json.loads(result_bytes)
+        assert result["person_minutes"]["sitting"] == pytest.approx(3 / 60)
+        assert result["person_minutes"]["walking"] == pytest.approx(3 / 60)
+        assert result["diagnostics"] == {
+            "classifier": "mlp",
+            "activity_model": {
+                "version": "activity-mlp-v1.0.0",
+                "sha256": "4835d97e",
+                "feature_schema_version": "activity-mlp-features-v1",
+            },
+        }
+
+
 class TestZonesIntegration:
     """Issue #78 — ``--zones`` wired through the full-video path.
 
@@ -972,7 +1040,7 @@ class TestZonesIntegration:
         assert main(["video.mp4", "--output", str(out_path), "--zones", str(zones_path)]) == 0
 
         payload = json.loads(out_path.read_text(encoding="utf-8"))
-        assert payload["schema_version"] == 5
+        assert payload["schema_version"] == 6
         assert len(payload["zones"]) == 1
         zone = payload["zones"][0]
         assert zone["zone_id"] == "bending-1"

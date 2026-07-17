@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import Counter, deque
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,6 +19,28 @@ from pipeline.activity_features import (
 from pipeline.postprocessing import Detection
 
 CUDA_PROVIDER = "CUDAExecutionProvider"
+
+
+class TrackActivitySmoother:
+    """Majority smoothing keyed only by stable tracker identity."""
+
+    def __init__(self, window: int = 5) -> None:
+        self._window = window
+        self._history: dict[int, deque[str]] = {}
+
+    def smooth(self, detections: list[Detection]) -> list[Detection]:
+        for detection in detections:
+            if detection.track_id is None:
+                continue
+            raw_activity = detection.activity
+            history = self._history.setdefault(detection.track_id, deque(maxlen=self._window))
+            history.append(raw_activity)
+            counts = Counter(history)
+            detection.activity = max(
+                counts,
+                key=lambda activity: (counts[activity], activity == raw_activity),
+            )
+        return detections
 
 
 @dataclass

@@ -22,7 +22,7 @@ import numpy as np
 import pytest
 
 from pipeline.activity_features import FEATURE_DIM, feature_schema_manifest
-from pipeline.mlp_classifier import load_activity_mlp
+from pipeline.mlp_classifier import TrackActivitySmoother, load_activity_mlp
 from pipeline.postprocessing import Detection, Keypoint
 
 
@@ -167,3 +167,28 @@ def test_classifier_rejects_release_class_order_drift(tmp_path) -> None:
 
     with pytest.raises(RuntimeError, match="activity MLP class order mismatch"):
         load_activity_mlp(model_path, metadata_path, ort_module=object())
+
+
+def test_temporal_smoothing_never_mixes_histories_between_track_ids() -> None:
+    def tracked(track_id: int | None, activity: str) -> Detection:
+        return Detection(
+            bbox=[0.0, 0.0, 10.0, 20.0],
+            confidence=1.0,
+            keypoints=[],
+            activity=activity,
+            track_id=track_id,
+        )
+
+    smoother = TrackActivitySmoother(window=3)
+    smoother.smooth([tracked(1, "sitting"), tracked(2, "standing")])
+    smoother.smooth([tracked(1, "sitting"), tracked(2, "standing")])
+
+    result = smoother.smooth(
+        [tracked(1, "standing"), tracked(2, "sitting"), tracked(None, "running")]
+    )
+
+    assert [(detection.track_id, detection.activity) for detection in result] == [
+        (1, "sitting"),
+        (2, "standing"),
+        (None, "running"),
+    ]

@@ -40,6 +40,8 @@ from pipeline.video_frames import iter_frames
 from pipeline.zones import ZoneConfig, ZoneConfigError
 
 DEFAULT_FPS = 1
+DEFAULT_ACTIVITY_MODEL_PATH = "models/activity-mlp-v1.0.0.onnx"
+DEFAULT_ACTIVITY_MODEL_METADATA_PATH = "models/activity-mlp-v1.0.0.json"
 
 # How often (in processed frames) to fire the progress callback during a chunk.
 # Each call doubles as a telemetry sampling tick for gpu_service.worker — too
@@ -79,6 +81,8 @@ def _analyze_to_report_data(
     model_path: str = "models/yolo11s-pose.onnx",
     fps: int = DEFAULT_FPS,
     classifier: str = "heuristic",
+    activity_model_path: str = DEFAULT_ACTIVITY_MODEL_PATH,
+    activity_model_metadata_path: str = DEFAULT_ACTIVITY_MODEL_METADATA_PATH,
     dump_detections: Path | None = None,
     track_persons: bool = True,
     reid_model_path: str = DEFAULT_REID_MODEL_PATH,
@@ -94,9 +98,8 @@ def _analyze_to_report_data(
     left off (so ``video_duration_s`` reflects the full concatenated video).
 
     ``classifier`` — ``"heuristic"`` uses geometric rules + displacement
-    smoother (fast, camera-angle dependent).  ``"vlm"`` uses Qwen2.5-VL-3B
-    for sitting/standing classification + YOLO displacement for walking
-    (slower, camera-angle independent, much better accuracy).
+    smoothing; ``"vlm"`` uses Qwen2.5-VL-3B + displacement; ``"mlp"`` uses
+    the checksum-pinned per-detection ONNX classifier + per-track smoothing.
 
     ``progress`` — if given, called every ``PROGRESS_FRAME_INTERVAL`` frames
     *and* at every end-of-chunk boundary with an int percentage 0-100. The
@@ -142,10 +145,49 @@ def _analyze_to_report_data(
         else None
     )
     track_filter = MinTrackLengthFilter() if track_persons else None
+    diagnostics: dict = {"classifier": classifier, "activity_model": None}
 
     with DetectionsDumpWriter(dump_detections) as dump:
+        # --- Per-person MLP path -------------------------------------------
+        if classifier == "mlp":
+            from pipeline.activity_features import FEATURE_SCHEMA_VERSION
+            from pipeline.mlp_classifier import TrackActivitySmoother, load_activity_mlp
+
+            mlp = load_activity_mlp(activity_model_path, activity_model_metadata_path)
+            smoother = TrackActivitySmoother()
+            diagnostics["activity_model"] = {
+                "version": mlp.model_version,
+                "sha256": mlp.model_sha256,
+                "feature_schema_version": FEATURE_SCHEMA_VERSION,
+            }
+
+            time_offset = 0.0
+            step = 1.0 / fps
+            frames_since_progress = 0
+            for chunk_index, chunk in enumerate(chunks):
+                chunk_start_pct = int(chunk_index / len(chunks) * 100)
+                last_ts = time_offset
+                for timestamp_s, frame in iter_frames(str(chunk), fps=fps):
+                    shifted = timestamp_s + time_offset
+                    detections = detector.detect(frame)
+                    if person_tracker is not None:
+                        detections = person_tracker.update(frame, detections, shifted)
+                    for detection in detections:
+                        detection.activity = mlp.classify(detection)
+                    detections = smoother.smooth(detections)
+                    dump.write_frame(shifted, detections)
+                    _aggregate(aggregator, track_filter, shifted, frame, detections)
+                    last_ts = shifted
+                    frames_since_progress += 1
+                    if progress is not None and frames_since_progress >= PROGRESS_FRAME_INTERVAL:
+                        frames_since_progress = 0
+                        progress(chunk_start_pct)
+                time_offset = last_ts + step
+                if progress is not None:
+                    progress(int((chunk_index + 1) / len(chunks) * 100))
+
         # --- VLM hybrid path -----------------------------------------------
-        if classifier == "vlm":
+        elif classifier == "vlm":
             from pipeline.vlm_classifier import VLMClassifier
 
             vlm = VLMClassifier()
@@ -247,7 +289,9 @@ def _analyze_to_report_data(
                 detections=confirmed.detections,
             )
 
-    return aggregator.build_report_data()
+    report = aggregator.build_report_data()
+    report.diagnostics = diagnostics
+    return report
 
 
 def run_full_video_to_json(
@@ -256,6 +300,8 @@ def run_full_video_to_json(
     model_path: str = "models/yolo11s-pose.onnx",
     fps: int = DEFAULT_FPS,
     classifier: str = "heuristic",
+    activity_model_path: str = DEFAULT_ACTIVITY_MODEL_PATH,
+    activity_model_metadata_path: str = DEFAULT_ACTIVITY_MODEL_METADATA_PATH,
     dump_detections: Path | None = None,
     track_persons: bool = True,
     reid_model_path: str = DEFAULT_REID_MODEL_PATH,
@@ -278,6 +324,8 @@ def run_full_video_to_json(
             model_path=model_path,
             fps=fps,
             classifier=classifier,
+            activity_model_path=activity_model_path,
+            activity_model_metadata_path=activity_model_metadata_path,
             dump_detections=dump_detections,
             track_persons=track_persons,
             reid_model_path=reid_model_path,
@@ -293,6 +341,8 @@ def run_full_video_to_html(
     model_path: str = "models/yolo11s-pose.onnx",
     fps: int = DEFAULT_FPS,
     classifier: str = "heuristic",
+    activity_model_path: str = DEFAULT_ACTIVITY_MODEL_PATH,
+    activity_model_metadata_path: str = DEFAULT_ACTIVITY_MODEL_METADATA_PATH,
     dump_detections: Path | None = None,
     track_persons: bool = True,
     reid_model_path: str = DEFAULT_REID_MODEL_PATH,
@@ -313,6 +363,8 @@ def run_full_video_to_html(
             model_path=model_path,
             fps=fps,
             classifier=classifier,
+            activity_model_path=activity_model_path,
+            activity_model_metadata_path=activity_model_metadata_path,
             dump_detections=dump_detections,
             track_persons=track_persons,
             reid_model_path=reid_model_path,
@@ -353,10 +405,21 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--classifier",
-        choices=["heuristic", "vlm"],
+        choices=["heuristic", "vlm", "mlp"],
         default="heuristic",
         help="Activity classifier: heuristic (fast, geometric rules) "
-        "or vlm (Qwen2.5-VL, higher accuracy, default: heuristic)",
+        "vlm (Qwen2.5-VL, deployed quality default), or mlp "
+        "(experimental per-person ONNX; default: heuristic)",
+    )
+    parser.add_argument(
+        "--activity-model",
+        default=DEFAULT_ACTIVITY_MODEL_PATH,
+        help="Path to the activity MLP ONNX weights (used only with --classifier mlp)",
+    )
+    parser.add_argument(
+        "--activity-model-metadata",
+        default=DEFAULT_ACTIVITY_MODEL_METADATA_PATH,
+        help="Path to the checksummed activity MLP metadata sidecar",
     )
     parser.add_argument(
         "--format",
@@ -441,6 +504,8 @@ def _run_full_video(args: argparse.Namespace) -> int:
             model_path=args.model,
             fps=args.fps,
             classifier=args.classifier,
+            activity_model_path=args.activity_model,
+            activity_model_metadata_path=args.activity_model_metadata,
             dump_detections=dump_path,
             track_persons=args.track_persons,
             reid_model_path=args.reid_model,
