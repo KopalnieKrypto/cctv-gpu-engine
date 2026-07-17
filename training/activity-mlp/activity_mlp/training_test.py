@@ -150,6 +150,7 @@ def test_onnx_export_matches_torch_softmax_and_is_under_10_mb(tmp_path) -> None:
 
     assert model_path.stat().st_size <= 10 * 1024 * 1024
     onnx.checker.check_model(onnx.load(model_path))
+    ort.preload_dlls(cuda=True, cudnn=True)
     session = ort.InferenceSession(str(model_path), providers=["CUDAExecutionProvider"])
     assert "CUDAExecutionProvider" in session.get_providers()
     actual = session.run(None, {"features": sample})[0]
