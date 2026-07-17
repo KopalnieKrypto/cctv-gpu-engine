@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import random
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -24,6 +25,16 @@ class TrainingConfig:
     max_epochs: int = 500
     early_stopping_patience: int = 50
     minimum_delta: float = 0.0001
+
+
+@dataclass
+class TrainingOutcome:
+    model: object
+    best_epoch: int
+    best_validation_accuracy: float
+    best_validation_loss: float
+    epochs_ran: int
+    history: list[dict]
 
 
 def model_spec(config: TrainingConfig) -> dict:
@@ -77,6 +88,118 @@ def build_model(
             return torch_module.softmax(self.forward_logits(features), dim=1)
 
     return ActivityMLP()
+
+
+def train_model(
+    train_features: np.ndarray,
+    train_labels: np.ndarray,
+    validation_features: np.ndarray,
+    validation_labels: np.ndarray,
+    config: TrainingConfig,
+    *,
+    progress: Callable[[dict], None] | None = None,
+) -> TrainingOutcome:
+    """Train only on train rows and select/stop only on validation rows."""
+    import torch
+
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA is required for activity-MLP training; no CPU fallback")
+    seed_everything(config.seed, torch_module=torch)
+    device = torch.device("cuda")
+    feature_mean = train_features.mean(axis=0, dtype=np.float64).astype(np.float32)
+    feature_std = train_features.std(axis=0, dtype=np.float64).astype(np.float32)
+    model = build_model(
+        config,
+        feature_mean=feature_mean,
+        feature_std=feature_std,
+        torch_module=torch,
+    ).to(device)
+
+    train_dataset = torch.utils.data.TensorDataset(
+        torch.as_tensor(train_features), torch.as_tensor(train_labels)
+    )
+    generator = torch.Generator().manual_seed(config.seed)
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset,
+        batch_size=config.batch_size,
+        shuffle=True,
+        generator=generator,
+        num_workers=0,
+    )
+    validation_x = torch.as_tensor(validation_features, device=device)
+    validation_y = torch.as_tensor(validation_labels, device=device)
+    loss_fn = torch.nn.CrossEntropyLoss()
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=config.learning_rate,
+        weight_decay=config.weight_decay,
+    )
+
+    best_epoch = 0
+    best_accuracy = -1.0
+    best_loss = float("inf")
+    best_state: dict[str, object] | None = None
+    epochs_without_improvement = 0
+    history: list[dict] = []
+    for epoch in range(1, config.max_epochs + 1):
+        model.train()
+        train_loss_sum = 0.0
+        train_count = 0
+        for batch_features, batch_labels in train_loader:
+            batch_features = batch_features.to(device)
+            batch_labels = batch_labels.to(device)
+            optimizer.zero_grad(set_to_none=True)
+            loss = loss_fn(model.forward_logits(batch_features), batch_labels)
+            loss.backward()
+            optimizer.step()
+            train_loss_sum += float(loss.detach()) * len(batch_labels)
+            train_count += len(batch_labels)
+
+        model.eval()
+        with torch.no_grad():
+            validation_logits = model.forward_logits(validation_x)
+            validation_loss = float(loss_fn(validation_logits, validation_y))
+            validation_predictions = validation_logits.argmax(dim=1)
+            validation_accuracy = float((validation_predictions == validation_y).float().mean())
+        epoch_metrics = {
+            "epoch": epoch,
+            "train_loss": train_loss_sum / train_count,
+            "validation_loss": validation_loss,
+            "validation_accuracy": validation_accuracy,
+        }
+        history.append(epoch_metrics)
+        if progress is not None:
+            progress(epoch_metrics)
+
+        improved = validation_accuracy > best_accuracy + config.minimum_delta or (
+            abs(validation_accuracy - best_accuracy) <= config.minimum_delta
+            and validation_loss < best_loss - config.minimum_delta
+        )
+        if improved:
+            best_epoch = epoch
+            best_accuracy = validation_accuracy
+            best_loss = validation_loss
+            best_state = {
+                name: value.detach().cpu().clone() for name, value in model.state_dict().items()
+            }
+            epochs_without_improvement = 0
+        else:
+            epochs_without_improvement += 1
+            if epochs_without_improvement >= config.early_stopping_patience:
+                break
+
+    if best_state is None:
+        raise RuntimeError("training produced no validation checkpoint")
+    model.load_state_dict(best_state)
+    model.eval()
+    return TrainingOutcome(
+        model=model,
+        best_epoch=best_epoch,
+        best_validation_accuracy=best_accuracy,
+        best_validation_loss=best_loss,
+        epochs_ran=len(history),
+        history=history,
+    )
 
 
 def seed_everything(seed: int, *, torch_module: object | None = None) -> None:

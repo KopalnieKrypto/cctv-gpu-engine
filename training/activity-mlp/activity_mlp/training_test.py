@@ -1,11 +1,17 @@
 """Reproducibility contract for the deliberately small fixed MLP."""
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
 import numpy as np
 import pytest
 
-from activity_mlp.training import TrainingConfig, build_model, model_spec, seed_everything
+from activity_mlp.training import (
+    TrainingConfig,
+    build_model,
+    model_spec,
+    seed_everything,
+    train_model,
+)
 from pipeline.activity_features import FEATURE_DIM
 
 
@@ -92,3 +98,31 @@ def test_model_runs_the_frozen_softmax_architecture_on_cuda() -> None:
 
     assert tuple(probabilities.shape) == (2, 4)
     torch.testing.assert_close(probabilities.sum(dim=1), torch.ones(2, device="cuda"))
+
+
+@pytest.mark.gpu
+def test_seeded_cuda_training_is_reproducible() -> None:
+    import torch
+
+    features = np.zeros((32, FEATURE_DIM), dtype=np.float32)
+    labels = np.arange(32, dtype=np.int64) % 4
+    features[np.arange(32), labels] = 1.0
+    config = replace(
+        TrainingConfig(),
+        max_epochs=4,
+        early_stopping_patience=4,
+        batch_size=8,
+    )
+
+    first = train_model(features[:24], labels[:24], features[24:], labels[24:], config)
+    second = train_model(features[:24], labels[:24], features[24:], labels[24:], config)
+    validation = torch.as_tensor(features[24:], device="cuda")
+    first.model.eval()
+    second.model.eval()
+
+    with torch.no_grad():
+        first_probabilities = first.model(validation)
+        second_probabilities = second.model(validation)
+    torch.testing.assert_close(first_probabilities, second_probabilities, rtol=0, atol=0)
+    assert first.best_epoch == second.best_epoch
+    assert first.best_validation_accuracy == second.best_validation_accuracy
