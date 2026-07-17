@@ -10,6 +10,8 @@ test-data/*.avi
 # release asset; Git tracks their manifest, hashes, and methodology only.
 benchmarks/pose-resolution/bending-pilot-v1/frames/
 benchmarks/pose-resolution/bending-pilot-v1/clips/
+benchmarks/pose-resolution/films-v1/film-1/frames/
+benchmarks/pose-resolution/films-v1/film-2/frames/
 
 # Local test artifacts — commit notes/reports only, regenerate binaries from R2
 jobs/*.mp4
