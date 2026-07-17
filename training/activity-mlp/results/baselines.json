@@ -1,0 +1,2172 @@
+{
+  "baselines": {
+    "heuristic": {
+      "accuracy": 0.3333333333333333,
+      "class_order": [
+        "sitting",
+        "standing",
+        "walking",
+        "running"
+      ],
+      "confusion_matrix": [
+        [
+          20,
+          30,
+          0,
+          0
+        ],
+        [
+          1,
+          17,
+          0,
+          0
+        ],
+        [
+          3,
+          16,
+          13,
+          0
+        ],
+        [
+          16,
+          23,
+          11,
+          0
+        ]
+      ],
+      "geometries": {
+        "controlled-garden": {
+          "accuracy": 0.5,
+          "confusion_matrix": [
+            [
+              20,
+              30,
+              0,
+              0
+            ],
+            [
+              1,
+              17,
+              0,
+              0
+            ],
+            [
+              3,
+              16,
+              13,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "per_class": {
+            "running": {
+              "f1": 0.0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "support": 0
+            },
+            "sitting": {
+              "f1": 0.5405405405405406,
+              "precision": 0.8333333333333334,
+              "recall": 0.4,
+              "support": 50
+            },
+            "standing": {
+              "f1": 0.41975308641975306,
+              "precision": 0.2698412698412698,
+              "recall": 0.9444444444444444,
+              "support": 18
+            },
+            "walking": {
+              "f1": 0.5777777777777777,
+              "precision": 1.0,
+              "recall": 0.40625,
+              "support": 32
+            }
+          },
+          "sample_count": 100
+        },
+        "pexels-marathon": {
+          "accuracy": 0.0,
+          "confusion_matrix": [
+            [
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              16,
+              23,
+              11,
+              0
+            ]
+          ],
+          "per_class": {
+            "running": {
+              "f1": 0.0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "support": 50
+            },
+            "sitting": {
+              "f1": 0.0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "support": 0
+            },
+            "standing": {
+              "f1": 0.0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "support": 0
+            },
+            "walking": {
+              "f1": 0.0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "support": 0
+            }
+          },
+          "sample_count": 50
+        }
+      },
+      "per_class": {
+        "running": {
+          "f1": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "support": 50
+        },
+        "sitting": {
+          "f1": 0.4444444444444445,
+          "precision": 0.5,
+          "recall": 0.4,
+          "support": 50
+        },
+        "standing": {
+          "f1": 0.3269230769230769,
+          "precision": 0.19767441860465115,
+          "recall": 0.9444444444444444,
+          "support": 18
+        },
+        "walking": {
+          "f1": 0.46428571428571425,
+          "precision": 0.5416666666666666,
+          "recall": 0.40625,
+          "support": 32
+        }
+      },
+      "predictions": [
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000087000"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000087500"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000088000"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000088500"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000089000"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000089500"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000090000"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000090500"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000091000"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000091625"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000092125"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000092625"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000093250"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000094000"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000094500"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000095625"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000096250"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000096750"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000097500"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000098125"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000098625"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000099375"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000100250"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000100750"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000101250"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000101875"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000102375"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000102875"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000103375"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000103875"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000125375"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000125875"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000126375"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000126875"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000127375"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000128000"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000128500"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000129375"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000130375"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000130875"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000131500"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000132250"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000132750"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000133500"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000134125"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000134625"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000135750"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000136375"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000136875"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000137375"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000041000"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000176125"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000177250"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000178500"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000179625"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000180750"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000182000"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000183250"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000184500"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000185625"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000186750"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000188000"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000189125"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000190250"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000191375"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000192625"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000193750"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000194875"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000027000"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000029500"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000032000"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000034625"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000037125"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000039625"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000044125"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000046750"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000049375"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000051875"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000054375"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000056875"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000059500"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000062000"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000064500"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000082000"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000084625"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000108125"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000110625"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000113125"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000115750"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000118250"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000120750"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000139250"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000141750"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000144375"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000153000"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000155500"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000159000"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000171875"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000174375"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000197875"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "walking",
+          "sample_id": "pexels-marathon-400efa62fa72-000000000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "standing",
+          "sample_id": "pexels-marathon-400efa62fa72-000001000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "sitting",
+          "sample_id": "pexels-marathon-400efa62fa72-000002000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "sitting",
+          "sample_id": "pexels-marathon-400efa62fa72-000003000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "sitting",
+          "sample_id": "pexels-marathon-400efa62fa72-000004000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "sitting",
+          "sample_id": "pexels-marathon-400efa62fa72-000005000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "sitting",
+          "sample_id": "pexels-marathon-400efa62fa72-000006000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "standing",
+          "sample_id": "pexels-marathon-400efa62fa72-000006500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "standing",
+          "sample_id": "pexels-marathon-400efa62fa72-000009000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "walking",
+          "sample_id": "pexels-marathon-400efa62fa72-000010500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "walking",
+          "sample_id": "pexels-marathon-400efa62fa72-000011500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "sitting",
+          "sample_id": "pexels-marathon-400efa62fa72-000012500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "standing",
+          "sample_id": "pexels-marathon-400efa62fa72-000013500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "walking",
+          "sample_id": "pexels-marathon-400efa62fa72-000014500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "walking",
+          "sample_id": "pexels-marathon-400efa62fa72-000018000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "walking",
+          "sample_id": "pexels-marathon-400efa62fa72-000019500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "standing",
+          "sample_id": "pexels-marathon-400efa62fa72-000020500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "standing",
+          "sample_id": "pexels-marathon-400efa62fa72-000021500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "standing",
+          "sample_id": "pexels-marathon-400efa62fa72-000022500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "standing",
+          "sample_id": "pexels-marathon-400efa62fa72-000023000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "sitting",
+          "sample_id": "pexels-marathon-400efa62fa72-000024000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "walking",
+          "sample_id": "pexels-marathon-400efa62fa72-000025000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "sitting",
+          "sample_id": "pexels-marathon-400efa62fa72-000027000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "standing",
+          "sample_id": "pexels-marathon-400efa62fa72-000031000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "standing",
+          "sample_id": "pexels-marathon-400efa62fa72-000032000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "standing",
+          "sample_id": "pexels-marathon-400efa62fa72-000035000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "standing",
+          "sample_id": "pexels-marathon-400efa62fa72-000036000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "sitting",
+          "sample_id": "pexels-marathon-400efa62fa72-000037000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "standing",
+          "sample_id": "pexels-marathon-400efa62fa72-000039000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "standing",
+          "sample_id": "pexels-marathon-400efa62fa72-000043500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "sitting",
+          "sample_id": "pexels-marathon-400efa62fa72-000044500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "walking",
+          "sample_id": "pexels-marathon-400efa62fa72-000045000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "walking",
+          "sample_id": "pexels-marathon-400efa62fa72-000046000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "sitting",
+          "sample_id": "pexels-marathon-400efa62fa72-000048000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "standing",
+          "sample_id": "pexels-marathon-400efa62fa72-000050000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "sitting",
+          "sample_id": "pexels-marathon-400efa62fa72-000051000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "walking",
+          "sample_id": "pexels-marathon-400efa62fa72-000052000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "standing",
+          "sample_id": "pexels-marathon-400efa62fa72-000055000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "sitting",
+          "sample_id": "pexels-marathon-400efa62fa72-000056000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "standing",
+          "sample_id": "pexels-marathon-400efa62fa72-000057000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "standing",
+          "sample_id": "pexels-marathon-400efa62fa72-000058000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "standing",
+          "sample_id": "pexels-marathon-400efa62fa72-000061500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "sitting",
+          "sample_id": "pexels-marathon-400efa62fa72-000062500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "standing",
+          "sample_id": "pexels-marathon-400efa62fa72-000067000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "standing",
+          "sample_id": "pexels-marathon-400efa62fa72-000068000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "sitting",
+          "sample_id": "pexels-marathon-400efa62fa72-000069000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "sitting",
+          "sample_id": "pexels-marathon-400efa62fa72-000070000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "standing",
+          "sample_id": "pexels-marathon-400efa62fa72-000071000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "standing",
+          "sample_id": "pexels-marathon-400efa62fa72-000072000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "walking",
+          "sample_id": "pexels-marathon-400efa62fa72-000073000"
+        }
+      ],
+      "sample_count": 150
+    },
+    "vlm": {
+      "accuracy": 0.9333333333333333,
+      "class_order": [
+        "sitting",
+        "standing",
+        "walking",
+        "running"
+      ],
+      "confusion_matrix": [
+        [
+          50,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          17,
+          1,
+          0
+        ],
+        [
+          0,
+          8,
+          23,
+          1
+        ],
+        [
+          0,
+          0,
+          0,
+          50
+        ]
+      ],
+      "geometries": {
+        "controlled-garden": {
+          "accuracy": 0.9,
+          "confusion_matrix": [
+            [
+              50,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              17,
+              1,
+              0
+            ],
+            [
+              0,
+              8,
+              23,
+              1
+            ],
+            [
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "per_class": {
+            "running": {
+              "f1": 0.0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "support": 0
+            },
+            "sitting": {
+              "f1": 1.0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "support": 50
+            },
+            "standing": {
+              "f1": 0.7906976744186047,
+              "precision": 0.68,
+              "recall": 0.9444444444444444,
+              "support": 18
+            },
+            "walking": {
+              "f1": 0.8214285714285714,
+              "precision": 0.9583333333333334,
+              "recall": 0.71875,
+              "support": 32
+            }
+          },
+          "sample_count": 100
+        },
+        "pexels-marathon": {
+          "accuracy": 1.0,
+          "confusion_matrix": [
+            [
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              50
+            ]
+          ],
+          "per_class": {
+            "running": {
+              "f1": 1.0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "support": 50
+            },
+            "sitting": {
+              "f1": 0.0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "support": 0
+            },
+            "standing": {
+              "f1": 0.0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "support": 0
+            },
+            "walking": {
+              "f1": 0.0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "support": 0
+            }
+          },
+          "sample_count": 50
+        }
+      },
+      "per_class": {
+        "running": {
+          "f1": 0.99009900990099,
+          "precision": 0.9803921568627451,
+          "recall": 1.0,
+          "support": 50
+        },
+        "sitting": {
+          "f1": 1.0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "support": 50
+        },
+        "standing": {
+          "f1": 0.7906976744186047,
+          "precision": 0.68,
+          "recall": 0.9444444444444444,
+          "support": 18
+        },
+        "walking": {
+          "f1": 0.8214285714285714,
+          "precision": 0.9583333333333334,
+          "recall": 0.71875,
+          "support": 32
+        }
+      },
+      "predictions": [
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000087000"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000087500"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000088000"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000088500"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000089000"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000089500"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000090000"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000090500"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000091000"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000091625"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000092125"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000092625"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000093250"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000094000"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000094500"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000095625"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000096250"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000096750"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000097500"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000098125"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000098625"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000099375"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000100250"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000100750"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000101250"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000101875"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000102375"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000102875"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000103375"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000103875"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000125375"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000125875"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000126375"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000126875"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000127375"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000128000"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000128500"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000129375"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000130375"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000130875"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000131500"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000132250"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000132750"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000133500"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000134125"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000134625"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000135750"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000136375"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000136875"
+        },
+        {
+          "actual": "sitting",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "sitting",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000137375"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000041000"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000176125"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000177250"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000178500"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000179625"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000180750"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000182000"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000183250"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000184500"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000185625"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000186750"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000188000"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000189125"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000190250"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000191375"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000192625"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000193750"
+        },
+        {
+          "actual": "standing",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000194875"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000027000"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000029500"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000032000"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000034625"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000037125"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000039625"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000044125"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000046750"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "running",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000049375"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000051875"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000054375"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000056875"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000059500"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000062000"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000064500"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000082000"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000084625"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000108125"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000110625"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000113125"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000115750"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000118250"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000120750"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000139250"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000141750"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000144375"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000153000"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000155500"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000159000"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000171875"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "walking",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000174375"
+        },
+        {
+          "actual": "walking",
+          "camera_geometry_id": "controlled-garden",
+          "predicted": "standing",
+          "sample_id": "controlled-garden-2f6ef8a0eaa1-000197875"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000000000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000001000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000002000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000003000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000004000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000005000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000006000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000006500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000009000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000010500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000011500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000012500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000013500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000014500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000018000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000019500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000020500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000021500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000022500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000023000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000024000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000025000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000027000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000031000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000032000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000035000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000036000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000037000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000039000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000043500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000044500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000045000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000046000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000048000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000050000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000051000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000052000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000055000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000056000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000057000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000058000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000061500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000062500"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000067000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000068000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000069000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000070000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000071000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000072000"
+        },
+        {
+          "actual": "running",
+          "camera_geometry_id": "pexels-marathon",
+          "predicted": "running",
+          "sample_id": "pexels-marathon-400efa62fa72-000073000"
+        }
+      ],
+      "sample_count": 150
+    }
+  },
+  "class_order": [
+    "sitting",
+    "standing",
+    "walking",
+    "running"
+  ],
+  "dataset": {
+    "labels_sha256": "4a316809ddfea6443321d7d4f0f0171ac2a05c668b8c45a3741b1486a29a6c1c",
+    "test_sample_count": 150,
+    "test_sample_ids_sha256": "475d834e28531c43fa45af74c3826d0339cf5d75463398bd2e30add2a93c26ff"
+  },
+  "schema_version": 1
+}
