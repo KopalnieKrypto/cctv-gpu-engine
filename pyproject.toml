@@ -110,8 +110,15 @@ select = ["E", "F", "I", "UP", "B"]
 # pulling unrelated repo files. We add it to pythonpath so pytest can import
 # `gpu_service.worker` from the underscore-named package even though the
 # parent dir uses a hyphen (which Python imports cannot).
-testpaths = ["pipeline", "tests", "gpu-service", "client-agent", "client-appliance"]
-pythonpath = [".", "gpu-service", "client-agent"]
+testpaths = [
+    "pipeline",
+    "tests",
+    "gpu-service",
+    "client-agent",
+    "client-appliance",
+    "training/activity-mlp",
+]
+pythonpath = [".", "gpu-service", "client-agent", "training/activity-mlp"]
 python_files = ["*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
