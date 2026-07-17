@@ -6,6 +6,11 @@ models/*.pt
 test-data/*.mp4
 test-data/*.avi
 
+# Issue #86 benchmark payloads are materialized from the immutable fixture
+# release asset; Git tracks their manifest, hashes, and methodology only.
+benchmarks/pose-resolution/bending-pilot-v1/frames/
+benchmarks/pose-resolution/bending-pilot-v1/clips/
+
 # Local test artifacts — commit notes/reports only, regenerate binaries from R2
 jobs/*.mp4
 jobs/*.html
