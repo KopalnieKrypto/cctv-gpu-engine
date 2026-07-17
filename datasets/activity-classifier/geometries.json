@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "geometries": [
+    {
+      "id": "controlled-garden",
+      "source_id": "controlled-film-1",
+      "source": "Project-owner supplied controlled activity recording, Film 1",
+      "license": "Operator-authorized internal model development and evaluation; redistribution prohibited",
+      "mounting_height_m": 2.8,
+      "tilt_deg": 45.0,
+      "horizontal_fov_deg": 90.0,
+      "parameter_basis": "Visual estimate from scene; height ±0.4 m, tilt ±10 degrees, FOV ±10 degrees"
+    },
+    {
+      "id": "factory-bending",
+      "source_id": "camera-buffer-20260717-a7b76f41",
+      "source": "Preserved 2026-07-17 one-hour rolling buffer, camera a7b76f41-a106-4019-811d-db6f9576d0dc",
+      "license": "Operator-authorized internal model development and evaluation; redistribution prohibited",
+      "mounting_height_m": 3.5,
+      "tilt_deg": 75.0,
+      "horizontal_fov_deg": 75.0,
+      "parameter_basis": "Visual estimate from fixed installation and scene; height ±0.5 m, tilt ±10 degrees, FOV ±10 degrees"
+    },
+    {
+      "id": "factory-floor",
+      "source_id": "camera-buffer-20260717-c88d18d9",
+      "source": "Preserved 2026-07-17 one-hour rolling buffer, camera c88d18d9-cda0-4c88-b76c-b475a45cbeb8",
+      "license": "Operator-authorized internal model development and evaluation; redistribution prohibited",
+      "mounting_height_m": 3.2,
+      "tilt_deg": 65.0,
+      "horizontal_fov_deg": 90.0,
+      "parameter_basis": "Visual estimate from fixed installation and scene; height ±0.5 m, tilt ±10 degrees, FOV ±10 degrees"
+    },
+    {
+      "id": "pexels-track",
+      "source_id": "pexels-video-3943396",
+      "source": "Pexels video 3943396, Sport Time Marathon Runners, Nino Souza",
+      "license": "Pexels License, https://www.pexels.com/license/",
+      "mounting_height_m": 1.8,
+      "tilt_deg": 15.0,
+      "horizontal_fov_deg": 25.0,
+      "parameter_basis": "Visual estimate from perspective; height ±0.3 m, tilt ±8 degrees, FOV ±8 degrees"
+    },
+    {
+      "id": "controlled-patio",
+      "source_id": "controlled-film-2",
+      "source": "Project-owner supplied controlled activity recording, Film 2",
+      "license": "Operator-authorized internal model development and evaluation; redistribution prohibited",
+      "mounting_height_m": 2.6,
+      "tilt_deg": 55.0,
+      "horizontal_fov_deg": 100.0,
+      "parameter_basis": "Visual estimate from scene; height ±0.4 m, tilt ±10 degrees, FOV ±10 degrees"
+    },
+    {
+      "id": "pexels-marathon",
+      "source_id": "pexels-video-11769251",
+      "source": "Pexels video 11769251, Runners at Marathon, Mesud Khalaf",
+      "license": "Pexels License, https://www.pexels.com/license/",
+      "mounting_height_m": 1.8,
+      "tilt_deg": 15.0,
+      "horizontal_fov_deg": 65.0,
+      "parameter_basis": "Visual estimate from perspective; height ±0.3 m, tilt ±8 degrees, FOV ±8 degrees"
+    }
+  ]
+}

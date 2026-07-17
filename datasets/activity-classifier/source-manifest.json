@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "source_id": "controlled-film-1",
+      "camera_geometry_id": "controlled-garden",
+      "video_path": "controlled/job-3ffe5068f6e7.mp4",
+      "sha256": "2f6ef8a0eaa1b1c96f3171ea48f5e25e6008ca7af4c04d634945220717dbceb8",
+      "fps": 8,
+      "max_frame_width": 1280,
+      "min_confidence": 0.35,
+      "min_bbox_height": 40,
+      "intervals": [
+        {"start_s": 27, "end_s": 40, "activity": "walking"},
+        {"start_s": 41, "end_s": 42, "activity": "standing"},
+        {"start_s": 42, "end_s": 65, "activity": "walking"},
+        {"start_s": 80, "end_s": 85, "activity": "walking"},
+        {"start_s": 87, "end_s": 105, "activity": "sitting"},
+        {"start_s": 106, "end_s": 122, "activity": "walking"},
+        {"start_s": 125, "end_s": 138, "activity": "sitting"},
+        {"start_s": 138, "end_s": 145, "activity": "walking"},
+        {"start_s": 150, "end_s": 156, "activity": "walking"},
+        {"start_s": 157, "end_s": 161, "activity": "walking"},
+        {"start_s": 171, "end_s": 175, "activity": "walking"},
+        {"start_s": 176, "end_s": 195, "activity": "standing"},
+        {"start_s": 196, "end_s": 198, "activity": "walking"}
+      ]
+    },
+    {
+      "source_id": "camera-buffer-20260717-a7b76f41",
+      "camera_geometry_id": "factory-bending",
+      "video_path": "a7b76f41/chunk_020.mp4",
+      "sha256": "2a4f613e954617a3ad6dab38d6384133211f608549336e1b369ef6baade4ba4c",
+      "fps": 2,
+      "max_frame_width": 1280,
+      "min_confidence": 0.35,
+      "min_bbox_height": 40,
+      "intervals": [{"start_s": 0, "end_s": 60.3, "activity": "__model__"}]
+    },
+    {
+      "source_id": "camera-buffer-20260717-a7b76f41",
+      "camera_geometry_id": "factory-bending",
+      "video_path": "a7b76f41/chunk_021.mp4",
+      "sha256": "1ee52b56e1ecee7a765ef3ccc9e2a2f152950c31f35cf3c69f938d5c1ad48808",
+      "fps": 2,
+      "max_frame_width": 1280,
+      "min_confidence": 0.35,
+      "min_bbox_height": 40,
+      "intervals": [{"start_s": 0, "end_s": 59.6, "activity": "__model__"}]
+    },
+    {
+      "source_id": "camera-buffer-20260717-c88d18d9",
+      "camera_geometry_id": "factory-floor",
+      "video_path": "c88d18d9/chunk_020.mp4",
+      "sha256": "815ddd99a3cbf1290ee6522a5e41688504fb599697740569b8ab109b83027be0",
+      "fps": 2,
+      "max_frame_width": 1280,
+      "min_confidence": 0.35,
+      "min_bbox_height": 40,
+      "intervals": [{"start_s": 0, "end_s": 60.1, "activity": "__model__"}]
+    },
+    {
+      "source_id": "camera-buffer-20260717-c88d18d9",
+      "camera_geometry_id": "factory-floor",
+      "video_path": "c88d18d9/chunk_021.mp4",
+      "sha256": "ec3da43e0ccf628ed3f9d88f0a65568ac1be1f0d00fbfc6a1eb722247b8b6956",
+      "fps": 2,
+      "max_frame_width": 1280,
+      "min_confidence": 0.35,
+      "min_bbox_height": 40,
+      "intervals": [{"start_s": 0, "end_s": 60.1, "activity": "__model__"}]
+    },
+    {
+      "source_id": "pexels-video-3943396",
+      "camera_geometry_id": "pexels-track",
+      "video_path": "public/pexels-3943396.mp4",
+      "sha256": "12805392077934fdfad85cd851872b1ad78abe4014925f2f4582500615a7f1b1",
+      "fps": 8,
+      "max_frame_width": 1280,
+      "min_confidence": 0.35,
+      "min_bbox_height": 60,
+      "intervals": [{"start_s": 0, "end_s": 30.4, "activity": "running"}]
+    },
+    {
+      "source_id": "controlled-film-2",
+      "camera_geometry_id": "controlled-patio",
+      "video_path": "controlled/job-0b1699e6ec20.mp4",
+      "sha256": "652f133d155eab6fd681d74158fc86e8b39bd8ce655fc383950573340c552c95",
+      "fps": 3,
+      "max_frame_width": 1280,
+      "min_confidence": 0.35,
+      "min_bbox_height": 40,
+      "intervals": [
+        {"start_s": 25, "end_s": 43, "activity": "walking"},
+        {"start_s": 43, "end_s": 52, "activity": "standing"},
+        {"start_s": 53, "end_s": 58, "activity": "walking"},
+        {"start_s": 58, "end_s": 74, "activity": "sitting"},
+        {"start_s": 75, "end_s": 82, "activity": "walking"},
+        {"start_s": 85, "end_s": 100, "activity": "sitting"},
+        {"start_s": 102, "end_s": 105, "activity": "walking"},
+        {"start_s": 166, "end_s": 172, "activity": "walking"},
+        {"start_s": 173, "end_s": 185, "activity": "sitting"},
+        {"start_s": 186, "end_s": 190, "activity": "walking"},
+        {"start_s": 195, "end_s": 199, "activity": "walking"}
+      ]
+    },
+    {
+      "source_id": "pexels-video-11769251",
+      "camera_geometry_id": "pexels-marathon",
+      "video_path": "public/pexels-11769251.mp4",
+      "sha256": "400efa62fa7261ab041a00ba37e1bcecaefd516add26f3c8ba99593c37c8b519",
+      "fps": 2,
+      "max_frame_width": 1280,
+      "min_confidence": 0.35,
+      "min_bbox_height": 50,
+      "intervals": [{"start_s": 0, "end_s": 74.3, "activity": "running"}]
+    }
+  ]
+}
