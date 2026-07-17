@@ -30,7 +30,7 @@ def test_ground_truth_expands_to_documented_activity_totals() -> None:
     assert list(film_2.values()).count("sitting") == 43
 
 
-def test_evaluator_uses_longest_lived_track_and_retains_every_annotated_second(
+def test_evaluator_uses_each_confirmed_track_and_retains_every_annotated_second(
     tmp_path,
 ) -> None:
     path = tmp_path / "detections.jsonl"
@@ -44,24 +44,29 @@ def test_evaluator_uses_longest_lived_track_and_retains_every_annotated_second(
             ],
         },
         {"timestamp_s": 2.0, "persons": [{"track_id": 1, "activity": "standing"}]},
-        {"timestamp_s": 3.0, "persons": []},
+        {"timestamp_s": 3.0, "persons": [{"track_id": 2, "activity": "walking"}]},
+        {"timestamp_s": 4.0, "persons": [{"track_id": 2, "activity": "walking"}]},
+        {"timestamp_s": 5.0, "persons": [{"track_id": 2, "activity": "walking"}]},
     ]
     path.write_text("".join(json.dumps(row) + "\n" for row in rows))
     truth = {
         "film_id": "fixture",
-        "intervals": [{"start_s": 0, "end_s": 4, "activity": "walking"}],
+        "intervals": [{"start_s": 0, "end_s": 7, "activity": "walking"}],
     }
 
     result = evaluate_film(truth, load_detection_rows(path))
 
-    assert result["selected_track_id"] == 1
-    assert result["annotated_seconds"] == 4
-    assert result["correct_seconds"] == 2
-    assert result["agreement"] == 0.5
+    assert result["confirmed_track_ids"] == [1, 2]
+    assert result["annotated_seconds"] == 7
+    assert result["correct_seconds"] == 5
+    assert result["agreement"] == 5 / 7
     assert [row["prediction"] for row in result["per_second"]] == [
         "walking",
         "walking",
         "standing",
+        "walking",
+        "walking",
+        "walking",
         None,
     ]
 

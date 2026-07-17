@@ -43,29 +43,48 @@ def load_detection_rows(path: Path) -> list[dict]:
     return rows
 
 
-def _select_longest_lived_track(rows: list[dict]) -> int | None:
-    counts = Counter(
+def _confirmed_track_counts(rows: list[dict]) -> Counter[int]:
+    """Mirror the runtime filter: 3 sightings in any 5-frame window."""
+    sightings: dict[int, list[int]] = {}
+    for row_index, row in enumerate(rows):
+        frame_index = int(row.get("frame_idx", row_index))
+        for person in row["persons"]:
+            track_id = person.get("track_id")
+            if isinstance(track_id, int):
+                sightings.setdefault(track_id, []).append(frame_index)
+
+    confirmed = {
+        track_id
+        for track_id, frames in sightings.items()
+        if any(frames[index] - frames[index - 2] <= 4 for index in range(2, len(frames)))
+    }
+    return Counter(
         person["track_id"]
         for row in rows
         for person in row["persons"]
-        if isinstance(person.get("track_id"), int)
+        if person.get("track_id") in confirmed
     )
-    if not counts:
-        return None
-    return max(counts, key=lambda track_id: (counts[track_id], -track_id))
 
 
 def evaluate_film(film: dict, rows: list[dict]) -> dict:
     """Score only annotated seconds using the recording's longest-lived track."""
     truth = expand_truth(film)
-    selected_track_id = _select_longest_lived_track(rows)
-    predictions: dict[int, str] = {}
+    confirmed_counts = _confirmed_track_counts(rows)
+    predictions: dict[int, tuple[str, int]] = {}
     for row in rows:
         second = int(float(row["timestamp_s"]))
-        for person in row["persons"]:
-            if person.get("track_id") == selected_track_id:
-                predictions[second] = person["activity"]
-                break
+        candidates = [
+            person for person in row["persons"] if person.get("track_id") in confirmed_counts
+        ]
+        if candidates:
+            selected = max(
+                candidates,
+                key=lambda person: (
+                    confirmed_counts[person["track_id"]],
+                    -person["track_id"],
+                ),
+            )
+            predictions[second] = (selected["activity"], selected["track_id"])
 
     per_second = []
     confusion: dict[str, dict[str, int]] = {
@@ -74,7 +93,9 @@ def evaluate_film(film: dict, rows: list[dict]) -> dict:
     }
     correct = 0
     for second, expected in truth.items():
-        prediction = predictions.get(second)
+        selected = predictions.get(second)
+        prediction = selected[0] if selected else None
+        track_id = selected[1] if selected else None
         is_correct = prediction == expected
         correct += int(is_correct)
         confusion[expected][prediction or "missing"] += 1
@@ -83,12 +104,13 @@ def evaluate_film(film: dict, rows: list[dict]) -> dict:
                 "second": second,
                 "expected": expected,
                 "prediction": prediction,
+                "track_id": track_id,
                 "correct": is_correct,
             }
         )
 
     return {
-        "selected_track_id": selected_track_id,
+        "confirmed_track_ids": sorted(confirmed_counts),
         "annotated_seconds": len(truth),
         "correct_seconds": correct,
         "agreement": correct / len(truth),
