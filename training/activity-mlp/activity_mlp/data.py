@@ -10,7 +10,7 @@ from pipeline.activity_features import ACTIVITY_CLASSES, extract_activity_featur
 from pipeline.postprocessing import Detection, Keypoint
 
 
-def _row_detection(row: dict) -> Detection:
+def row_to_detection(row: dict) -> Detection:
     x, y, width, height = row["bbox"]
     return Detection(
         bbox=[x, y, x + width, y + height],
@@ -22,6 +22,6 @@ def _row_detection(row: dict) -> Detection:
 def build_feature_matrix(rows: Sequence[dict]) -> tuple[np.ndarray, np.ndarray]:
     """Convert ordered release rows into features and class indices."""
     class_indices = {activity: index for index, activity in enumerate(ACTIVITY_CLASSES)}
-    features = np.stack([extract_activity_features(_row_detection(row)) for row in rows])
+    features = np.stack([extract_activity_features(row_to_detection(row)) for row in rows])
     labels = np.asarray([class_indices[row["activity"]] for row in rows], dtype=np.int64)
     return features.astype(np.float32, copy=False), labels

@@ -26,6 +26,7 @@ from activity_mlp.evaluation import (
     CLASS_ORDER,
     VlmRowPredictor,
     build_baseline_artifact,
+    build_quality_gate,
     evaluate_rows,
     predict_heuristic,
     write_json_once,
@@ -168,3 +169,39 @@ def test_immutable_baseline_writer_refuses_to_replace_existing_evidence(tmp_path
         write_json_once(output_path, {"schema_version": 2})
 
     assert json.loads(output_path.read_text()) == {"schema_version": 1}
+
+
+def test_quality_gate_requires_85_percent_vlm_parity_and_each_geometry() -> None:
+    vlm = {
+        "accuracy": 0.93,
+        "geometries": {
+            "controlled-garden": {"accuracy": 0.9},
+            "pexels-marathon": {"accuracy": 1.0},
+        },
+        "predictions": [
+            {"sample_id": "a", "actual": "sitting", "predicted": "sitting"},
+            {"sample_id": "b", "actual": "standing", "predicted": "standing"},
+        ],
+    }
+    mlp = {
+        "accuracy": 0.94,
+        "geometries": {
+            "controlled-garden": {"accuracy": 0.91},
+            "pexels-marathon": {"accuracy": 0.98},
+        },
+        "predictions": [
+            {"sample_id": "a", "actual": "sitting", "predicted": "standing"},
+            {"sample_id": "b", "actual": "standing", "predicted": "standing"},
+        ],
+    }
+
+    gate = build_quality_gate(mlp, vlm)
+
+    assert gate["passed"] is False
+    assert gate["checks"] == {
+        "accuracy_at_least_0_85": True,
+        "accuracy_at_least_vlm": True,
+        "controlled-garden_at_least_vlm": True,
+        "pexels-marathon_at_least_vlm": False,
+    }
+    assert gate["mlp_regressions_vs_vlm"] == ["a"]

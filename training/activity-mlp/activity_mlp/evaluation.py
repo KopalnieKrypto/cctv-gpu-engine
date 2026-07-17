@@ -70,6 +70,23 @@ def evaluate_rows(rows: Sequence[dict], predictor: Callable[[dict], str]) -> dic
     return _report_from_predictions(rows, [predictor(row) for row in rows])
 
 
+def evaluate_rows_with_predictions(rows: Sequence[dict], predictor: Callable[[dict], str]) -> dict:
+    """Evaluate rows and retain the audit record used by promotion gates."""
+    predictions = [predictor(row) for row in rows]
+    return {
+        **_report_from_predictions(rows, predictions),
+        "predictions": [
+            {
+                "sample_id": row["sample_id"],
+                "camera_geometry_id": row["camera_geometry_id"],
+                "actual": row["activity"],
+                "predicted": prediction,
+            }
+            for row, prediction in zip(rows, predictions, strict=True)
+        ],
+    }
+
+
 def predict_heuristic(row: dict) -> str:
     """Run the deployed geometric classifier on one issue #33 label row."""
     x, y, width, height = row["bbox"]
@@ -107,19 +124,7 @@ def build_baseline_artifact(
     sample_ids_bytes = "".join(f"{row['sample_id']}\n" for row in rows).encode()
     baselines: dict[str, dict] = {}
     for name, predictor in predictors.items():
-        predictions = [predictor(row) for row in rows]
-        baselines[name] = {
-            **_report_from_predictions(rows, predictions),
-            "predictions": [
-                {
-                    "sample_id": row["sample_id"],
-                    "camera_geometry_id": row["camera_geometry_id"],
-                    "actual": row["activity"],
-                    "predicted": prediction,
-                }
-                for row, prediction in zip(rows, predictions, strict=True)
-            ],
-        }
+        baselines[name] = evaluate_rows_with_predictions(rows, predictor)
     return {
         "schema_version": 1,
         "dataset": {
@@ -142,3 +147,28 @@ def write_json_once(output_path: str | Path, payload: dict) -> None:
             output_file.write("\n")
     except FileExistsError as exc:
         raise FileExistsError(f"refusing to overwrite immutable evidence: {path}") from exc
+
+
+def build_quality_gate(mlp_report: dict, vlm_report: dict) -> dict:
+    """Apply the frozen held-out promotion thresholds without post-hoc tuning."""
+    checks = {
+        "accuracy_at_least_0_85": mlp_report["accuracy"] >= 0.85,
+        "accuracy_at_least_vlm": mlp_report["accuracy"] >= vlm_report["accuracy"],
+    }
+    for geometry_id, vlm_geometry in vlm_report["geometries"].items():
+        checks[f"{geometry_id}_at_least_vlm"] = (
+            mlp_report["geometries"][geometry_id]["accuracy"] >= vlm_geometry["accuracy"]
+        )
+
+    vlm_predictions = {row["sample_id"]: row for row in vlm_report.get("predictions", [])}
+    regressions = [
+        row["sample_id"]
+        for row in mlp_report.get("predictions", [])
+        if row["predicted"] != row["actual"]
+        and vlm_predictions.get(row["sample_id"], {}).get("predicted") == row["actual"]
+    ]
+    return {
+        "passed": all(checks.values()),
+        "checks": checks,
+        "mlp_regressions_vs_vlm": regressions,
+    }
