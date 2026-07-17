@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import os
 import random
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TextIO
 
 import numpy as np
 
@@ -36,6 +38,18 @@ class TrainingOutcome:
     best_validation_loss: float
     epochs_ran: int
     history: list[dict]
+
+
+def print_epoch_heartbeat(metrics: dict, *, stream: TextIO = sys.stderr) -> None:
+    """Emit one unbuffered progress line per completed training epoch."""
+    print(
+        f"training epoch={metrics['epoch']} "
+        f"train_loss={metrics['train_loss']:.6f} "
+        f"validation_loss={metrics['validation_loss']:.6f} "
+        f"validation_accuracy={metrics['validation_accuracy']:.6f}",
+        file=stream,
+        flush=True,
+    )
 
 
 def model_spec(config: TrainingConfig) -> dict:

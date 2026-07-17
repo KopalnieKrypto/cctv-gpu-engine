@@ -1,6 +1,7 @@
 """Reproducibility contract for the deliberately small fixed MLP."""
 
 from dataclasses import asdict, replace
+from io import StringIO
 
 import numpy as np
 import pytest
@@ -10,6 +11,7 @@ from activity_mlp.training import (
     build_model,
     export_onnx,
     model_spec,
+    print_epoch_heartbeat,
     seed_everything,
     train_model,
 )
@@ -82,6 +84,33 @@ def test_model_spec_is_two_small_relu_dropout_layers_and_softmax_output() -> Non
         "output_dimension": 4,
         "output_activation": "softmax",
     }
+
+
+def test_epoch_heartbeat_is_visible_and_flushed() -> None:
+    class TrackingStream(StringIO):
+        flushed = False
+
+        def flush(self) -> None:
+            self.flushed = True
+            super().flush()
+
+    stream = TrackingStream()
+
+    print_epoch_heartbeat(
+        {
+            "epoch": 7,
+            "train_loss": 0.123456,
+            "validation_loss": 0.234567,
+            "validation_accuracy": 0.9,
+        },
+        stream=stream,
+    )
+
+    assert (
+        stream.getvalue() == "training epoch=7 train_loss=0.123456 validation_loss=0.234567 "
+        "validation_accuracy=0.900000\n"
+    )
+    assert stream.flushed is True
 
 
 @pytest.mark.gpu
