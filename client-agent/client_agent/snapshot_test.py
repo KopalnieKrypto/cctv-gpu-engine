@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import subprocess
 
+import pytest
+
 from client_agent.snapshot import build_snapshot_grabber
 
 
@@ -57,6 +59,57 @@ def test_build_ffmpeg_snapshot_cmd_is_settled_single_jpeg() -> None:
     assert "-rtsp_transport" in cmd and "tcp" in cmd
     assert cmd[cmd.index("-f") + 1] == "mjpeg"
     assert cmd[cmd.index("-vf") + 1] == "scale=640:-2"
+
+
+def test_build_ffmpeg_snapshot_cmd_detail_keeps_native_resolution() -> None:
+    """The detail profile (gpu-exchange #137) exists to preserve pixels the
+    thumbnail throws away, so it must carry NO scale filter at all — the
+    encoder gets the stream's decoded dimensions verbatim (3840x2160 on the
+    operator's cameras) — and a finer qscale. Everything that makes the grab
+    correct (settle-after-``-i``, single frame, TCP, mjpeg to stdout) is
+    profile-independent and must survive."""
+    from client_agent.snapshot import _build_ffmpeg_snapshot_cmd
+
+    cmd = _build_ffmpeg_snapshot_cmd("rtsp://192.168.88.85:554/unicast/c1/s0/live", "detail")
+
+    # No downscale: the whole point of the variant.
+    assert "-vf" not in cmd
+    assert not any(a.startswith("scale=") for a in cmd)
+    assert cmd[cmd.index("-q:v") + 1] == "2"
+    # The settle fix is not a thumbnail detail — a 4K H.265 stream opened
+    # mid-GOP produces the grey/green undecoded bottom for detail too.
+    i = cmd.index("-i")
+    assert cmd.index("-ss") > i
+    assert cmd[cmd.index("-ss") + 1] == "1.0"
+    assert cmd[cmd.index("-frames:v") + 1] == "1"
+    assert cmd[cmd.index("-f") + 1] == "mjpeg"
+    assert cmd[0] == "ffmpeg"
+    assert cmd[-1] == "pipe:1"
+
+
+def test_build_ffmpeg_snapshot_cmd_thumbnail_profile_is_unchanged() -> None:
+    """Pins the thumbnail profile against drift: 640px cap and qscale 4,
+    exactly as before #137. The card polls this every 30s per camera, so a
+    silent widening here would multiply fleet-wide bandwidth."""
+    from client_agent.snapshot import _build_ffmpeg_snapshot_cmd
+
+    explicit = _build_ffmpeg_snapshot_cmd("rtsp://cam/live", "thumbnail")
+    assert explicit[explicit.index("-vf") + 1] == "scale=640:-2"
+    assert explicit[explicit.index("-q:v") + 1] == "4"
+    # An omitted variant is the pre-#137 contract → identical argv.
+    assert _build_ffmpeg_snapshot_cmd("rtsp://cam/live") == explicit
+
+
+def test_build_ffmpeg_snapshot_cmd_rejects_unknown_profile() -> None:
+    """An unknown profile must fail loudly here rather than silently
+    capturing some default. The tolerant fallback belongs at the wire
+    boundary (platform.claim_next_snapshot), where a rolling deploy can
+    legitimately produce one; by this point the value is internal and a
+    surprise means a bug."""
+    from client_agent.snapshot import _build_ffmpeg_snapshot_cmd
+
+    with pytest.raises(ValueError, match="8k-hdr"):
+        _build_ffmpeg_snapshot_cmd("rtsp://cam/live", "8k-hdr")  # type: ignore[arg-type]
 
 
 def test_rtsp_frame_grab_returns_stdout_jpeg_bytes() -> None:

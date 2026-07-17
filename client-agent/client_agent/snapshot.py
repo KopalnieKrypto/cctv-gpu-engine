@@ -35,6 +35,11 @@ _MAX_WIDTH_PX = 640
 # ffmpeg ``-q:v`` for MJPEG output (2=best … 31=worst). 4 ≈ the old cv2 JPEG
 # quality 70: visually fine for a thumbnail, small on the wire.
 _FFMPEG_MJPEG_QSCALE = 4
+# The detail profile's ``-q:v`` (gpu-exchange #137). Finer than the thumbnail's
+# 4 because these bytes exist to be zoomed to 400% — compression artefacts at
+# that magnification are exactly what the variant was added to avoid. Only ever
+# paid for on demand, while a preview modal is open.
+_FFMPEG_MJPEG_QSCALE_DETAIL = 2
 
 # RTSP snapshot settle: seconds of the LIVE stream ffmpeg decodes-and-discards
 # (``-ss`` after ``-i``) before capturing the frame. A 4K H.265 stream opened
@@ -48,6 +53,15 @@ _RTSP_SNAPSHOT_SETTLE_S = 1.0
 # tuned for the old single-cv2-read (~1-2 s); the settle-then-grab needs more,
 # so never run ffmpeg on a deadline tighter than this regardless of the caller.
 _RTSP_GRAB_MIN_TIMEOUT_S = 8.0
+
+# Capture profiles (gpu-exchange #137): variant -> (scale filter, mjpeg qscale).
+# An empty filter means "no -vf at all", i.e. keep the stream's own dimensions.
+# Single source of truth for both profiles so the two can never drift apart in
+# separate branches.
+_SNAPSHOT_PROFILES: dict[str, tuple[str, int]] = {
+    "thumbnail": (f"scale={_MAX_WIDTH_PX}:-2", _FFMPEG_MJPEG_QSCALE),
+    "detail": ("", _FFMPEG_MJPEG_QSCALE_DETAIL),
+}
 
 SnapshotGrabberFn = Callable[[str, float, SnapshotVariant], bytes]
 """(url, timeout_s, variant) -> JPEG bytes.
@@ -107,19 +121,34 @@ def _http_fetch(url: str, timeout_s: float, variant: SnapshotVariant = "thumbnai
 
 
 def _build_ffmpeg_snapshot_cmd(url: str, variant: SnapshotVariant = "thumbnail") -> list[str]:
-    """ffmpeg argv for a settled, downscaled single-JPEG RTSP grab.
+    """ffmpeg argv for a settled single-JPEG RTSP grab, per capture profile.
+
+    Profile-independent (correctness, not taste — both profiles need these):
 
     * ``-ss _RTSP_SNAPSHOT_SETTLE_S`` *after* ``-i`` decodes and discards the
       first second of the live stream so the decoder is past a keyframe and
       emitting complete frames before ``-frames:v 1`` captures one — the cure
       for the flat grey/green undecoded-bottom preview cv2's ``read()`` produced
-      on these 4K H.265 streams.
-    * ``scale=640:-2`` caps the thumbnail width (height even for the encoder).
-      Every managed stream here is ≥640 px wide, so this only ever downscales.
+      on these 4K H.265 streams. A ``detail`` grab decodes the *same* mid-GOP
+      stream, so it needs the settle just as much.
     * ``-f mjpeg … pipe:1`` writes the JPEG straight to stdout — no temp file to
-      clean up. ``-an`` drops audio the thumbnail never needs.
+      clean up. ``-an`` drops audio no snapshot needs.
+
+    Profile-dependent (gpu-exchange #137):
+
+    * ``thumbnail`` — ``scale=640:-2`` caps the width (height even for the
+      encoder) at qscale 4. Every managed stream here is ≥640 px wide, so this
+      only ever downscales. Polled every 30 s per camera.
+    * ``detail`` — no scale filter at all, qscale 2. The encoder receives the
+      stream's decoded dimensions verbatim; this is the whole point of the
+      variant, so filtering here would silently defeat it. On demand only.
+
     Kept pure so a unit test can assert the argv without spawning ffmpeg."""
-    del variant  # profile-awareness lands in the next slice
+    if variant not in _SNAPSHOT_PROFILES:
+        raise ValueError(
+            f"unknown snapshot profile {variant!r} (expected one of {sorted(_SNAPSHOT_PROFILES)})"
+        )
+    scale_filter, qscale = _SNAPSHOT_PROFILES[variant]
     return [
         "ffmpeg",
         "-nostdin",
@@ -132,12 +161,13 @@ def _build_ffmpeg_snapshot_cmd(url: str, variant: SnapshotVariant = "thumbnail")
         "-frames:v",
         "1",
         "-an",
-        "-vf",
-        f"scale={_MAX_WIDTH_PX}:-2",
+        # Omitted entirely for detail — an identity filter would still force a
+        # scaler pass, and `-vf` with an empty value is an ffmpeg argv error.
+        *(("-vf", scale_filter) if scale_filter else ()),
         "-f",
         "mjpeg",
         "-q:v",
-        str(_FFMPEG_MJPEG_QSCALE),
+        str(qscale),
         "pipe:1",
     ]
 
