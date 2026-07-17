@@ -148,17 +148,17 @@ def test_http_url_dispatches_to_http_fetcher() -> None:
     http_calls: list[tuple[str, float]] = []
     rtsp_calls: list[tuple[str, float]] = []
 
-    def fake_http(url: str, timeout_s: float) -> bytes:
+    def fake_http(url: str, timeout_s: float, _v: str) -> bytes:
         http_calls.append((url, timeout_s))
         return b"http-jpeg"
 
-    def fake_rtsp(url: str, timeout_s: float) -> bytes:
+    def fake_rtsp(url: str, timeout_s: float, _v: str) -> bytes:
         rtsp_calls.append((url, timeout_s))
         return b"rtsp-jpeg"
 
     grabber = build_snapshot_grabber(http_fetcher=fake_http, rtsp_grabber=fake_rtsp)
 
-    out = grabber("http://192.168.1.10/snapshot.jpg", 5.0)
+    out = grabber("http://192.168.1.10/snapshot.jpg", 5.0, "thumbnail")
 
     assert out == b"http-jpeg"
     assert http_calls == [("http://192.168.1.10/snapshot.jpg", 5.0)]
@@ -170,16 +170,16 @@ def test_https_url_dispatches_to_http_fetcher() -> None:
     HTTP fetcher, not cv2."""
     http_calls: list[str] = []
 
-    def fake_http(url: str, _t: float) -> bytes:
+    def fake_http(url: str, _t: float, _v: str) -> bytes:
         http_calls.append(url)
         return b"https-jpeg"
 
     grabber = build_snapshot_grabber(
         http_fetcher=fake_http,
-        rtsp_grabber=lambda _u, _t: (_ for _ in ()).throw(AssertionError("cv2 hit")),
+        rtsp_grabber=lambda _u, _t, _v: (_ for _ in ()).throw(AssertionError("cv2 hit")),
     )
 
-    out = grabber("https://cam.example.com/snap", 5.0)
+    out = grabber("https://cam.example.com/snap", 5.0, "thumbnail")
 
     assert out == b"https-jpeg"
     assert http_calls == ["https://cam.example.com/snap"]
@@ -190,16 +190,16 @@ def test_rtsp_url_dispatches_to_rtsp_grabber() -> None:
     fallback when the camera doesn't expose an HTTP snapshot endpoint."""
     rtsp_calls: list[tuple[str, float]] = []
 
-    def fake_rtsp(url: str, timeout_s: float) -> bytes:
+    def fake_rtsp(url: str, timeout_s: float, _v: str) -> bytes:
         rtsp_calls.append((url, timeout_s))
         return b"rtsp-jpeg"
 
     grabber = build_snapshot_grabber(
-        http_fetcher=lambda _u, _t: (_ for _ in ()).throw(AssertionError("http hit")),
+        http_fetcher=lambda _u, _t, _v: (_ for _ in ()).throw(AssertionError("http hit")),
         rtsp_grabber=fake_rtsp,
     )
 
-    out = grabber("rtsp://192.168.1.10:554/Streaming/Channels/101", 5.0)
+    out = grabber("rtsp://192.168.1.10:554/Streaming/Channels/101", 5.0, "thumbnail")
 
     assert out == b"rtsp-jpeg"
     assert rtsp_calls == [("rtsp://192.168.1.10:554/Streaming/Channels/101", 5.0)]
@@ -210,16 +210,16 @@ def test_grabber_propagates_underlying_errors() -> None:
     the route's try/except converts it into a 503 with the message in
     the body."""
 
-    def bad_rtsp(_url: str, _t: float) -> bytes:
+    def bad_rtsp(_url: str, _t: float, _v: str) -> bytes:
         raise RuntimeError("cv2.VideoCapture failed to open")
 
     grabber = build_snapshot_grabber(
-        http_fetcher=lambda _u, _t: b"unused",
+        http_fetcher=lambda _u, _t, _v: b"unused",
         rtsp_grabber=bad_rtsp,
     )
 
     try:
-        grabber("rtsp://offline.local/stream", 5.0)
+        grabber("rtsp://offline.local/stream", 5.0, "thumbnail")
     except RuntimeError as exc:
         assert "cv2.VideoCapture" in str(exc)
     else:

@@ -836,6 +836,87 @@ def test_claim_next_snapshot_returns_claim_on_200() -> None:
     assert claim.content_type == "image/jpeg"
 
 
+# ----- 19b. claim_next_snapshot: variant (gpu-exchange #137) -----
+
+
+def test_claim_next_snapshot_parses_detail_variant() -> None:
+    """The platform tags each claim with the variant it wants captured:
+    ``thumbnail`` (640px/q4 card image) or ``detail`` (native resolution,
+    q2, on-demand for an open preview modal). The grabber picks its
+    ffmpeg profile from this, so it must survive the parse."""
+    from client_agent.platform import PlatformClient
+
+    body = {
+        "request_id": "req-xyz",
+        "camera_id": "cam-1",
+        "variant": "detail",
+        "upload_url": "https://r2.example/signed?X-Amz-Signature=abc",
+        "key": "tenants/t/snapshots/c/detail.jpg",
+        "expires_in": 300,
+        "content_type": "image/jpeg",
+    }
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.get("/appliance/snapshot/next").mock(return_value=httpx.Response(200, json=body))
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        claim = client.claim_next_snapshot()
+
+    assert claim is not None
+    assert claim.variant == "detail"
+
+
+def test_claim_next_snapshot_defaults_variant_when_platform_omits_it() -> None:
+    """Rolling-deploy guard: an appliance updated ahead of the platform
+    will see claims with no ``variant`` key. Every other field is parsed
+    with a strict bracket lookup, so without a default this raises
+    KeyError and the snapshot queue stalls until the Worker ships.
+    Absent ``variant`` means the pre-#137 contract, i.e. thumbnail."""
+    from client_agent.platform import PlatformClient
+
+    body = {
+        "request_id": "req-old",
+        "camera_id": "cam-1",
+        "upload_url": "https://r2.example/signed?X-Amz-Signature=abc",
+        "key": "tenants/t/snapshots/c/latest.jpg",
+        "expires_in": 300,
+        "content_type": "image/jpeg",
+    }
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.get("/appliance/snapshot/next").mock(return_value=httpx.Response(200, json=body))
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        claim = client.claim_next_snapshot()
+
+    assert claim is not None
+    assert claim.variant == "thumbnail"
+
+
+def test_claim_next_snapshot_falls_back_to_thumbnail_on_unknown_variant() -> None:
+    """An unrecognised variant from a newer platform must not crash the
+    poller or silently capture the wrong profile. Degrade to the
+    compatibility default — a 640px image is a poor answer, but a stalled
+    snapshot queue is a worse one."""
+    from client_agent.platform import PlatformClient
+
+    body = {
+        "request_id": "req-future",
+        "camera_id": "cam-1",
+        "variant": "8k-hdr",
+        "upload_url": "https://r2.example/signed?X-Amz-Signature=abc",
+        "key": "tenants/t/snapshots/c/latest.jpg",
+        "expires_in": 300,
+        "content_type": "image/jpeg",
+    }
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.get("/appliance/snapshot/next").mock(return_value=httpx.Response(200, json=body))
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        claim = client.claim_next_snapshot()
+
+    assert claim is not None
+    assert claim.variant == "thumbnail"
+
+
 # ----- 20. report_snapshot_status: uploaded vs failed body shapes -----
 
 

@@ -1362,7 +1362,7 @@ def test_get_camera_snapshot_returns_jpeg_bytes_with_image_content_type() -> Non
     fake_jpeg = b"\xff\xd8\xff\xe0FAKE-JPEG-PAYLOAD\xff\xd9"
     grab_calls: list[tuple[str, float]] = []
 
-    def fake_grabber(url: str, timeout_s: float) -> bytes:
+    def fake_grabber(url: str, timeout_s: float, _v: str) -> bytes:
         grab_calls.append((url, timeout_s))
         return fake_jpeg
 
@@ -1397,7 +1397,7 @@ def test_get_camera_snapshot_without_recorder_returns_404() -> None:
     recorder-dependent endpoints."""
     fake_r2 = FakeR2()
     # recorder intentionally omitted — the upload-only surface.
-    app = create_app(fake_r2, snapshot_grabber=lambda _u, _t: b"\xff\xd8\xff\xd9")
+    app = create_app(fake_r2, snapshot_grabber=lambda _u, _t, _v: b"\xff\xd8\xff\xd9")
     app.config["TESTING"] = True
 
     resp = app.test_client().get("/cameras/cam-abc/snapshot")
@@ -1423,7 +1423,7 @@ def test_get_camera_snapshot_returns_404_when_camera_id_unknown() -> None:
         fake_r2,
         recorder=fake_recorder,
         camera_resolver=resolver,
-        snapshot_grabber=lambda url, _t: grabber_calls.append(url) or b"\xff\xd8",
+        snapshot_grabber=lambda url, _t, _v: grabber_calls.append(url) or b"\xff\xd8",
     )
     app.config["TESTING"] = True
 
@@ -1455,7 +1455,7 @@ def test_get_camera_snapshot_returns_503_with_camera_id_when_grabber_fails(caplo
     def resolver(camera_id: str) -> CameraSnapshotSource | None:
         return CameraSnapshotSource(rtsp_url="rtsp://offline.local/stream")
 
-    def exploding_grabber(_url: str, _t: float) -> bytes:
+    def exploding_grabber(_url: str, _t: float, _v: str) -> bytes:
         raise RuntimeError("cv2.VideoCapture failed to open: timed out after 5s")
 
     fake_r2 = FakeR2()
@@ -1508,7 +1508,7 @@ def test_get_camera_snapshot_resolves_from_last_discovery_by_ip() -> None:
     fake_recorder = FakeRecorder()
     grab_calls: list[str] = []
 
-    def fake_grabber(url: str, _t: float) -> bytes:
+    def fake_grabber(url: str, _t: float, _v: str) -> bytes:
         grab_calls.append(url)
         return b"\xff\xd8FAKE\xff\xd9"
 
@@ -1545,7 +1545,7 @@ def test_get_camera_snapshot_serves_cached_jpeg_within_ttl() -> None:
 
     grab_count = [0]
 
-    def fake_grabber(_url: str, _t: float) -> bytes:
+    def fake_grabber(_url: str, _t: float, _v: str) -> bytes:
         grab_count[0] += 1
         # Returning a distinct payload per call lets the test prove that
         # the cached value (not a fresh one) is what came back on call 2.
@@ -1586,7 +1586,7 @@ def test_get_camera_snapshot_refreshes_after_ttl_expiry() -> None:
 
     grab_count = [0]
 
-    def fake_grabber(_url: str, _t: float) -> bytes:
+    def fake_grabber(_url: str, _t: float, _v: str) -> bytes:
         grab_count[0] += 1
         return f"jpeg-{grab_count[0]}".encode()
 
@@ -1637,7 +1637,7 @@ def test_get_camera_snapshot_prefers_vendor_snapshot_url_over_rtsp() -> None:
     fake_recorder = FakeRecorder()
     grab_calls: list[str] = []
 
-    def fake_grabber(url: str, _t: float) -> bytes:
+    def fake_grabber(url: str, _t: float, _v: str) -> bytes:
         grab_calls.append(url)
         return b"\xff\xd8VENDOR-HTTP\xff\xd9"
 
@@ -1687,7 +1687,7 @@ def test_get_camera_snapshot_503_body_does_not_leak_creds_from_rtsp_url() -> Non
     fake_r2 = FakeR2()
     fake_recorder = FakeRecorder()
 
-    def exploding_grabber(url: str, _t: float) -> bytes:
+    def exploding_grabber(url: str, _t: float, _v: str) -> bytes:
         # Mimic the production helpers (snapshot.py) which interpolate
         # the URL into the exception message — the very leak path the
         # route must defang.

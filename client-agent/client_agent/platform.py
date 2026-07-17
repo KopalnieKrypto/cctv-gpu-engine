@@ -25,6 +25,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal, cast
 
 import httpx
 
@@ -41,6 +42,28 @@ _DEFAULT_ATTEMPTS = 3
 # crashed poll thread, while still failing fast on genuine outages.
 # Operator override via env var (no code change, no rebuild).
 _DEFAULT_TIMEOUT_S = 30.0
+
+# Snapshot capture profiles (gpu-exchange #137). ``thumbnail`` is the
+# compatibility default: it is what every claim meant before the platform
+# grew the field, so both an absent and an unrecognised value resolve here.
+SnapshotVariant = Literal["thumbnail", "detail"]
+_SNAPSHOT_VARIANTS: frozenset[str] = frozenset({"thumbnail", "detail"})
+_SNAPSHOT_VARIANT_DEFAULT: SnapshotVariant = "thumbnail"
+
+
+def _parse_snapshot_variant(raw: object) -> SnapshotVariant:
+    """Resolve the claim's ``variant`` field, tolerantly.
+
+    Deliberately the one non-strict field in :meth:`claim_next_snapshot`.
+    The rest use bracket lookups so a malformed claim fails loudly, but
+    ``variant`` must survive two rolling-deploy skews in either direction:
+    an older platform that omits it, and a newer one that invents a
+    profile this build has never heard of. Both degrade to a thumbnail —
+    a lower-resolution image beats a stalled snapshot queue.
+    """
+    if isinstance(raw, str) and raw in _SNAPSHOT_VARIANTS:
+        return cast(SnapshotVariant, raw)
+    return _SNAPSHOT_VARIANT_DEFAULT
 
 
 def _resolve_timeout() -> float:
@@ -321,6 +344,7 @@ class PlatformClient:
             key=data["key"],
             expires_in=int(data["expires_in"]),
             content_type=data["content_type"],
+            variant=_parse_snapshot_variant(data.get("variant")),
         )
 
     def report_snapshot_status(
@@ -388,7 +412,12 @@ class SnapshotClaim:
     ``key`` and ``expires_in`` are diagnostics only — the URL carries
     its own signature, the R2 edge enforces expiry. ``content_type`` is
     always ``"image/jpeg"`` per the platform contract but surfaced so
-    the PUT can attach the same header the URL was signed with."""
+    the PUT can attach the same header the URL was signed with.
+
+    ``variant`` (gpu-exchange #137) selects the capture profile. It is
+    advisory to the grab only — the platform already fixed the R2 key
+    when it signed ``upload_url``, so getting this wrong yields the wrong
+    pixels, never bytes in the wrong place."""
 
     request_id: str
     camera_id: str
@@ -396,6 +425,7 @@ class SnapshotClaim:
     key: str
     expires_in: int
     content_type: str
+    variant: SnapshotVariant = "thumbnail"
 
 
 @dataclass(frozen=True)

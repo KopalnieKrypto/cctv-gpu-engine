@@ -130,9 +130,12 @@ class SnapshotPoller:
         # 2. Grab JPEG locally. Prefer the vendor's native HTTP snapshot
         #    endpoint (single GET, no RTSP handshake) when discovery
         #    surfaced one — mirrors the on-site web.py preference order.
+        #    `claim.variant` selects the capture profile (#137); the poller
+        #    is only a courier for it. HTTP sources ignore it — those bytes
+        #    are vendor-sized and pass through untouched for both profiles.
         url = source.snapshot_url or source.rtsp_url
         try:
-            jpeg = self._grab(url, self._grab_timeout_s)
+            jpeg = self._grab(url, self._grab_timeout_s, claim.variant)
         except Exception as exc:  # noqa: BLE001 — cv2/ffmpeg/urllib failures
             # Log server-side (with full detail incl. URL → camera_id)
             # but DON'T echo the URL into the failure message we report

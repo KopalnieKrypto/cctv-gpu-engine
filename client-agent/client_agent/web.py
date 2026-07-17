@@ -699,7 +699,10 @@ def create_app(
         # session. Falls back to RTSP frame-grab when absent.
         url = source.snapshot_url or source.rtsp_url
         try:
-            jpeg = snapshot_grabber(url, _SNAPSHOT_GRAB_TIMEOUT_S)
+            # On-site preview tile — always the thumbnail profile. The
+            # native-resolution `detail` variant (gpu-exchange #137) exists
+            # only for the platform's on-demand modal, which never routes here.
+            jpeg = snapshot_grabber(url, _SNAPSHOT_GRAB_TIMEOUT_S, "thumbnail")
         except Exception as exc:  # noqa: BLE001 — cv2/ffmpeg/network failures
             # ``last_discovery`` stores the *raw* DiscoveredCamera, which on
             # the Stage-2 RTSP-scan path embeds ``user:pass@`` in

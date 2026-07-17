@@ -25,6 +25,8 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable
 
+from client_agent.platform import SnapshotVariant
+
 logger = logging.getLogger(__name__)
 
 # Scale to <= 640 px wide — issue #41 spec. Wider thumbs would just be
@@ -47,7 +49,12 @@ _RTSP_SNAPSHOT_SETTLE_S = 1.0
 # so never run ffmpeg on a deadline tighter than this regardless of the caller.
 _RTSP_GRAB_MIN_TIMEOUT_S = 8.0
 
-SnapshotGrabberFn = Callable[[str, float], bytes]
+SnapshotGrabberFn = Callable[[str, float, SnapshotVariant], bytes]
+"""(url, timeout_s, variant) -> JPEG bytes.
+
+``variant`` is a required positional rather than a defaulted keyword so a
+`Callable` alias can express it and every call site has to decide. It only
+changes the RTSP encode profile; see :func:`_build_ffmpeg_snapshot_cmd`."""
 
 
 def build_snapshot_grabber(
@@ -64,15 +71,15 @@ def build_snapshot_grabber(
     http_fetcher = http_fetcher or _http_fetch
     rtsp_grabber = rtsp_grabber or _rtsp_frame_grab
 
-    def grab(url: str, timeout_s: float) -> bytes:
+    def grab(url: str, timeout_s: float, variant: SnapshotVariant) -> bytes:
         if url.startswith(("http://", "https://")):
-            return http_fetcher(url, timeout_s)
-        return rtsp_grabber(url, timeout_s)
+            return http_fetcher(url, timeout_s, variant)
+        return rtsp_grabber(url, timeout_s, variant)
 
     return grab
 
 
-def _http_fetch(url: str, timeout_s: float) -> bytes:
+def _http_fetch(url: str, timeout_s: float, variant: SnapshotVariant = "thumbnail") -> bytes:
     """Single GET against the vendor's ONVIF snapshot endpoint.
 
     ``urllib.request.urlopen`` keeps the dependency surface minimal —
@@ -83,7 +90,13 @@ def _http_fetch(url: str, timeout_s: float) -> bytes:
     No JPEG re-encoding: ONVIF snapshot endpoints return JPEG natively
     and the operator's thumbnail tile doesn't need a re-compression
     pass. Bytes flow through verbatim.
+
+    ``variant`` is accepted for signature parity with the RTSP backend but
+    deliberately unused (#137): the dimensions of an ONVIF snapshot are
+    vendor-controlled, and re-encoding to honour a profile would only ever
+    destroy detail. Both profiles get the same untouched vendor bytes.
     """
+    del variant
     try:
         with urllib.request.urlopen(url, timeout=timeout_s) as resp:  # noqa: S310
             return resp.read()
@@ -93,7 +106,7 @@ def _http_fetch(url: str, timeout_s: float) -> bytes:
         raise RuntimeError(f"http snapshot fetch failed for {url!r}: {exc.reason}") from exc
 
 
-def _build_ffmpeg_snapshot_cmd(url: str) -> list[str]:
+def _build_ffmpeg_snapshot_cmd(url: str, variant: SnapshotVariant = "thumbnail") -> list[str]:
     """ffmpeg argv for a settled, downscaled single-JPEG RTSP grab.
 
     * ``-ss _RTSP_SNAPSHOT_SETTLE_S`` *after* ``-i`` decodes and discards the
@@ -106,6 +119,7 @@ def _build_ffmpeg_snapshot_cmd(url: str) -> list[str]:
     * ``-f mjpeg … pipe:1`` writes the JPEG straight to stdout — no temp file to
       clean up. ``-an`` drops audio the thumbnail never needs.
     Kept pure so a unit test can assert the argv without spawning ffmpeg."""
+    del variant  # profile-awareness lands in the next slice
     return [
         "ffmpeg",
         "-nostdin",
@@ -129,7 +143,11 @@ def _build_ffmpeg_snapshot_cmd(url: str) -> list[str]:
 
 
 def _rtsp_frame_grab(
-    url: str, timeout_s: float, *, runner: Callable[..., object] = subprocess.run
+    url: str,
+    timeout_s: float,
+    variant: SnapshotVariant = "thumbnail",
+    *,
+    runner: Callable[..., object] = subprocess.run,
 ) -> bytes:
     """Grab one settled JPEG frame from an RTSP stream via ffmpeg.
 
@@ -147,7 +165,7 @@ def _rtsp_frame_grab(
     for the old single cv2 read. Any failure — non-zero exit, empty output,
     timeout, ffmpeg missing — raises ``RuntimeError`` with the ffmpeg stderr tail
     so the poller/route reports a diagnostic message and re-enqueues."""
-    cmd = _build_ffmpeg_snapshot_cmd(url)
+    cmd = _build_ffmpeg_snapshot_cmd(url, variant)
     deadline = max(timeout_s, _RTSP_GRAB_MIN_TIMEOUT_S)
     try:
         result = runner(cmd, capture_output=True, timeout=deadline)

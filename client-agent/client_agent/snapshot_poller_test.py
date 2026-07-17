@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from client_agent.platform import SnapshotClaim
+from client_agent.platform import SnapshotClaim, SnapshotVariant
 from client_agent.snapshot_poller import PutResult, SnapshotPoller
 from client_agent.web import CameraSnapshotSource
 
@@ -40,15 +40,52 @@ class FakePlatform:
         self.status_calls.append((request_id, status, error))
 
 
-def _claim(camera_id: str = "cam-1", request_id: str = "req-1") -> SnapshotClaim:
+def _claim(
+    camera_id: str = "cam-1",
+    request_id: str = "req-1",
+    variant: SnapshotVariant = "thumbnail",
+) -> SnapshotClaim:
+    filename = "detail.jpg" if variant == "detail" else "latest.jpg"
     return SnapshotClaim(
         request_id=request_id,
         camera_id=camera_id,
         upload_url=f"https://r2.example/signed/{request_id}?X-Amz-Signature=abc",
-        key=f"tenants/t/snapshots/{camera_id}/latest.jpg",
+        key=f"tenants/t/snapshots/{camera_id}/{filename}",
         expires_in=300,
         content_type="image/jpeg",
+        variant=variant,
     )
+
+
+# ----- variant propagation (gpu-exchange #137) -----
+
+
+def test_run_once_passes_claim_variant_to_the_grabber() -> None:
+    """The platform decides which image it wants; the poller is a courier.
+    The grabber picks its ffmpeg profile from this argument, so a claim
+    tagged ``detail`` that reaches the grabber as ``thumbnail`` would
+    silently upload 640px pixels to the detail key."""
+    platform = FakePlatform(next_claims=[_claim(variant="detail")])
+    grab_calls: list[tuple[str, float, str]] = []
+    cam_source = CameraSnapshotSource(
+        rtsp_url="rtsp://192.168.88.85:554/unicast/c1/s0/live",
+        snapshot_url=None,
+    )
+
+    def fake_grab(url: str, timeout_s: float, variant: str) -> bytes:
+        grab_calls.append((url, timeout_s, variant))
+        return b"\xff\xd8\xff\xe0jpeg"
+
+    poller = SnapshotPoller(
+        platform=platform,
+        camera_resolver=lambda _id: cam_source,
+        snapshot_grabber=fake_grab,
+        http_put=lambda _u, _b, _c: PutResult(success=True),
+    )
+
+    assert poller.run_once() is True
+    assert grab_calls == [("rtsp://192.168.88.85:554/unicast/c1/s0/live", 5.0, "detail")]
+    assert platform.status_calls == [("req-1", "uploaded", None)]
 
 
 def test_run_once_returns_false_when_platform_is_idle() -> None:
@@ -62,7 +99,7 @@ def test_run_once_returns_false_when_platform_is_idle() -> None:
     poller = SnapshotPoller(
         platform=platform,
         camera_resolver=lambda _id: None,
-        snapshot_grabber=lambda url, _t: grab_calls.append(url) or b"",
+        snapshot_grabber=lambda url, _t, _v: grab_calls.append(url) or b"",
         http_put=lambda url, body, content_type: (
             put_calls.append((url, body, content_type)) or PutResult(success=True)
         ),
@@ -90,7 +127,7 @@ def test_run_once_happy_path_claim_grab_put_report_uploaded() -> None:
         snapshot_url="http://192.168.1.198/snapshot.jpg",
     )
 
-    def fake_grab(url: str, timeout_s: float) -> bytes:
+    def fake_grab(url: str, timeout_s: float, _v: str) -> bytes:
         grab_calls.append((url, timeout_s))
         return canned_jpeg
 
@@ -131,7 +168,7 @@ def test_run_once_rtsp_fallback_when_no_snapshot_url() -> None:
     grab_calls: list[str] = []
     cam_source = CameraSnapshotSource(rtsp_url="rtsp://cam/stream", snapshot_url=None)
 
-    def fake_grab(url: str, _t: float) -> bytes:
+    def fake_grab(url: str, _t: float, _v: str) -> bytes:
         grab_calls.append(url)
         return b"jpeg"
 
@@ -158,7 +195,7 @@ def test_run_once_camera_unknown_reports_failed_without_grabbing() -> None:
     poller = SnapshotPoller(
         platform=platform,
         camera_resolver=lambda _id: None,
-        snapshot_grabber=lambda url, _t: grab_calls.append(url) or b"",
+        snapshot_grabber=lambda url, _t, _v: grab_calls.append(url) or b"",
         http_put=lambda _u, _b, _c: PutResult(success=True),
     )
 
@@ -179,7 +216,7 @@ def test_run_once_grabber_raises_reports_failed_without_put() -> None:
     platform = FakePlatform(next_claims=[_claim()])
     put_calls: list[str] = []
 
-    def fake_grab(_url: str, _t: float) -> bytes:
+    def fake_grab(_url: str, _t: float, _v: str) -> bytes:
         raise RuntimeError("cv2.VideoCapture failed to open rtsp://cam")
 
     poller = SnapshotPoller(
@@ -208,7 +245,7 @@ def test_run_once_put_failure_reports_failed_with_status_code() -> None:
     poller = SnapshotPoller(
         platform=platform,
         camera_resolver=lambda _id: CameraSnapshotSource(rtsp_url="rtsp://cam/x"),
-        snapshot_grabber=lambda _u, _t: b"jpeg",
+        snapshot_grabber=lambda _u, _t, _v: b"jpeg",
         http_put=lambda _u, _b, _c: PutResult(success=False, status_code=503),
     )
 
@@ -229,7 +266,7 @@ def test_run_once_reports_failed_does_not_propagate_grabber_exception() -> None:
     or single-shot invocation gets a deterministic ``True`` back."""
     platform = FakePlatform(next_claims=[_claim()])
 
-    def boom(_u: str, _t: float) -> bytes:
+    def boom(_u: str, _t: float, _v: str) -> bytes:
         raise RuntimeError("boom")
 
     poller = SnapshotPoller(
@@ -250,7 +287,7 @@ def test_run_once_grab_failure_report_scrubs_credentials() -> None:
     The grab-failure exception embeds the full url — report it scrubbed."""
     platform = FakePlatform(next_claims=[_claim(camera_id="cam-9")])
 
-    def fake_grab(_url: str, _t: float) -> bytes:
+    def fake_grab(_url: str, _t: float, _v: str) -> bytes:
         raise RuntimeError(
             "cv2.VideoCapture failed to open 'rtsp://admin:s3cret@10.0.0.5:554/h264'"
         )
@@ -284,7 +321,7 @@ def test_run_once_grab_failure_local_log_keeps_full_detail(caplog) -> None:
 
     platform = FakePlatform(next_claims=[_claim(camera_id="cam-9")])
 
-    def fake_grab(_url: str, _t: float) -> bytes:
+    def fake_grab(_url: str, _t: float, _v: str) -> bytes:
         raise RuntimeError(
             "cv2.VideoCapture failed to open 'rtsp://admin:s3cret@10.0.0.5:554/h264'"
         )
