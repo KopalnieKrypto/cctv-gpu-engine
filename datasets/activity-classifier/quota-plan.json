@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "quotas": [
+    {"camera_geometry_id": "controlled-garden", "activity": "sitting", "split": "train", "count": 131},
+    {"camera_geometry_id": "controlled-garden", "activity": "standing", "split": "train", "count": 94},
+    {"camera_geometry_id": "controlled-garden", "activity": "walking", "split": "train", "count": 104},
+    {"camera_geometry_id": "factory-bending", "activity": "standing", "split": "train", "count": 45},
+    {"camera_geometry_id": "factory-bending", "activity": "walking", "split": "train", "count": 58},
+    {"camera_geometry_id": "factory-floor", "activity": "sitting", "split": "train", "count": 34},
+    {"camera_geometry_id": "factory-floor", "activity": "standing", "split": "train", "count": 51},
+    {"camera_geometry_id": "factory-floor", "activity": "walking", "split": "train", "count": 18},
+    {"camera_geometry_id": "pexels-track", "activity": "running", "split": "train", "count": 165},
+
+    {"camera_geometry_id": "controlled-garden", "activity": "sitting", "split": "validation", "count": 28},
+    {"camera_geometry_id": "controlled-garden", "activity": "standing", "split": "validation", "count": 21},
+    {"camera_geometry_id": "controlled-garden", "activity": "walking", "split": "validation", "count": 22},
+    {"camera_geometry_id": "factory-bending", "activity": "standing", "split": "validation", "count": 10},
+    {"camera_geometry_id": "factory-bending", "activity": "walking", "split": "validation", "count": 12},
+    {"camera_geometry_id": "factory-floor", "activity": "sitting", "split": "validation", "count": 7},
+    {"camera_geometry_id": "factory-floor", "activity": "standing", "split": "validation", "count": 11},
+    {"camera_geometry_id": "factory-floor", "activity": "walking", "split": "validation", "count": 4},
+    {"camera_geometry_id": "pexels-track", "activity": "running", "split": "validation", "count": 35},
+
+    {"camera_geometry_id": "controlled-patio", "activity": "sitting", "split": "test", "count": 50},
+    {"camera_geometry_id": "controlled-patio", "activity": "standing", "split": "test", "count": 18},
+    {"camera_geometry_id": "controlled-patio", "activity": "walking", "split": "test", "count": 32},
+    {"camera_geometry_id": "pexels-marathon", "activity": "running", "split": "test", "count": 50}
+  ]
+}
