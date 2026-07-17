@@ -3,184 +3,113 @@
 [![Tests](https://github.com/KopalnieKrypto/cctv-gpu-engine/actions/workflows/tests.yml/badge.svg)](https://github.com/KopalnieKrypto/cctv-gpu-engine/actions/workflows/tests.yml)
 [![Build Docker images](https://github.com/KopalnieKrypto/cctv-gpu-engine/actions/workflows/docker.yml/badge.svg)](https://github.com/KopalnieKrypto/cctv-gpu-engine/actions/workflows/docker.yml)
 
-Batch surveillance video analysis powered by idle GPU infrastructure. Upload MP4 footage, get a standalone HTML activity report — no manual review needed.
+Batch surveillance-video analysis for NVIDIA GPU infrastructure. The system records RTSP cameras on a bare-metal client appliance, detects and tracks people, classifies posture/activity, and produces a structured `result.json` report for the platform to render.
 
-**What it does:** Detects people in surveillance footage using YOLO-pose, classifies their activity (sitting, standing, walking, running) with a hybrid VLM + displacement pipeline, and generates a self-contained HTML report with charts, timeline, and annotated keyframes.
+The canonical production artifact is JSON. The older standalone HTML report remains available only for local debugging with `--format html`.
 
----
+## Current architecture
 
-## Setting this up? Pick your role
+The repository supports two serving paths:
 
-This system runs across **two different machines**. Skip straight to the section that matches your role:
+```text
+Platform path
+client appliance ──HTTPS──> GPU Exchange ──presigned URLs──> R2
+                               │
+                               └──gpu-agent──> gpu-service REST :5003
+                                                └── result.json
 
-| Your role | You are… | Jump to |
+Standalone compatibility path
+client/upload source ──> R2 status.json jobs <── gpu-service polling worker :5000
+```
+
+- The client appliance is bare-metal systemd only. The retired client Docker image and direct client-side R2 credentials must not return.
+- In platform mode, the appliance registers and heartbeats over outbound HTTPS, maintains a rolling camera buffer, claims tasks, and uploads chunks through platform-issued presigned URLs.
+- The platform/gpu-agent path starts `gpu_service.rest_server`, submits presigned input/result URLs, and renders the returned `result.json` natively.
+- `docker compose up` starts the standalone R2-polling worker and investor dashboard. This remains useful for compatibility and diagnostics but is not the platform dispatch contract.
+
+## What the pipeline does
+
+```text
+MP4 chunks
+  → ffmpeg frames at 1 fps
+  → YOLO11s-pose on CUDA
+  → OSNet appearance tracking + minimum-track filter
+  → activity classifier
+  → optional zone / shift / workstation modes
+  → result.json schema 6
+```
+
+Activities remain exactly `sitting`, `standing`, `walking`, and `running`.
+
+Classifier modes:
+
+| Mode | Status | Behavior |
 |---|---|---|
-| **GPU host operator** — pull the `ghcr.io/kopalniekrypto/cctv-gpu-engine/gpu-service` Docker image | the investor / data center side, NVIDIA hardware | [GPU Service Setup](#gpu-service-setup-gpu-host-operator) |
-| **On-premise operator** — install the bare-metal client appliance (no Docker) | customer office, a regular CPU box with cameras on the LAN | [Client Appliance Setup](#client-appliance-setup-on-premise-operator) |
+| `vlm` | Deployed Docker default | Qwen2.5-VL-3B for stationary posture plus displacement-based walking |
+| `heuristic` | Supported rollback/baseline | Geometric rules plus displacement smoothing |
+| `mlp` | Experimental only | Per-detection ONNX MLP with per-track smoothing; failed the frozen quality gate and must not be promoted |
 
-The GPU side runs a single Docker image; the client side is a bare-metal systemd appliance (Docker for the client was retired in #29). The two sides talk to each other **only** through a shared Cloudflare R2 bucket — no direct network connection, no VPN, no port forwarding. The GPU host uses its `.env.gpu` file with R2 credentials; the client holds no R2 credentials and (in platform mode) uploads via presigned URLs.
+See [the frozen MLP evaluation](docs/mlp-classifier-eval.md) for the measured negative result.
 
----
-
-## Architecture
-
-```
-┌─ Client LAN ──────────┐       ┌─ Cloudflare R2 ──────┐       ┌─ GPU Server ───────────┐
-│                        │       │ surveillance-jobs/    │       │                        │
-│  client appliance      │──────>│   {job_id}/           │<──────│  gpu-service            │
-│  (bare-metal systemd)  │upload │     status.json       │ poll  │  YOLO-pose + VLM       │
-│  Flask UI :8080        │(pre-  │     input/*.mp4       │       │  activity classif.     │
-│  ffmpeg RTSP → buffer  │signed │     output/report.html│──────>│  HTML report gen       │
-│  presigned-URL upload  │ URLs) │                       │upload │                        │
-└────────────────────────┘       └───────────────────────┘       └────────────────────────┘
-```
-
-A bare-metal client appliance and a gpu-service Docker image connected by an R2 bucket — no database, no direct communication.
-
-## GPU Service Setup (GPU host operator)
-
-You're running the worker that does the actual YOLO-pose inference. Pull jobs from R2, process them, push reports back.
-
-> **Looking for the full step-by-step?** See **[docs/SETUP_GPU.md](docs/SETUP_GPU.md)** — exhaustive setup guide with hardware/software requirements, R2 bucket creation, smoke tests, and a troubleshooting matrix. The section below is the speed-run version for operators who already know the stack.
-
-**Host requirements (one-time):**
-
-- Linux (Ubuntu 22.04+ recommended), x86_64
-- NVIDIA GPU with compute capability ≥ 7.5 (verified on RTX 4090 and RTX 5070)
-- **NVIDIA driver ≥ 560** — older drivers will fail at container start with `CUDA driver version is insufficient`
-- **`nvidia-container-toolkit`** installed and configured for Docker:
-  ```bash
-  curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-  sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
-  sudo nvidia-ctk runtime configure --runtime=docker
-  sudo systemctl restart docker
-  ```
-- Docker 24.0+ with the `compose` plugin
-- ~25 GB free disk for the image (~16 GB) + VLM model cache (~6 GB) + workdir
-
-**Run it:**
+## Local development
 
 ```bash
-# 1. Clone the repo (only for compose file + setup-models.sh — image is pulled from GHCR)
-git clone https://github.com/KopalnieKrypto/cctv-gpu-engine.git
-cd cctv-gpu-engine
-
-# 2. Download the YOLO-pose model (NOT baked into the image to keep size down)
-./setup-models.sh   # curls models/yolo11s-pose.onnx (~38 MB) from GitHub release, sha256-verified
-
-# 3. Configure R2 credentials
-cp .env.gpu.example .env.gpu
-$EDITOR .env.gpu    # fill R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET
-
-# 4. Pull and start (image comes from GHCR — no local build)
-docker compose pull
-docker compose up -d
-```
-
-**Where to get R2 credentials:** Cloudflare dashboard → R2 → "Manage R2 API Tokens" → create a token scoped to the `surveillance-data` bucket with read+write. The endpoint URL is shown on the bucket overview page (`https://<account>.r2.cloudflarestorage.com`). Both sides (GPU and client) need credentials for the **same** bucket.
-
-**Verify it's working:**
-
-```bash
-docker compose ps                 # cctv-gpu-service should be "Up (healthy)"
-curl http://localhost:5000/dashboard   # investor dashboard — shows job history pulled from R2
-docker compose logs -f gpu-service     # should log "polling for pending jobs" every 30s
-```
-
-The dashboard on `:5000` shows every job that's ever been processed (job id, status, duration, **per-job telemetry: peak GPU%, GPU temperature, peak CPU%, peak RAM%, disk usage**, and error). It's read-only — pure observability. Refreshes itself every 10 seconds. Telemetry is sampled by the worker on every progress callback (powered by `psutil` + NVML) and persisted into each job's `status.json` under `metrics`, so the same numbers are available programmatically via R2.
-
-**Healthcheck:** the container is "healthy" only when the dashboard responds with HTTP 200. If the worker crashes the daemon thread dies with it, so a 200 here means **both** processes are alive.
-
-**If you see "CPU EP fallback"** in the logs: the GPU isn't actually being used. Check `nvidia-smi` runs on the host, that the toolkit is installed, and that `docker info | grep -i nvidia` shows the runtime. Per CLAUDE.md "Don't" we never silently fall back to CPU — the worker exits with an error.
-
----
-
-## Client Appliance Setup (on-premise operator)
-
-You're running the box that records video from your IP cameras. No GPU needed, and **no Docker** — the client is a bare-metal systemd appliance (the Docker client image was retired in #29). It holds no R2 credentials; in platform mode it uploads via presigned URLs handed to it by the platform.
-
-> **Looking for the full step-by-step?** See **[client-appliance/README.md](client-appliance/README.md)** — the canonical install / update / troubleshooting runbook (systemd unit, idempotent installer, env templates, 5-minute smoke test). **[docs/SETUP_CLIENT.md](docs/SETUP_CLIENT.md)** is a short redirect to it. The section below is the speed-run version.
-
-**Host requirements (one-time):**
-
-- A mini-PC / small Linux box (Ubuntu 24.04 LTS or Raspberry Pi OS Bookworm — Python 3.12 + systemd + ffmpeg) reachable from your camera network
-- ~5 GB free disk for the local rolling buffer (more if you buffer long sessions on high-bitrate cameras)
-- Network access to your RTSP cameras
-- **No GPU, no Docker.** The appliance is pure CPU.
-
-**Install it:**
-
-```bash
-sudo apt-get update && sudo apt-get install -y git python3.12-venv ffmpeg
-
-git clone https://github.com/KopalnieKrypto/cctv-gpu-engine.git /opt/src/cctv-gpu-engine
-cd /opt/src/cctv-gpu-engine
-sudo ./client-appliance/install.sh          # creates the cctv user + venv, installs the systemd unit
-
-# Fill in RTSP camera creds (and, for platform mode, PLATFORM_URL + APPLIANCE_TOKEN)
-sudo nano /etc/cctv-client/cameras.env
-sudo nano /etc/cctv-client/platform.env
-
-sudo systemctl enable --now cctv-client
-```
-
-The installer is idempotent — re-run it after `git pull` and it won't clobber your `/etc/cctv-client/*.env` files.
-
-**Verify it's working:**
-
-```bash
-systemctl status cctv-client                # should be active (running)
-journalctl -u cctv-client -f                # Flask + appliance boot logs
-```
-
-Open `http://<appliance-ip>:8080` in your browser for the Flask UI: camera discovery ("Wykryj kamery"), per-camera snapshots, the managed-cameras panel, and the test-connection / stop controls. The legacy manual "upload an MP4 / record → R2" flow has been retired — those routes now return 503.
-
----
-
-## Local Pipeline (development)
-
-Two install profiles — pick the one that matches your machine:
-
-```bash
-# macOS / dev box (no NVIDIA GPU): CPU-only onnxruntime stub, ~50MB
+# macOS or a non-GPU development machine
 make sync-dev
 
-# Linux + NVIDIA GPU: real onnxruntime-gpu + cublas, ~1.5GB
+# Linux with NVIDIA CUDA
 make sync-gpu
+
+# Unit suite
+make test
+
+# Single-frame CUDA smoke
+make test-gpu TEST_VIDEO=test-data/sample.mp4
 ```
 
-Install the ruff pre-commit hook once after sync: `uv run pre-commit install`.
-
-Then run unit tests or the GPU smoke test:
+Install the pre-commit hook once after syncing:
 
 ```bash
-make test                                          # unit tests (no GPU needed)
-make test-gpu TEST_VIDEO=test-data/your.mp4        # end-to-end CUDA inference
+uv run pre-commit install
 ```
 
-Or invoke the CLI directly:
+Run a full video and write the canonical artifact:
 
 ```bash
-uv run python -m pipeline.analyze input.mp4 --timestamp 12.5 --model models/yolo11s-pose.onnx
+uv run python -m pipeline.analyze input.mp4 \
+  --output result.json \
+  --classifier vlm \
+  --dump-detections detections.jsonl
 ```
 
-> A bare `uv sync` (no `--extra`) installs only numpy/pillow/opencv — handy for
-> reading the code or running lint without pulling the ONNX runtime.
+The CLI defaults to `heuristic` for lightweight local runs; the GPU-service image declares `CLASSIFIER=vlm`.
 
-### Using a different model size
+For a legacy local HTML report:
 
-`./setup-models.sh` ships the **small** variant (`yolo11s-pose.onnx`, 38 MB) —
-sweet spot between detection accuracy and inference latency on RTX 5070.
-For low-latency / VRAM-constrained runs you can swap to **nano** (12 MB);
-for higher accuracy on tougher footage swap up to **m / l / x**.
+```bash
+uv run python -m pipeline.analyze input.mp4 \
+  --output report.html \
+  --format html \
+  --classifier vlm
+```
 
-The pipeline validates a fixed square YOLO11*-pose ONNX input
-(`[1,3,S,S]`) and the standard `[1,56,N]` output layout (4 bbox + 1 conf +
-17×3 keypoints). Existing 640 exports remain the production default. Dynamic
-or non-square inputs fail fast; a fixed 1280 export is supported for the
-measured comparison in issue #86 but is not promoted without benchmark evidence.
+## Models
 
-**Switch back to nano (pinned release on GH):**
+```bash
+./setup-models.sh
+```
+
+The script idempotently downloads and checksum-verifies:
+
+- `yolo11s-pose.onnx` — deployed 640×640 pose model;
+- `osnet_x0_25.onnx` — required by default person tracking;
+- `activity-mlp-v1.0.0.onnx` plus metadata — experimental reproducibility artifact, not a production promotion.
+
+The GPU-service image also bakes these pinned files so the platform REST mode can boot without a host model mount. The standalone compose file overlays `/app/models` with local `./models`, so run `./setup-models.sh` before `docker compose up`.
+
+### Alternative YOLO sizes
+
+The production default is the fixed-square 640×640 YOLO11s export. To reproduce the nano baseline:
 
 ```bash
 MODEL_TAG=yolo11n-pose-v1.0 \
@@ -189,109 +118,136 @@ MODEL_SHA256=70bd721f9cb797eb44cbc70bc65213397a0a26da38fe6fd5ccdf699016d33d3c \
 ./setup-models.sh
 ```
 
-**Switch up to a bigger variant** (one-off — m/l/x aren't on GH releases,
-you export them yourself; ultralytics needs a few onnx deps in the same
-throwaway venv as itself):
+For `m`, `l`, or `x`, export a fixed 640×640 ONNX model and pass it through `--model` or `MODEL_PATH`. Dynamic or non-square inputs fail fast. A fixed 1280 export is supported for the measured #86 comparison but was not promoted.
+
+## Zone and shift analysis
+
+Pass a JSON configuration with `--zones zones.json`. Detections are assigned by the midpoint of the bounding-box bottom edge (the foot point).
+
+```json
+{
+  "recording_start": "2026-07-16T06:00:00+02:00",
+  "shift": {
+    "timezone": "Europe/Warsaw",
+    "windows": [["07:00", "15:00"]],
+    "breaks": [["11:00", "11:20"]]
+  },
+  "zones": [
+    {
+      "id": "bending-1",
+      "name": "Giętarka 1",
+      "polygon": [[1200, 500], [2600, 500], [2600, 1900], [1200, 1900]],
+      "rules": {
+        "type": "bending",
+        "work": {"min_move_px": 40},
+        "conversation": {"proximity_px": 150},
+        "absence": {"flag_after_s": 180}
+      }
+    }
+  ]
+}
+```
+
+The `bending` ruleset emits zone posture totals, anchored-worker presence/absence/work intervals, and conversation intervals. `inference_roi` is optional and exists for measured camera experiments; issue #86 did not justify promoting it as the production default.
+
+In platform REST mode, the service loads `ZONES_CONFIG_PATH`, defaulting to `/config/zones.json`, when that file is mounted. Absence of the file means an ungated whole-frame run.
+
+## GPU service
+
+### Standalone R2 worker
 
 ```bash
-# Pick one: yolo11m-pose, yolo11l-pose, yolo11x-pose
-uvx --with onnx --with onnxslim --with onnxruntime --from ultralytics \
-  yolo export model=yolo11m-pose.pt format=onnx imgsz=640
-mv yolo11m-pose.onnx models/
+./setup-models.sh
+cp .env.gpu.example .env.gpu
+$EDITOR .env.gpu
+docker compose pull
+docker compose up -d
+
+docker compose ps
+curl -fsS http://localhost:5000/dashboard
+docker compose logs -f gpu-service
 ```
 
-**Point the pipeline at it** — every entry point takes `--model` (CLI) or
-`MODEL_PATH` (gpu-service container):
+Only this standalone worker needs the R2 credentials in `.env.gpu`. The client appliance never stores them.
+
+### Platform REST service
+
+The same image exposes the gpu-agent contract on `:5003` when launched with:
+
+```text
+python -m gpu_service.rest_server
+```
+
+Routes:
+
+- `GET /healthz` — ready only after CUDA/model warm-up;
+- `POST /analyze` — accepts `task_id`, `input_presigned_urls`, and `result_presigned_url`;
+- `GET /status/<task_id>` — queued/running/completed/failed state.
+
+The gpu-agent owns the production container lifecycle and presigned URLs. See [GPU setup](docs/SETUP_GPU.md) for the operator contract.
+
+## Client appliance
+
+The canonical runbook is [client-appliance/README.md](client-appliance/README.md).
+
+Root installation:
 
 ```bash
-# Direct CLI
-uv run python -m pipeline.analyze input.mp4 --model models/yolo11m-pose.onnx
-
-# make targets — override MODEL on the command line
-make test-gpu MODEL=models/yolo11m-pose.onnx TEST_VIDEO=test-data/your.mp4
-
-# gpu-service container — set MODEL_PATH in your .env.gpu or compose file
-# (defaults to /app/models/yolo11s-pose.onnx)
+sudo ./client-appliance/install.sh
+sudo nano /etc/cctv-client/cameras.env
+sudo nano /etc/cctv-client/platform.env
+sudo systemctl enable --now cctv-client
 ```
 
-**Trade-offs to expect:**
+User-mode installation when sudo is unavailable:
 
-| Variant | Size  | Speed (RTX 5070, ~ms/frame) | Accuracy |
-|---------|-------|------------------------------|----------|
-| nano    | 12 MB | ~70–100 ms                   | baseline |
-| **small** (default) | 38 MB | ~150 ms          | +        |
-| medium  | 76 MB | ~250 ms                      | ++       |
-| large   | 96 MB | ~350 ms                      | +++      |
-| xlarge  | 222 MB| ~500 ms                      | ++++     |
-
-Numbers are rough — measure on your hardware. The activity classifier and NMS
-thresholds (0.25 conf, 0.45 IoU) are size-independent so you don't need to retune.
-`setup-models.sh` is pinned to the **nano** and **small** GH releases only;
-m/l/x variants are export-it-yourself by design (we don't want to host every
-size on GH releases).
-
-## Report Output
-
-Each report is a standalone HTML file (zero external dependencies) containing:
-
-- **Summary table** — video duration, frames analyzed, peak/avg person count, dominant activity
-- **Pie chart** — person-minutes per activity class
-- **Timeline** — stacked bar chart with 1-minute bins showing activity over time
-- **Annotated keyframes** — 5 selected frames with bounding boxes, skeleton overlays, and activity labels
-
-## Tech Stack
-
-| Component | Technology |
-|-----------|-----------|
-| Pose detection | YOLOv11n-pose (ONNX) via onnxruntime-gpu |
-| Activity classification | Hybrid: Qwen2.5-VL-3B (sitting/standing) + bbox displacement (walking) |
-| Frame extraction | ffmpeg at 1 fps |
-| Report | Jinja2 + vendored Chart.js |
-| Client UI | Flask |
-| Job coordination | Cloudflare R2 (S3-compat), no database |
-| GPU Docker base | nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 |
-
-## Performance
-
-On RTX 5070, processing a 1-hour video at 1 fps (3600 frames):
-
-| Mode | Total time | Ratio | VRAM |
-|------|-----------|-------|------|
-| **VLM hybrid** (default) | ~20 min | 3:1 | ~6 GB |
-| Heuristic only | ~7 min | 8:1 | ~600 MB |
-
-VLM hybrid: YOLO ~100ms + Qwen2.5-VL ~270ms per frame. First frame includes ~40s model load (cached for subsequent jobs). Accuracy: ~85% on ground-truth test (sitting 89%, walking 96%).
-
-Works on RTX 5070 and RTX 4090.
-
-## Project Structure
-
+```bash
+./client-appliance/install-user.sh
+nano ~/.config/cctv-client/cameras.env
+nano ~/.config/cctv-client/platform.env
+systemctl --user status cctv-client
 ```
-├── pipeline/              # Core AI pipeline
-│   ├── analyze.py         # CLI entry point (--classifier vlm|heuristic)
-│   ├── pose_detector.py   # YOLO-pose ONNX inference
-│   ├── vlm_classifier.py  # Qwen2.5-VL-3B activity classifier
-│   ├── activity_classifier.py  # Heuristic fallback + displacement smoother
-│   └── report_renderer.py
-├── gpu-service/           # R2 polling worker + investor dashboard
-├── client-agent/          # Shared client package (Flask UI + ffmpeg recorder), served by the bare-metal appliance
-├── client-appliance/      # Bare-metal appliance packaging (systemd unit + installer)
-├── scripts/               # Standalone test/benchmark scripts
-├── setup-models.sh        # curl + sha256-verify yolo11s-pose.onnx (GH release pin)
-├── models/                # yolo11s-pose.onnx (gitignored, fetched by setup-models.sh)
-├── test/                  # Validation scripts
-└── SPEC.md                # Full technical specification
+
+User-mode boot persistence requires systemd linger; the installer enables and verifies it.
+
+Platform runtime settings (`buffer_hours`, polling interval, heartbeat interval, and upload chunk bytes) arrive in register/heartbeat responses. Environment values are cold-start fallbacks only; valid platform values win live without restarting the appliance.
+
+## Measured evidence
+
+Performance and quality are fixture-specific; these numbers are not general ETAs.
+
+| Fixture and hardware | Result | Evidence |
+|---|---|---|
+| #86 bending pilot, fixed-640 VLM, RTX 5070 | 76.267 s measured for 181.995 s input; linear extrapolation 25.14 min/h; 7,866 MiB peak | [#86 result](benchmark-results/issue-86/README.md) |
+| Film 1, same-image resource comparison, RTX 5070 | VLM 129.660 s / 7,808 MiB; heuristic 73.898 s / 508 MiB; MLP 71.325 s / 540 MiB | [MLP evaluation](docs/mlp-classifier-eval.md) |
+| #33 frozen 150-row test | VLM 93.33%; MLP 62.67%; heuristic 33.33% | [MLP evaluation](docs/mlp-classifier-eval.md) |
+
+Issue #86 found no eligible software resolution/ROI arm for the bending-station camera. Production remains fixed-640; issue #88 requires a station-framed camera stream before pilot validation can resume.
+
+## Project structure
+
+```text
+pipeline/                 pose, tracking, classifiers, zones, aggregation, result schema
+gpu-service/              R2 polling worker, dashboard, REST gpu-agent contract
+client-agent/             shared bare-metal appliance package
+client-appliance/         root/user systemd packaging and operator runbook
+datasets/                 reviewed activity-classifier release metadata
+training/activity-mlp/    reproducible experimental MLP pipeline and evidence
+benchmarks/               versioned pose-resolution fixtures and methodology
+benchmark-results/        immutable measured selections
+docs/                     operator guides and evaluation reports
 ```
 
 ## Documentation
 
-- [docs/SETUP_GPU.md](docs/SETUP_GPU.md) — Step-by-step setup guide for the GPU host operator (hardware, driver, container toolkit, R2, smoke tests, troubleshooting)
-- [docs/SETUP_CLIENT.md](docs/SETUP_CLIENT.md) — On-premise operator setup (short redirect to the canonical bare-metal appliance runbook)
-- [client-appliance/README.md](client-appliance/README.md) — Canonical client appliance install / update / troubleshooting runbook (bare-metal, systemd)
-- [SPEC.md](SPEC.md) — Full technical specification
-- [DECISION_LOG.md](DECISION_LOG.md) — Design decisions and rationale
-- [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) — 4-phase roadmap
-- [plans/surveillance-prototype.md](plans/surveillance-prototype.md) — Vertical-slice implementation plan
+- [SPEC.md](SPEC.md) — current as-built technical specification
+- [pipeline/README.md](pipeline/README.md) — pipeline, tracking, zones, and outputs
+- [docs/SETUP_GPU.md](docs/SETUP_GPU.md) — GPU host setup for both serving paths
+- [client-appliance/README.md](client-appliance/README.md) — canonical appliance runbook
+- [docs/POSE_RESOLUTION_BENCHMARK.md](docs/POSE_RESOLUTION_BENCHMARK.md) — reproducible #86 benchmark
+- [docs/mlp-classifier-eval.md](docs/mlp-classifier-eval.md) — frozen #34 result and decision
+- [DECISION_LOG.md](DECISION_LOG.md) — decisions plus dated superseding updates
+- [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) — historical prototype plan, not the current architecture
 
 ## License
 

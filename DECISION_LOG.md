@@ -1,6 +1,10 @@
 # Analiza Wideo z Monitoringu — Log Decyzji Projektowych
 
 > Dokument dla zleceniodawcy. Zawiera wszystkie rozpatrywane opcje, ich zalety/wady, podjete decyzje i uzasadnienia, oraz pelny flow klienta i inwestora.
+>
+> **Status 2026-07-17:** to jest żywy log decyzji. Pierwotne wybory pozostają
+> jako historia, a sekcje „Aktualizacja” i tabela podsumowania opisują aktualny
+> system. Bieżący kontrakt techniczny znajduje się w `SPEC.md`.
 
 ---
 
@@ -171,7 +175,7 @@ Opcje D (NVR API) i E (tunel) moga byc rozszerzeniem agenta w przyszlosci — ag
 
 ## 6. Decyzja 4: Tracking osob
 
-### Opcja A: Agregat per-frame (bez trackingu) ✅ WYBRANA
+### Opcja A: Agregat per-frame (bez trackingu) — PIERWOTNIE WYBRANA, ZASTĄPIONA
 
 Kazda klatka analizowana niezaleznie: "2 osoby stoja, 1 siedzi". Sumowanie po czasie = osobo-minuty.
 
@@ -181,7 +185,7 @@ Kazda klatka analizowana niezaleznie: "2 osoby stoja, 1 siedzi". Sumowanie po cz
 | **Wady** | Nie wiemy ile unikatowych osob bylo. Nie mozemy powiedziec "Osoba #1 chodzila 15min, Osoba #2 siedziala 30min" |
 | **Konsekwencje** | Raport operuje na **osobo-minutach** (person-minutes), nie na per-person breakdown |
 
-### Opcja B: Per-person tracking (ByteTrack/DeepSORT)
+### Opcja B: Per-person tracking (ByteTrack + OSNet) ✅ OBECNIE WYBRANA
 
 Sledzenie kazdej osoby miedzy klatkami z unikalnym ID.
 
@@ -218,7 +222,7 @@ Poza zakresem (osobne tiery produktowe): rozpoznawanie twarzy, re-identyfikacja 
 
 ## 7. Decyzja 5: Prototyp vs. integracja
 
-### Opcja A: Standalone prototyp ✅ WYBRANA
+### Opcja A: Standalone prototyp — PIERWOTNIE WYBRANA
 
 Osobny katalog (`infra/video-test/`), osobne Docker-compose, R2 jako koordynator (bez bazy danych).
 
@@ -242,6 +246,21 @@ Nowy `problem_type: 'surveillance_analysis'` w istniejacym job dispatch.
 
 Design docs platformy istnieja, ale **zero kodu jest zaimplementowane**. Czekanie na platforme opozniloby walidacje. Standalone prototyp pozwala udowodnic koncepcje natychmiast. Sciezka integracji jest jasna — po walidacji prototyp staje sie nowym Docker service w `gpu-agent` docker-compose z nowym `problem_type`.
 
+### Aktualizacja 2026-07-17 — integracja platformowa jest aktywna
+
+Pierwotna decyzja przyspieszyła walidację, ale jej warunek „platforma nie ma
+kodu” już nie obowiązuje. Obecnie istnieją dwie wspierane ścieżki:
+
+- bare-metal appliance rejestruje się, heartbeat'uje, pobiera konfigurację i
+  taski oraz uploaduje przez presigned URL;
+- `gpu_service.rest_server` udostępnia kontrakt gpu-agent na porcie 5003 i
+  zwraca kanoniczny `result.json`;
+- standalone worker R2 + dashboard pozostaje ścieżką kompatybilności i
+  diagnostyki, a nie jedyną architekturą produktu.
+
+**Status:** hybryda. Zachowujemy samodzielny worker, ale platform integration
+nie jest już „future”.
+
 ---
 
 ## 8. Decyzja 6: Stack technologiczny
@@ -261,15 +280,13 @@ Design docs platformy istnieja, ale **zero kodu jest zaimplementowane**. Czekani
 | **Zalety** | Spojnosc z reszta projektu (yolo-serve jest w TS) |
 | **Wady** | Gorsze ML libs. Wolniejsze prototypowanie. `onnxruntime-node` nie ma tak dobrego wsparcia pose jak `ultralytics` |
 
-### Model: YOLOv11-pose (ONNX)
-
 | | Opis |
 |---|---|
 | **Zalety** | Bazuje na istniejacym YOLO infra. `-pose` wariant dodaje 17 keypoints. ONNX = vendor-neutral, GPU acceleration via CUDA EP |
-| **Wady** | Wymaga weryfikacji na RTX 5070 (Blackwell). Fallback: CPU EP (~10x wolniejsze) |
-| **Konsekwencje** | `yolo11n-pose.onnx` (nano wariant — najszybszy, wystarczajacy na 1080p). Jesli ONNX na Blackwell nie dziala → rozwazyc TensorRT lub PyTorch |
+| **Wady** | Wymaga poprawnego CUDA/ORT na Blackwell; silent CPU fallback musi być wykryty po utworzeniu sesji |
+| **Konsekwencje** | Aktualny default to stały `yolo11s-pose.onnx` 640×640. CPU fallback jest zabroniony. Nano pozostaje wariantem benchmarkowym. |
 
-### Klasyfikacja aktywnosci: heurystyki geometryczne (nie dodatkowy model ML)
+### Klasyfikacja aktywnosci: heurystyki geometryczne — PIERWOTNY WYBÓR
 
 | | Opis |
 |---|---|
@@ -277,11 +294,20 @@ Design docs platformy istnieja, ale **zero kodu jest zaimplementowane**. Czekani
 | **Wady** | Ograniczona dokladnosc (~80% target). Nie rozpozna zlozonych aktywnosci ("obslugiuje maszyne", "podnosi przedmiot") |
 | **Konsekwencje** | 4 aktywnosci: siedzi/stoi/chodzi/biega. Jesli 80% niedostateczne → mozna dodac lekki model klasyfikacji (np. MLP na keypoints) bez zmiany reszty pipeline |
 
+### Aktualizacja 2026-07-17 — VLM default, MLP odrzucony przez gate
+
+- Dockerowy default to `vlm`: Qwen2.5-VL-3B dla statycznej postawy +
+  displacement dla chodzenia.
+- Heurystyka pozostaje wspieranym baseline/rollback.
+- Per-person MLP został wytrenowany i zintegrowany opcjonalnie, ale zamrożony
+  test dał 62.67% wobec 93.33% VLM. Nie został promowany ani wdrożony.
+- Cztery klasy aktywności pozostają bez zmian.
+
 ---
 
 ## 9. Decyzja 7: Format raportu
 
-### Standalone HTML ✅ WYBRANY
+### Standalone HTML — PIERWOTNIE WYBRANY
 
 Jeden plik HTML z Chart.js inline i screenshotami jako base64.
 
@@ -298,6 +324,13 @@ Jeden plik HTML z Chart.js inline i screenshotami jako base64.
 | PDF | Trudniejszy do generowania z wykresami w Pythonie. HTML latwiejszy |
 | JSON API | Wymaga frontendu do wyswietlenia. Zbyt duzo pracy na MVP |
 | Dashboard webowy | Wymaga hostowania serwera. Zbyt zlozone na prototyp |
+
+### Aktualizacja 2026-07-17 — `result.json` jest kanoniczny
+
+Platforma renderuje raport natywnie z `result.json` schema 6. JSON zawiera
+podsumowanie, timeline, JPEG keyframes, tracking diagnostics, strefy, shift,
+presence/work/absence i conversation. Standalone HTML pozostał wyłącznie jako
+lokalny/debugowy `--format html`; worker i gpu-agent go nie uploadują.
 
 ---
 
@@ -433,7 +466,7 @@ Inwestor to wlasciciel serwerow GPU. Jego rola w kontekscie analizy wideo:
 │  ┌─ Aktywny job ──────────────────────────────────────────┐     │
 │  │ Job: surveillance_analysis                              │     │
 │  │ Postep: 67% (2412/3600 klatek)                         │     │
-│  │ ETA: ~20 min                                            │     │
+│  │ Status: processing                                      │     │
 │  └─────────────────────────────────────────────────────────┘     │
 │                                                                   │
 │  ┌─ Przychod ─────────────────────────────────────────────┐     │
@@ -494,10 +527,10 @@ Scenariusz: Inwestor chce wrocic do miningu
 | 1 | Silnik analizy | Custom pipeline (YOLO-pose) | Frigate = live monitoring, nie batch. Custom = kompatybilny z architektura |
 | 2 | Glebokosc raportu | Klasyfikacja aktywnosci (poziom 3) | Core value proposition — "czym sie zajmowali ludzie" |
 | 3 | Dostarczanie wideo | Client-agent (outbound push) | Zero konfiguracji sieciowej, sprawdzony wzorzec, najlepszy UX |
-| 4 | Tracking | Agregat per-frame (bez trackingu) | Wystarczajacy na walidacje, prostsza implementacja |
-| 5 | Prototyp vs platforma | Standalone prototyp | Platforma niezaimplementowana, prototyp szybciej waliduje |
-| 6 | Stack | Python + YOLO-pose ONNX | Najszybsze prototypowanie ML, dojrzale biblioteki |
-| 7 | Format raportu | Standalone HTML | Zero dodatkowego softu, wykresy + klatki, mozna wyslac mailem |
+| 4 | Tracking | ByteTrack + OSNet, split-over-merge | Stabilne ID i filtr false positives są wymagane przez zone tier |
+| 5 | Prototyp vs platforma | Platform REST + zachowany standalone R2 worker | Platform dispatch działa; standalone pozostaje kompatybilnością |
+| 6 | Stack | Python + YOLO11s-pose ONNX + VLM | CUDA pipeline i Blackwell są zweryfikowane; VLM wygrał quality gate |
+| 7 | Format raportu | `result.json` schema 6; HTML debug-only | Platforma odpowiada za rendering, dane pozostają wersjonowane |
 | 8 | RODO | Ignorowane na prototyp | Walidacja technologii first, legal pozniej |
 
 ---
@@ -506,11 +539,11 @@ Scenariusz: Inwestor chce wrocic do miningu
 
 | Ryzyko | Wplyw | Mitygacja |
 |--------|-------|-----------|
-| ONNX Runtime nie dziala na RTX 5070 (Blackwell) | Pipeline nie startuje na GPU | Fallback: CPU EP (~10x wolniejsze). Alternatywa: TensorRT, PyTorch |
-| Heurystyki < 80% dokladnosci | Raport niewiarygodny | Tunowanie progow na realnych nagraniach. Fallback: lekki model ML na keypoints |
-| 1h wideo = ~1h przetwarzania | Dlugie oczekiwanie klienta na raport | Akceptowalne per ustalenia. Mozliwa optymalizacja: 0.5fps, batch inference |
-| Upload 4GB przy 10Mbps = ~50min | Dlugi czas dostarczenia wideo | Multipart upload z resume. Kompresja (re-encode H.265 na agencie) |
-| Kat kamery (z gory/pod katem) | Keypoints slabo widoczne, heurystyki niedokladne | Fallback na bbox aspect ratio. Dokumentacja wymagania: kamera na wysokosci ~2-3m, kat 30-60° |
-| Klient nie ma Dockera / nie umie zainstalowac | Brak mozliwosci uzycia agenta | Film instruktazowy. Alternatywa: standalone binary (Go) post-MVP |
-| Wiele osob naklada sie w kadrze | Okluzje, bledna detekcja | YOLO radzi sobie z czesciowymi okluzjami. Przy >10 osob dokladnosc spada |
+| Brak CUDA EP / silent CPU fallback | Pipeline nie startuje lub łamie budżet | `ort.preload_dlls`, jawny cublas, kontrola providerów i fail-fast; brak CPU fallback |
+| MLP szybszy, ale jakościowo słabszy | Regresja raportów po pozornie „tanim” modelu | Zamrożony promotion gate; VLM pozostaje defaultem |
+| Kamera pokazuje za mało pikseli na pracownika | Żaden software arm nie daje wiarygodnego zone report | #86 opublikował no-winner; #88 wymaga station-framed streamu |
+| Długi czas przetwarzania | Opóźnienie raportu zależne od fixture | Nie podawać ETA bez kalibracji; używać zmierzonych artifactów i jawnej ekstrapolacji |
+| Wolny upload klienta | Opóźnienie dostarczenia wideo | Rolling buffer + presigned chunk upload; mierzyć na docelowym łączu |
+| Klient nie ma Dockera lub sudo | Trudne wdrożenie | Bare-metal root installer oraz user-mode systemd z weryfikacją linger |
+| Okluzje i niepewna re-identyfikacja | Split/merge tracków | Preferować split; nie scalać automatycznie po długich przerwach; brak face recognition |
 | RODO — przetwarzanie wizerunku pracownikow | Ryzyko prawne | Przed produkcja: umowa powierzenia, DPIA, opcja auto-blur twarzy |

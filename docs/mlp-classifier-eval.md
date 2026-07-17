@@ -4,6 +4,10 @@
 
 **Do not promote or deploy `activity-mlp-v1.0.0`. VLM remains the GPU-service default.**
 
+Issue #34 was closed as **not planned**, not completed, after this frozen
+negative result. A future attempt requires a new scoped issue and a new
+untouched evaluation set; the exposed held-out set must not become tuning data.
+
 The frozen MLP is substantially cheaper than VLM, but it fails the locked quality gate:
 
 - held-out #33 accuracy: **62.67%**, below both the **85%** floor and VLM's **93.33%**;
@@ -180,6 +184,7 @@ No rollout occurred, so this rollback command was documented but not invoked.
 | Promote default to MLP | **blocked by failed quality gate** | VLM remains default |
 | Deploy both workers + real REST-path smoke | **not run by design** | deployment is conditional on promotion gate |
 
-The issue's completion rule therefore does not permit a “completed/deployed” claim. The valid
-outcome is a published negative result, an optional reproducible runtime, and unchanged user-visible
-VLM behavior.
+The issue's completion rule does not permit a “completed/deployed” claim. The
+recorded terminal outcome is a published negative result, an optional
+reproducible runtime, unchanged user-visible VLM behavior, and closure as not
+planned.

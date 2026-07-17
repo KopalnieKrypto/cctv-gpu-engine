@@ -1,688 +1,386 @@
-# Surveillance Video Activity Analysis — Specification
+# Surveillance Video Activity Analysis — As-Built Specification
 
-Status: Draft v1
-Scope: Standalone prototype (pre-platform integration)
+Status: current as of 2026-07-17
+Scope: batch CCTV analysis, bare-metal client appliance, standalone R2 worker, and GPU Exchange REST integration
 
-## 1. Problem Statement
+This document describes the implemented system. Historical design intent remains in `IMPLEMENTATION_PLAN.md` and `plans/`; those files are not the current runtime contract.
 
-Clients with CCTV surveillance systems need automated activity analysis of recorded footage. They want answers to "what were people doing and for how long" without manual review of hours of video.
+## 1. Product boundary
 
-This system solves three problems:
+The system processes recorded MP4 chunks after capture. It does not perform live alerting.
 
-- It turns raw surveillance footage into structured activity reports (person-minutes per activity class) without human review.
-- It leverages idle GPU infrastructure (mining farms, dual-boot GRUB) for batch video processing, creating a new revenue stream for GPU investors.
-- It validates a new `problem_type` for the ML Compute Exchange platform before full integration.
+Implemented outcomes:
 
-Important boundary:
+- detect people and COCO pose keypoints with YOLO11s-pose;
+- track people within a recording using OSNet appearance embeddings;
+- classify each detection into `sitting`, `standing`, `walking`, or `running`;
+- optionally assign people to configured workstation zones and gate results to shift windows;
+- derive bending-station presence, absence, work, and conversation intervals;
+- produce canonical schema-versioned JSON for platform rendering;
+- retain per-frame detection evidence when requested or when the standalone worker archives it.
 
-- This is a **batch processing** system, not live monitoring. Client submits a recording → system processes → returns a report.
-- The prototype operates standalone (R2-coordinated, no database). Platform integration (job dispatch, billing, tenant isolation) is Phase 4.
-- Per-person tracking is deferred. Reports aggregate in **person-minutes**, not per-individual breakdown.
+Non-goals:
 
-## 2. Goals and Non-Goals
+- live RTSP monitoring or alerting;
+- face recognition or enrolled identity;
+- automatic identity across videos, cameras, or days;
+- long-gap returner merging when the tracker is uncertain;
+- activity classes outside the four-class posture vocabulary;
+- unmeasured promotion of higher resolution, focused ROI, tiling, or experimental classifiers.
 
-### 2.1 Goals
+## 2. Architecture
 
-- Process MP4 video files on GPU infrastructure and produce standalone HTML activity reports.
-- Classify detected persons into 4 activity classes: sitting, standing, walking, running.
-- Achieve ≥80% activity classification accuracy on standard-angle surveillance footage.
-- Process at ≤1:1 ratio (1h video ≈ ≤1h processing) on RTX 5070.
-- Enable zero-network-config video delivery via client-agent (outbound HTTPS only).
-- Coordinate jobs via R2 key conventions (no database dependency).
-- Produce reports viewable in any browser without additional software.
-- Validate the AI pipeline before platform integration.
+### 2.1 Platform path
 
-### 2.2 Non-Goals
-
-- Live/real-time RTSP monitoring or streaming analysis.
-- Re-identification across videos, cameras or days (within-video tracking landed in issue #32; cross-video identity is a separate product tier).
-- Face recognition or enrolled identity (separate product tier).
-- Complex activity recognition beyond sit/stand/walk/run.
-- RODO/GDPR compliance (deferred to production).
-- Platform integration (problem_type, billing, tenant isolation — Phase 4).
-- Multi-camera correlation or cross-camera tracking.
-- Face recognition or person identification.
-
-## 3. System Overview
-
-### 3.1 Components
-
-```
-┌─ Client LAN ──────────────┐        ┌─ R2 Bucket ─────────────┐        ┌─ GPU Server ─────────────┐
-│                            │        │ surveillance-jobs/       │        │                          │
-│  client appliance (bare)   │        │   {job_id}/              │        │  surveillance-serve      │
-│  Flask UI :8080            │───────>│     status.json          │<───────│  (Docker, NVIDIA)        │
-│  ffmpeg RTSP → MP4         │ upload │     input/chunk_*.mp4    │  poll  │                          │
-│  boto3 → R2                │        │     output/report.html   │        │  worker.py (poll loop)   │
-│                            │<───────│                          │───────>│  analyze.py pipeline     │
-│  Shows report in browser   │  poll  │                          │ upload │  YOLO-pose + heuristics  │
-└────────────────────────────┘        └──────────────────────────┘        └──────────────────────────┘
+```text
+camera ──RTSP──> bare-metal client appliance
+                    │
+                    ├── outbound register/heartbeat/task/snapshot API
+                    ▼
+               GPU Exchange platform ── presigned URLs ──> R2
+                    │
+                    └── gpu-agent ── POST /analyze ──> gpu-service REST :5003
+                                                        │
+                                                        └── result.json to presigned URL
 ```
 
-1. **Pipeline** (`pipeline/`)
-   - Core AI: frame extraction → pose detection → activity classification → report generation.
-   - CLI interface: `python analyze.py input.mp4 --output report.html`
-   - Runs inside Docker with NVIDIA GPU access.
+The appliance holds camera credentials and a platform bearer token. It does not hold R2 credentials. The platform issues presigned upload URLs. The gpu-agent owns GPU-service container lifecycle and supplies presigned input/result URLs.
 
-2. **Client Agent** (`client-agent/`)
-   - Lightweight Docker daemon on client's LAN.
-   - Flask web UI on `:8080` for RTSP configuration and job management.
-   - Records from camera via ffmpeg, uploads to R2.
-   - Polls for report completion.
+### 2.2 Standalone compatibility path
 
-3. **GPU Service** (`gpu-service/`)
-   - Worker daemon on GPU server, polls R2 for pending jobs.
-   - Downloads video → runs pipeline → uploads report.
-   - Extends pipeline Docker image.
-
-4. **R2 Coordinator**
-   - No database. Job state tracked via `status.json` in R2.
-   - Key convention: `surveillance-jobs/{job_id}/status.json`
-
-### 3.2 External Dependencies
-
-- Cloudflare R2 (S3-compatible) — video storage + job coordination.
-- NVIDIA GPU with CUDA 12+ and cuDNN — inference.
-- ffmpeg — frame extraction (pipeline) and RTSP recording (client-agent).
-- Client's RTSP-capable surveillance camera.
-
-## 4. Domain Model
-
-### 4.1 Job
-
+```text
+R2 surveillance-jobs/{job_id}/status.json
+        ▲                         │
+        │                         ▼
+dashboard :5000 <── gpu_service.worker ──> input chunks / result.json
 ```
+
+`docker compose up` runs the polling worker and investor dashboard. This path uses `.env.gpu` R2 credentials and R2 `status.json` coordination.
+
+### 2.3 Components
+
+| Component | Responsibility |
+|---|---|
+| `pipeline/` | Frame streaming, pose, tracking, classification, zones, aggregation, JSON/HTML rendering |
+| `client-agent/client_agent/` | Appliance UI, discovery, recording, rolling buffer, platform/presigned clients |
+| `client-appliance/` | Root and user-mode systemd packaging |
+| `gpu-service/gpu_service/worker.py` | Standalone R2 poll/claim/process/upload loop and dashboard lifecycle |
+| `gpu-service/gpu_service/rest_server.py` | GPU-agent REST task contract on port 5003 |
+| Cloudflare R2 | Video/result object storage; standalone job coordination |
+| GPU Exchange | Appliance configuration, task dispatch, tenant boundaries, presigned URL issuance, report rendering |
+
+## 3. AI pipeline
+
+### 3.1 Frame extraction
+
+- Input: one or more MP4 chunks.
+- Sampling: 1 fps by default.
+- Processing: streamed frame-by-frame through ffmpeg; a complete video is never loaded into RAM.
+- Multiple chunks share one aggregator and receive monotonically offset timestamps.
+- Progress callbacks fire within chunks and at chunk boundaries so the worker can update status and telemetry.
+
+### 3.2 Pose model
+
+| Property | Contract |
+|---|---|
+| Default model | `models/yolo11s-pose.onnx` |
+| Input | fixed square `[1,3,S,S]`; deployed export uses `S=640` |
+| Output | `[1,56,N]`: bbox 0–3, confidence 4, keypoints 5–55 |
+| Runtime | `onnxruntime-gpu`, `CUDAExecutionProvider` required |
+| Confidence | 0.25 |
+| NMS IoU | 0.45 |
+
+Preprocessing preserves aspect ratio through letterboxing, converts to RGB float32 `/255`, then CHW plus batch dimension. Postprocessing reverses letterbox coordinates into original-frame pixels before downstream consumers.
+
+`ort.preload_dlls(cuda=True, cudnn=True)` must run before session creation. The implementation verifies the created session provider list and raises on silent CPU fallback.
+
+### 3.3 Person tracking
+
+Tracking is enabled by default.
+
+1. OSNet x0_25 produces an appearance embedding for each detected person crop.
+2. The tracker assigns a stable `track_id` while evidence is sufficiently similar and recent.
+3. A track must be observed at least three times in a five-frame window before it contributes to aggregation.
+4. Raw `detections.jsonl` is written before the minimum-track filter, preserving rejected detections for audit.
+
+`max_track_age_s` defaults to 120 seconds. The system intentionally prefers splitting an uncertain returner into a new track over merging two people. No calibrated long-gap re-match or false-merge rates exist; issue #89 was closed as not planned.
+
+`--no-tracker` exists only for pre-#32 baseline reproduction.
+
+### 3.4 Activity classifiers
+
+All modes output exactly one of `sitting`, `standing`, `walking`, `running`.
+
+| Classifier | Contract |
+|---|---|
+| `vlm` | Deployed Docker default. Qwen2.5-VL-3B classifies the frame-level stationary posture; per-detection displacement can override to walking. |
+| `heuristic` | Supported baseline/rollback. Geometric keypoint rules plus displacement smoothing. CLI default for lightweight local execution. |
+| `mlp` | Experimental CUDA-only per-detection ONNX classifier with per-track smoothing and checksum/schema/class-order validation. Not approved for production. |
+
+The frozen #34 evaluation measured MLP accuracy at 62.67% versus VLM 93.33% on the same 150-row #33 held-out test. The image remains `CLASSIFIER=vlm`; no MLP deployment occurred.
+
+### 3.5 Keyframes and aggregation
+
+The aggregator produces:
+
+- video duration and analysed-frame count;
+- peak/average person count and dominant activity;
+- person-minutes for all four activities;
+- one-minute timeline bins;
+- bounded keyframe candidates with at least one best frame per observed activity;
+- optional zone and shift summaries.
+
+Keyframes are annotated and encoded as base64 JPEG in `result.json`.
+
+## 4. Zones, shifts, and workstation modes
+
+Zones are configuration, never hardcoded geometry.
+
+```json
 {
-  job_id:        string      // UUID v4
-  status:        enum        // pending | processing | completed | failed
-  worker_id:     string?     // server identifier that claimed the job
-  created_at:    ISO 8601
-  updated_at:    ISO 8601
-  progress_pct:  number      // 0-100
-  input_chunks:  string[]    // R2 keys of uploaded MP4 chunks
-  error:         string?     // failure reason
-  duration_s:    number?     // video duration in seconds
-  report_key:    string?     // R2 key of generated report
-}
-```
-
-### 4.2 Frame Analysis Result
-
-```
-{
-  frame_index:    number
-  timestamp_s:    number      // seconds from video start
-  person_count:   number
-  persons: [
+  "recording_start": "2026-07-16T06:00:00+02:00",
+  "shift": {
+    "timezone": "Europe/Warsaw",
+    "windows": [["07:00", "15:00"]],
+    "breaks": [["11:00", "11:20"]]
+  },
+  "inference_roi": {
+    "zone_id": "bending-1",
+    "margin_px": 160
+  },
+  "zones": [
     {
-      bbox:       [x1, y1, x2, y2]     // pixel coords in original image
-      confidence: number                // 0-1
-      keypoints:  [[x,y,vis], ×17]     // COCO 17 keypoints
-      activity:   enum                  // sitting | standing | walking | running
+      "id": "bending-1",
+      "name": "Giętarka 1",
+      "polygon": [[1200, 500], [2600, 500], [2600, 1900], [1200, 1900]],
+      "rules": {
+        "type": "bending",
+        "work": {"min_move_px": 40},
+        "conversation": {"proximity_px": 150},
+        "absence": {"flag_after_s": 180}
+      }
     }
   ]
 }
 ```
 
-### 4.3 Activity Report
+### 4.1 Assignment
 
-```
-{
-  summary: {
-    video_duration_s:  number
-    total_frames:      number
-    peak_persons:      number
-    avg_persons:       number
-    dominant_activity: enum
-  }
-  person_minutes: {
-    sitting:   number
-    standing:  number
-    walking:   number
-    running:   number
-  }
-  timeline: [                           // 1-minute bins
-    { minute: number, sitting: n, standing: n, walking: n, running: n }
-  ]
-  keyframes: [                          // 5 annotated frames
-    { timestamp_s: number, image_base64: string, persons: [...] }
-  ]
-}
-```
+The midpoint of a detection's bounding-box bottom edge is its foot point. The detection belongs to the first polygon containing that point; boundary points count as inside. A detection outside all zones has `zone_id: null`.
 
-## 5. AI Pipeline Specification
+### 4.2 Shift gating
 
-### 5.1 Model
+- `recording_start` anchors `timestamp_s=0` to wall clock.
+- `shift.windows` and `shift.breaks` are recurring half-open `[start,end)` intervals.
+- Frames outside all windows or inside a break are excluded from aggregation.
+- An IANA `shift.timezone` makes elapsed-time mapping DST-safe. Without it, the offset in `recording_start` is used.
 
-| Property | Value |
-|----------|-------|
-| Model | YOLOv11n-pose |
-| Format | ONNX |
-| Input | `[1, 3, 640, 640]` float32 (NCHW, normalized 0-1) |
-| Output | `[1, 56, N]` — 4 bbox + 1 conf + 51 keypoints (17×3) |
-| Runtime | onnxruntime-gpu, CUDAExecutionProvider only |
-| VRAM | ~2-4 GB |
-| Latency | ~100ms/frame on RTX 5070 (validated 2026-03-31) |
+### 4.3 Bending ruleset
 
-**No CPU fallback.** If CUDA is unavailable, the pipeline must fail with a clear error. CPU inference at ~10x slower (1s/frame) makes 1:1 processing ratio impossible.
+`rules.type` defaults to `bending`; unsupported types fail at config load.
 
-### 5.2 Frame Extraction
+- Anchored worker: the in-zone track with the longest cumulative dwell.
+- Presence/absence: sightings split into intervals when a sampling gap is too wide.
+- Work: anchored-worker foot-point movement above `min_move_px`.
+- Conversation: at least two stable, sufficiently close, low-movement tracks.
+- Long absence: interval duration above `flag_after_s` is marked `flagged`.
 
-```
-ffmpeg -i input.mp4 -vf fps=1 -q:v 2 frames/frame_%06d.jpg
-```
+These values are configurable pixel/time thresholds, not universal semantic truth. The bending pilot remains unverified on a viable station-framed stream.
 
-- Sampling rate: **1 fps** (3600 frames/hour)
-- Frame size: ~50-100KB at 1080p JPEG quality 2
-- Memory: frame-by-frame processing, never full video in RAM
+### 4.4 Inference ROI
 
-### 5.3 Preprocessing
+`inference_roi` crops the single pose call to the selected zone's bounding rectangle plus an explicit margin, then translates detections back into full-frame coordinates.
 
-Identical to validated `infra/ai-test/yolo-serve/app.py`:
+It is not the production default. Issue #86 measured fixed-640, fixed-1280, and focused-ROI arms; none passed the combined quality, runtime, and VRAM gate. Issue #88 requires an optically station-framed stream before pilot validation resumes.
 
-1. Load image via PIL → RGB
-2. Resize to 640×640 (bilinear)
-3. Convert to float32, normalize `/255.0`
-4. Transpose HWC → CHW
-5. Add batch dimension → `[1, 3, 640, 640]`
+## 5. Output contracts
 
-### 5.4 Postprocessing (Pose)
+### 5.1 Canonical result
 
-YOLO-pose output `[1, 56, N]` (transposed format):
-
-```
-Row 0-3:   cx, cy, w, h (bbox center + size, 640-space)
-Row 4:     confidence
-Row 5-55:  17 keypoints × 3 (x, y, visibility) in 640-space
-```
-
-Per detection:
-1. Filter by confidence ≥ `CONFIDENCE_THRESHOLD` (default 0.25)
-2. NMS with IoU threshold 0.45
-3. Scale bbox + keypoints to original image coordinates
-4. Extract 17 COCO keypoints
-
-### 5.5 COCO 17 Keypoints
-
-```
- 0: nose           1: left_eye      2: right_eye
- 3: left_ear       4: right_ear
- 5: left_shoulder  6: right_shoulder
- 7: left_elbow     8: right_elbow
- 9: left_wrist    10: right_wrist
-11: left_hip      12: right_hip
-13: left_knee     14: right_knee
-15: left_ankle    16: right_ankle
-```
-
-Heuristics use: **5,6** (shoulders), **11,12** (hips), **13,14** (knees), **15,16** (ankles).
-
-### 5.6 Activity Classification
-
-Rule-based decision tree per detected person. All thresholds are tunable constants.
-
-```
-Input: 17 keypoints with visibility scores
-
-Step 1: Keypoint visibility check
-  Required: hips (11,12), knees (13,14), ankles (15,16) with visibility > 0.5
-  If insufficient → FALLBACK: bbox aspect ratio
-    bbox height/width < 1.5 → SITTING
-    else → STANDING
-
-Step 2: Compute geometric features
-  knee_angle = average angle(hip, knee, ankle) for both legs
-  hip_height_ratio = (bbox_bottom - avg_hip_y) / bbox_height
-  stride_ratio = |ankle_L_x - ankle_R_x| / |hip_L_x - hip_R_x|
-  torso_lean = angle_from_vertical(avg_shoulders → avg_hips)
-
-Step 3: Classification
-  IF knee_angle < 120° AND hip_height_ratio < 0.40 → SITTING
-  IF stride_ratio > 2.0 AND torso_lean > 15°       → RUNNING
-  IF stride_ratio > 1.3                             → WALKING
-  ELSE                                              → STANDING
-```
-
-**Default thresholds:**
-
-| Threshold | Value | Rationale |
-|-----------|-------|-----------|
-| `KNEE_ANGLE_SIT` | 120° | Seated posture has bent knees |
-| `HIP_HEIGHT_RATIO_SIT` | 0.40 | Seated hips are lower in bbox |
-| `STRIDE_RATIO_WALK` | 1.3 | Walking spreads ankles beyond hip width |
-| `STRIDE_RATIO_RUN` | 2.0 | Running has wider stance |
-| `TORSO_LEAN_RUN` | 15° | Forward lean while running |
-| `KEYPOINT_VIS_MIN` | 0.5 | Minimum visibility confidence |
-
-Target accuracy: **≥80%** on surveillance footage from standard angles (camera at 2-3m height, 30-60° tilt).
-
-### 5.7 Aggregation
-
-Per-frame: `{ timestamp_s, person_count, activities: { Activity → count } }`
-
-Summary: sum person-frames per activity ÷ sampling_fps = **person-seconds** ÷ 60 = **person-minutes**
-
-Timeline: group into 1-minute bins, sum per activity.
-
-### 5.8 Report Generation
-
-Standalone HTML file (Jinja2 template + vendored Chart.js inline):
-
-1. **Summary table** — video duration, frames analyzed, peak/avg person count, dominant activity
-2. **Pie chart** — % person-time per activity
-   - Colors: green=standing, blue=sitting, orange=walking, red=running
-3. **Timeline chart** — stacked bar, X=time (1-min bins), Y=person count, colored by activity
-4. **5 annotated keyframes** — selected by max person count with ≥2min spacing
-   - Rendered: bounding boxes, 17-keypoint skeleton overlay, activity label per person
-   - Encoded: base64 PNG inline
-
-Expected report file size: ~5-10MB (dominated by base64 keyframes).
-
-## 6. R2 Job Coordination Protocol
-
-### 6.1 Bucket
-
-Separate bucket: `surveillance-data` (isolated from main platform R2).
-
-### 6.2 Key Convention
-
-```
-surveillance-jobs/{job_id}/
-  status.json              # Job state (source of truth)
-  input/chunk_001.mp4      # Uploaded video chunks
-  input/chunk_002.mp4
-  output/report.html       # Generated report
-```
-
-### 6.3 Job Lifecycle
-
-```
-                 client-agent uploads
-                 video + status.json
-          ┌──────────────────────────────┐
-          ▼                              │
-      ┌────────┐    worker claims    ┌───┴───────┐
-      │PENDING │───────────────────>│PROCESSING  │
-      └────────┘                    └─────┬──────┘
-                                          │
-                            ┌─────────────┼─────────────┐
-                            ▼                             ▼
-                     ┌───────────┐                 ┌──────────┐
-                     │ COMPLETED │                 │  FAILED  │
-                     └───────────┘                 └──────────┘
-```
-
-### 6.4 status.json Schema
+`result.json` is UTF-8 JSON with `schema_version: 6`.
 
 ```json
 {
-  "job_id": "uuid",
-  "status": "pending",
-  "created_at": "2026-03-31T10:00:00Z",
-  "updated_at": "2026-03-31T10:00:00Z",
-  "input_chunks": ["input/chunk_001.mp4"],
-  "worker_id": null,
-  "progress_pct": 0,
-  "error": null,
-  "duration_s": null,
-  "report_key": null
+  "schema_version": 6,
+  "video_duration_s": 0.0,
+  "total_frames": 0,
+  "peak_persons": 0,
+  "avg_persons": 0.0,
+  "dominant_activity": "none",
+  "person_minutes": {
+    "sitting": 0.0,
+    "standing": 0.0,
+    "walking": 0.0,
+    "running": 0.0
+  },
+  "timeline": [],
+  "keyframes": [],
+  "zones": [],
+  "shift": null,
+  "diagnostics": {
+    "classifier": "vlm",
+    "activity_model": null
+  }
 }
 ```
 
-### 6.5 Claim Protocol (MVP)
+Each zone contains posture person-minutes plus `presence` and `conversation` blocks. MLP runs populate version/checksum/feature-schema diagnostics.
 
-Last-writer-wins. Worker reads `status.json`, checks `status == "pending"`, writes `status: "processing"` + own `worker_id`. At low concurrency (1-2 workers) this is acceptable. Post-MVP: platform's `SELECT FOR UPDATE SKIP LOCKED`.
+Presentation, branding, localization, and interactive layout belong to the platform. The CLI's `--format html` output is a retained local debugging artifact, not the worker/platform contract.
 
-### 6.6 Progress Updates
+### 5.2 Detection archive
 
-Worker updates `status.json` periodically during processing with `progress_pct` (0-100). Client-agent polls every 15 seconds.
+`detections.jsonl` contains one JSON object per processed frame. Each person includes bbox, confidence, keypoints, activity, `track_id`, and optional `zone_id`.
 
-## 7. Client Agent Specification
+The standalone worker uploads it beside `result.json` when enabled. Local validation uses `--dump-detections PATH.jsonl`. Because it taps the stream before minimum-track filtering, it is the audit source for explaining what was detected versus what was counted.
 
-### 7.1 Purpose
+## 6. Standalone R2 protocol
 
-Lightweight daemon on client's LAN. Records from RTSP camera, uploads to R2, polls for results.
+Bucket default: `surveillance-data`.
 
-### 7.2 Web UI (Flask, :8080)
-
-| Route | Method | Function |
-|-------|--------|----------|
-| `/` | GET | Recording form: RTSP URL + duration selector |
-| `/test-connection` | POST | ffmpeg probe of RTSP URL → success/fail |
-| `/start` | POST | Begin recording + upload flow |
-| `/jobs` | GET | Job list with status badges, auto-refresh 10s |
-| `/jobs/<id>/report` | GET | Serve downloaded HTML report |
-
-### 7.3 Recording
-
-```bash
-ffmpeg -rtsp_transport tcp -i {rtsp_url} -c copy -t {duration_s} output.mp4
+```text
+surveillance-jobs/{job_id}/
+  status.json
+  input/chunk_001.mp4
+  input/chunk_002.mp4
+  output/result.json
+  output/detections.jsonl
 ```
 
-- Stream copy (no re-encoding) — minimal CPU.
-- Long recordings: `-f segment -segment_time 3600` → 1h chunks.
-- MVP: "record for next Xh" (1/2/4/8h options). Scheduled recording deferred.
+The polling worker lists pending statuses, claims one job, downloads chunks, processes them, uploads result/evidence, and writes a terminal status. R2 methods retry three times with exponential backoff. Status-list reads use an ETag cache.
 
-### 7.4 Upload
+The standalone claim protocol remains low-concurrency last-writer-wins. Platform task dispatch does not use this claim protocol.
 
-- boto3 S3-compatible client with R2 credentials (scoped API token).
-- `upload_file()` handles multipart automatically (R2: 5GB single, 5TB multipart).
-- After upload: write `status.json` with `status: "pending"`.
+## 7. GPU-agent REST protocol
 
-### 7.5 Docker
+Entrypoint: `python -m gpu_service.rest_server`
+Default port: `5003`
 
-```yaml
-services:
-  surveillance-agent:
-    build: ./client-agent
-    image: python:3.11-slim + ffmpeg
-    ports: ["8080:8080"]
-    volumes: ["./recordings:/recordings"]
-    env_file: .env
-    restart: unless-stopped
+| Route | Contract |
+|---|---|
+| `GET /healthz` | `200` only after model/CUDA warm-up; otherwise `503` |
+| `POST /analyze` | Validates task ID, non-empty input presigned URLs, result presigned URL, and tenant prefix; returns `202` |
+| `GET /status/<task_id>` | Returns queued/running progress/completed/failed; `404` if unknown |
+
+The task runner:
+
+1. loads `ZONES_CONFIG_PATH` or `/config/zones.json` when present;
+2. downloads every input URL;
+3. concatenates multiple chunks with ffmpeg;
+4. runs the canonical JSON pipeline;
+5. uploads bytes to `result_presigned_url`;
+6. records a terminal in-memory state.
+
+One container per task is the intended deployment model. Repeated submission of the same queued/running task ID is idempotent.
+
+## 8. Client appliance
+
+### 8.1 Packaging
+
+The only client deployment target is bare-metal `client_agent.appliance` through waitress on `:8080`.
+
+- Root layout: `/opt/cctv-client`, `/etc/cctv-client`, system unit.
+- User layout: `~/.local/share/cctv-client`, `~/.config/cctv-client`, user unit.
+- User-mode install enables and verifies systemd linger.
+- The retired client Docker image and direct R2 client must not return.
+
+### 8.2 Standalone mode
+
+When either `PLATFORM_URL` or `APPLIANCE_TOKEN` is missing, the appliance runs the local Flask UI, discovery, snapshots, and buffer-only recorder without platform callbacks.
+
+Legacy `/upload`, `/start`, `/jobs`, and `/report` R2 workflows return `503`.
+
+### 8.3 Platform mode
+
+With both platform credentials set, the appliance:
+
+- registers and pushes discovered cameras;
+- heartbeats desired/actual camera state;
+- starts/stops per-camera rolling recorders;
+- trims retention continuously;
+- polls and uploads requested time windows through presigned URLs;
+- claims platform snapshot requests and uploads JPEGs through presigned URLs.
+
+All platform communication is outbound HTTPS; no customer-LAN inbound route is required.
+
+### 8.4 Runtime configuration
+
+Environment cold-start fallbacks:
+
+| Environment | Built-in default | Platform wire key |
+|---|---:|---|
+| `BUFFER_HOURS` | 1 | `buffer_hours` |
+| `POLLING_INTERVAL_SECONDS` | 5 | `polling_interval_seconds` |
+| `HEARTBEAT_INTERVAL_SECONDS` | 30 | `heartbeat_interval_seconds` |
+| `UPLOAD_CHUNK_BYTES` | 52,428,800 | `upload_chunk_bytes` |
+
+All values must be positive integers. Register/heartbeat settings override valid environment fallbacks. Later changes apply live to the buffer, poller, heartbeat loop, and uploader without restarting the appliance.
+
+### 8.5 Snapshot variants
+
+Platform claims support:
+
+- `thumbnail`: RTSP frames scale to at most 640 px wide and use JPEG qscale 4;
+- `detail`: RTSP frames retain decoded stream dimensions and use qscale 2.
+
+Both RTSP variants decode for a one-second settle period before capture. Missing or unknown variants fall back to `thumbnail`. Vendor HTTP snapshot bytes pass through unchanged for both variants.
+
+## 9. Models and dependencies
+
+`setup-models.sh` checksum-pins YOLO11s-pose, OSNet x0_25, and the experimental activity MLP plus metadata.
+
+The GPU image:
+
+- uses `nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04`;
+- installs pinned PyTorch cu128, transformers, accelerate, and qwen-vl-utils;
+- bakes default YOLO, OSNet, and MLP artifacts;
+- declares `CLASSIFIER=vlm`;
+- fails fast when no usable GPU or insufficient configured VRAM is available.
+
+The standalone compose bind-mount overlays `/app/models`; local model files must therefore be materialized before starting compose.
+
+## 10. Measured evidence and promotion state
+
+Measurements are valid only for their named fixture, model, image, and hardware.
+
+| Evidence | Verified result |
+|---|---|
+| #86 fixed-640 VLM, 181.995 s bending fixture, RTX 5070 | 76.267 s wallclock; linear extrapolation 25.14 min/h; 7,866 MiB peak; failed detection-quality gate |
+| #86 fixed-1280 | 126.393 s; 41.67 min/h extrapolated; 8,122 MiB; failed gate |
+| #86 focused ROI | 96.435 s; 31.79 min/h extrapolated; 7,866 MiB; failed gate |
+| Film 1 same-image resource comparison | VLM 129.660 s / 7,808 MiB; heuristic 73.898 s / 508 MiB; MLP 71.325 s / 540 MiB |
+| #33 frozen test | VLM 93.33%; MLP 62.67%; heuristic 33.33% |
+
+Sources: `benchmark-results/issue-86/README.md` and `docs/mlp-classifier-eval.md`.
+
+Promotion state:
+
+- VLM remains the deployed default.
+- MLP is published only for reproducibility and is closed as not planned after failing quality gates.
+- Fixed-1280 and focused ROI remain experimental after #86's no-winner result.
+- Zone implementation is complete, but pilot acceptance is blocked on #88 and a manually reviewed real shift.
+
+## 11. Required invariants
+
+- CUDA-only pose/Re-ID/MLP inference; no CPU fallback.
+- Frame streaming; no full-video in-memory load.
+- No face recognition or automatic long-gap identity.
+- No client-side R2 credentials.
+- No Docker client deployment.
+- No promotion based on training success alone; every numeric gate needs measured evidence.
+- Long-running operator commands must expose flushed progress or heartbeats.
+- Completion claims must distinguish verified, failing, not-run, and external-input rows.
+
+## 12. Repository map
+
+```text
+pipeline/                  core analysis implementation and tests
+gpu-service/               GPU worker/REST image and tests
+client-agent/              shared appliance package and tests
+client-appliance/          systemd/install packaging and contract tests
+datasets/activity-classifier/ #33 reviewed release metadata
+training/activity-mlp/     #34 reproducible experiment and raw results
+benchmarks/pose-resolution/ versioned #86 fixtures/methodology
+benchmark-results/issue-86/ measured no-winner artifacts
+docs/                      setup, benchmark, and evaluation documentation
 ```
-
-No GPU required. Runs on any machine with Docker on client's network.
-
-### 7.6 Installation Flow
-
-The client is a bare-metal systemd appliance (the Docker client image was retired in #29). It holds no R2 credentials.
-
-1. Operator receives: git link + RTSP camera credentials (+ `PLATFORM_URL`/`APPLIANCE_TOKEN` for platform mode).
-2. Installs prerequisites on a mini-PC: `sudo apt-get install -y git python3.12-venv ffmpeg`, then clones the repo.
-3. `sudo ./client-appliance/install.sh` then `sudo systemctl enable --now cctv-client`.
-4. Opens `http://<appliance-ip>:8080`.
-
-## 8. GPU Service Specification
-
-### 8.1 Worker Loop
-
-```python
-while True:
-    job = poll_for_pending()     # ListObjects → find status.json with status=pending
-    if job:
-        claim(job)               # Write status=processing + worker_id
-        download_video(job)      # R2 → local /tmp
-        report = run_pipeline()  # analyze.py as library
-        upload_report(job)       # HTML → R2 output/
-        complete(job)            # Write status=completed + report_key
-    else:
-        sleep(10)                # Poll interval
-```
-
-### 8.2 Error Handling
-
-- Pipeline crash → set `status: "failed"` + error message in status.json.
-- Download failure → retry 3× with exponential backoff, then fail.
-- Upload failure → retry 3×, then fail (report preserved locally).
-- Worker crash mid-processing → status stays "processing". No automatic recovery in MVP — operator re-sets to "pending" manually. Post-MVP: heartbeat + timeout.
-
-### 8.3 Docker
-
-```yaml
-services:
-  surveillance-serve:
-    build: ./pipeline
-    runtime: nvidia
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ["${SURVEILLANCE_GPU:-0}"]
-              capabilities: [gpu]
-    volumes:
-      - ${MODELS_DIR:-./models}:/models:ro
-    env_file: .env
-    command: ["python3", "worker.py"]
-```
-
-Pattern identical to `infra/ai-test/docker-compose.yml`.
-
-## 9. Performance Model
-
-### 9.1 Processing Budget (1h video, 1080p, RTX 5070)
-
-| Stage | Per-frame | Total (3600 frames) |
-|-------|-----------|---------------------|
-| Frame extraction (ffmpeg) | ~10ms | ~36s |
-| YOLO-pose inference (GPU) | ~100ms | ~360s (6min) |
-| Activity classification | ~1ms | ~3.6s |
-| Report generation | — | ~5s (one-time) |
-| **Total** | ~111ms | **~7min** |
-
-Processing ratio: **~8:1** (1h video in ~7min). Well within 1:1 target.
-
-### 9.2 VRAM Budget
-
-| Component | VRAM |
-|-----------|------|
-| YOLO11n-pose ONNX model | ~200MB |
-| CUDA context + inference buffers | ~400MB |
-| **Total** | **~600MB** |
-
-12GB available per GPU — can run alongside other models.
-
-### 9.3 Network Budget (upload)
-
-| Video length | File size (1080p H.264) | Upload at 10 Mbps | Upload at 50 Mbps |
-|-------------|-------------------------|--------------------|--------------------|
-| 1h | ~2-4 GB | ~30-55min | ~6-11min |
-| 8h | ~16-32 GB | ~4-7h | ~45-85min |
-
-Upload time may exceed processing time on slow connections. Chunked upload with resume is essential.
-
-## 10. Configuration
-
-### 10.1 Environment Variables
-
-```bash
-# R2 credentials (shared by client-agent and gpu-service)
-R2_ENDPOINT=https://<account>.r2.cloudflarestorage.com
-R2_ACCESS_KEY_ID=<key>
-R2_SECRET_ACCESS_KEY=<secret>
-R2_BUCKET=surveillance-data
-
-# GPU service
-SURVEILLANCE_GPU=0
-MODELS_DIR=./models
-POLL_INTERVAL_S=10
-
-# Client agent
-RTSP_DEFAULT_URL=                    # optional pre-fill
-MAX_RECORDING_HOURS=8
-
-# Pipeline
-CONFIDENCE_THRESHOLD=0.25
-SAMPLING_FPS=1
-KEYFRAME_COUNT=5
-KEYFRAME_MIN_SPACING_S=120
-```
-
-## 11. Report Format
-
-### 11.1 Structure
-
-```html
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Surveillance Activity Report — {job_id}</title>
-  <script>/* vendored Chart.js ~200KB */</script>
-  <style>/* inline CSS */</style>
-</head>
-<body>
-  <h1>Activity Analysis Report</h1>
-  <section id="summary">
-    <!-- Summary table: duration, frames, persons, dominant activity -->
-  </section>
-  <section id="activity-breakdown">
-    <!-- Pie chart: person-minutes per activity -->
-  </section>
-  <section id="timeline">
-    <!-- Stacked bar chart: 1-min bins, activity breakdown -->
-  </section>
-  <section id="keyframes">
-    <!-- 5 annotated frames: bbox + skeleton + activity label, base64 PNG -->
-  </section>
-  <footer>
-    Generated by ML Compute Exchange — {timestamp}
-  </footer>
-</body>
-</html>
-```
-
-### 11.2 Keyframe Selection
-
-1. Score each frame by person count.
-2. Sort descending.
-3. Greedily select top frames with ≥`KEYFRAME_MIN_SPACING_S` between them.
-4. Take first `KEYFRAME_COUNT` (default 5).
-
-### 11.3 Keyframe Annotation
-
-Per person in keyframe:
-- Bounding box (2px solid, color by activity)
-- 17-keypoint skeleton overlay (COCO skeleton connections)
-- Activity label above bbox
-
-## 12. Integration Path (Phase 4, future)
-
-When prototype is validated, integrate into the main ML Compute Exchange platform:
-
-| Aspect | Prototype (now) | Integrated (future) |
-|--------|----------------|---------------------|
-| Job coordination | R2 key conventions | Platform job dispatch (`SELECT FOR UPDATE SKIP LOCKED`) |
-| Job claim | Last-writer-wins | Atomic DB claim |
-| Billing | None | GPU-seconds × surveillance rate (new `billing_rates` entry) |
-| Tenant isolation | Single R2 bucket | `tenants/{tenantId}/` prefix |
-| Task routing | Hardcoded | `task_routing_rules` entry: `problem_type: 'surveillance_analysis'` |
-| Model registry | Local | `models` table: `yolo11n-pose`, `docker_image: surveillance-serve` |
-| Docker | Standalone compose | Added to `gpu-agent` docker-compose (port 5003) |
-| Video delivery | Client-agent only | Client-agent OR dashboard upload |
-| Status updates | R2 polling | SSE via data-service (existing pattern) |
-| Tracking | ByteTrack + OSNet Re-ID, within-video (#32) | Cross-video / cross-camera re-identification |
-| RODO | Ignored | Umowa powierzenia, DPIA, optional face blur |
-
-## 13. Risks and Mitigations
-
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| ONNX Runtime on Blackwell (sm_120) | Pipeline doesn't load on GPU | **Validated 2026-03-31**: onnxruntime-gpu works on RTX 5070 with CUDA EP. yolo11n object detection at 104ms. Pose variant needs verification |
-| Heuristic accuracy <80% | Unreliable reports | Tune thresholds on real footage. Fallback: lightweight MLP classifier on keypoints |
-| Camera angle (top-down/extreme tilt) | Keypoints poorly visible | Fallback to bbox aspect ratio. Document requirement: camera at 2-3m, 30-60° angle |
-| Upload time > processing time | Poor UX on slow connections | Chunked multipart upload with resume. Consider H.265 re-encode on agent |
-| Multiple overlapping persons | Occlusion, missed detections | YOLO handles partial occlusions. Accuracy degrades >10 persons |
-| Client can't install Docker | Blocked from using system | Video tutorial. Post-MVP: standalone binary (Go) |
-| RODO | Legal risk in production | Deferred. Before production: powierzenie danych, DPIA, optional auto-blur |
-| Worker crash mid-processing | Job stuck in "processing" | MVP: manual reset. Post-MVP: heartbeat + timeout auto-recovery |
-| onnxruntime-node has no CUDA | Can't use Node.js for inference | **Confirmed 2026-03-31**: npm onnxruntime-node lacks CUDA EP. Always use Python onnxruntime-gpu |
-
-## 14. Validation Checklist
-
-### Phase 1: Core AI Pipeline
-
-- [ ] `yolo11n-pose.onnx` loads on RTX 5070 with CUDAExecutionProvider
-- [ ] Frame extraction via ffmpeg at 1fps produces correct frame count
-- [ ] Pose detection returns 17 keypoints per person with reasonable confidence
-- [ ] Activity heuristics classify ≥80% of activities correctly on test footage
-- [ ] Report HTML opens in browser with charts rendered and keyframes visible
-- [ ] Processing ratio ≤1:1 (1h video in ≤1h)
-- [ ] `test_heuristics.py` passes with synthetic keypoint arrays
-
-### Phase 2: Client Agent
-
-- [ ] Flask UI accessible at :8080
-- [ ] RTSP connection test succeeds with real camera
-- [ ] Recording produces valid MP4 via ffmpeg stream copy
-- [ ] Upload to R2 succeeds with progress indication
-- [ ] status.json created correctly in R2
-
-### Phase 3: GPU Service E2E
-
-- [ ] Worker detects pending job via R2 polling
-- [ ] Worker claims job (status → processing)
-- [ ] Worker downloads video, runs pipeline, uploads report
-- [ ] Worker updates status → completed with report_key
-- [ ] Client-agent detects completion and displays report
-- [ ] Failed job correctly sets status → failed with error
-
-### Phase 4: Integration (future)
-
-- [ ] New `problem_type: 'surveillance_analysis'` in task_routing_rules
-- [ ] Docker service added to gpu-agent compose on port 5003
-- [ ] Billing rate configured and usage records created
-- [ ] Tenant isolation via R2 prefix
-- [ ] SSE status updates replace R2 polling
-
-## 15. File Structure
-
-```
-infra/video-test/
-├── SPEC.md                            # This document
-├── DECISION_LOG.md                    # All 8 design decisions + rationale
-├── IMPLEMENTATION_PLAN.md             # 4-phase implementation roadmap
-├── RTX5070_CONSTRAINTS.md             # Hardware compatibility analysis
-├── docker-compose.yml                 # GPU service
-├── .env.example
-├── setup-models.sh                    # Download yolo11n-pose.onnx
-├── benchmark.sh
-├── pipeline/                          # Phase 1: Core AI
-│   ├── Dockerfile                     # nvidia/cuda + python + ffmpeg
-│   ├── requirements.txt               # onnxruntime-gpu, opencv, jinja2, etc.
-│   ├── analyze.py                     # CLI: python analyze.py input.mp4
-│   ├── frame_extractor.py
-│   ├── pose_detector.py
-│   ├── activity_classifier.py
-│   ├── report_generator.py
-│   ├── report_template.html           # Jinja2 + Chart.js
-│   └── test_heuristics.py
-├── gpu-service/                       # Phase 3: R2 worker
-│   ├── Dockerfile
-│   ├── worker.py
-│   └── r2_client.py
-├── client-agent/                      # Phase 2: Client daemon
-│   ├── Dockerfile
-│   ├── agent.py                       # Flask app
-│   ├── recorder.py                    # ffmpeg RTSP
-│   ├── uploader.py                    # boto3 → R2
-│   └── templates/index.html
-├── test/                              # Validation scripts
-│   ├── test_video_pose.py             # End-to-end pose test on sample video
-│   ├── run_test.sh
-│   └── requirements.txt
-├── models/                            # .gitkeep (yolo11n-pose.onnx)
-└── test-data/                         # .gitkeep (sample MP4s)
-```
-
-## 16. Technology Stack
-
-| Component | Technology | Rationale |
-|-----------|-----------|-----------|
-| Pose model | YOLOv11n-pose (ONNX) | Proven YOLO infra, nano for speed, pose for keypoints |
-| Inference runtime | onnxruntime-gpu | **Validated on RTX 5070.** Python package has CUDA EP (npm package does not) |
-| Frame extraction | ffmpeg (system) | Industry standard, handles all codecs |
-| Image processing | OpenCV + Pillow | Annotation overlays + base64 encoding |
-| Activity classification | Geometric heuristics | No training data needed, interpretable, tunable |
-| Report template | Jinja2 + Chart.js | Standalone HTML, no server needed to view |
-| Client UI | Flask | Minimal, sufficient for form + job list |
-| R2 client | boto3 (S3-compat) | Proven pattern from platform design |
-| Container base | nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04 | Validated on test VPS 2026-03-31 |
-| Python runner | uv (preferred), pip fallback | Fast, clean dependency management |
-
-## 17. Key Lessons (from ai-test validation 2026-03-31)
-
-These findings directly inform this specification:
-
-1. **onnxruntime-node (npm) has no CUDA support** — all inference must use Python `onnxruntime-gpu`. This is why the pipeline and gpu-service are Python, not TypeScript.
-
-2. **nvidia/cuda base image required** — `python:3.11-slim` lacks CUDA libraries. Must use `nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04` and install Python on top.
-
-3. **RTX 5070 YOLO inference at ~100ms** — validated with yolo11n object detection. Pose variant expected similar (same backbone, slightly larger output tensor).
-
-4. **574MB VRAM for YOLO nano** — leaves 11.5GB headroom on 12GB GPU. No VRAM concerns for pose model.
-
-5. **GPU-only, no CPU fallback** — CPU inference (~1s/frame) breaks the 1:1 processing ratio. Fail fast if no GPU.
-
-6. **Docker caching gotcha** — `scp` doesn't delete old files. Always clean target directory before copying new Docker context.
-
-7. **uv over pip** — faster, cleaner Python dependency management. Scripts should auto-detect uv → pip fallback.

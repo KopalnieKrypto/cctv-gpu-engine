@@ -1,7 +1,9 @@
 # cctv-client appliance
 
 Standalone packaging dla `client_agent` — Flask UI :8080 + RTSP recorder z
-auto-discovery kamer ONVIF, działający bez Dockera na mini-PC w LAN. To
+auto-discovery kamer ONVIF, działający bez Dockera na mini-PC w LAN. W trybie
+platformowym appliance utrzymuje rolling buffer, pobiera konfigurację i taski
+z GPU Exchange oraz wysyła pliki wyłącznie przez presigned URL. To
 **jedyny** sposób uruchomienia klienta (Dockerowy client-agent został
 wycofany w #29). Cała logika żyje w pakiecie
 [`client_agent`](../client-agent/client_agent/); ten katalog zawiera
@@ -200,8 +202,10 @@ przenieś plik na docelowy mini-PC, rozpakuj do `/opt/src/`, uruchom
   obrazy mogą blokować.
 - **Service nie wstał**: `systemctl status cctv-client` i
   `journalctl -u cctv-client -n 100`. W trybie platformowym częsta
-  przyczyna to zła wartość `BUFFER_HOURS` w `platform.env` (nie-liczbowa
-  lub `≤ 0` → boot validation fails fast). Brak `PLATFORM_URL`/
+  przyczyna to zła wartość jednego z runtime tunables w `platform.env`:
+  `BUFFER_HOURS`, `POLLING_INTERVAL_SECONDS`,
+  `HEARTBEAT_INTERVAL_SECONDS` lub `UPLOAD_CHUNK_BYTES` (wartość
+  niecałkowita lub `≤ 0` → boot validation fails fast). Brak `PLATFORM_URL`/
   `APPLIANCE_TOKEN` nie wywala unit-a — appliance auto-fallbackuje do
   trybu standalone.
 - **Bind na 0.0.0.0**: appliance bindu je do `0.0.0.0:8080` — jeśli mini-PC
@@ -217,25 +221,27 @@ Kamera odrzuca creds — sprawdź hierarchię:
 
 `journalctl -u cctv-client | grep -i 401` pokaże, którą kamerę odrzuca.
 
-## Smoke test (5 min na świeżym systemie)
+## Smoke test na świeżym systemie
 
 Runbook weryfikujący end-to-end na świeżym Ubuntu 24.04 LTS lub Raspberry
-Pi OS:
+Pi OS. Nie podajemy uniwersalnego czasu instalacji: zależy on od obrazu
+systemu, cache pakietów, łącza i kamery. Jeśli potrzebujesz ETA dla konkretnego
+site'u, zmierz ten runbook na reprezentatywnym urządzeniu.
 
-1. `sudo apt-get install -y git python3.12-venv ffmpeg` (≤ 30 s).
+1. `sudo apt-get install -y git python3.12-venv ffmpeg`.
 2. `git clone https://github.com/KopalnieKrypto/cctv-gpu-engine.git
-   /opt/src/cctv-gpu-engine` (≤ 30 s).
-3. `sudo /opt/src/cctv-gpu-engine/client-appliance/install.sh` (≤ 2 min,
-   pierwszy run instaluje deps).
+   /opt/src/cctv-gpu-engine`.
+3. `sudo /opt/src/cctv-gpu-engine/client-appliance/install.sh`.
 4. Edytuj `/etc/cctv-client/cameras.env` (default RTSP user/pass; opcjonalnie
    `platform.env` dla trybu platformowego), `sudo systemctl restart cctv-client`.
 5. W przeglądarce: `http://<ip>:8080/` → "Wykryj kamery" → wybierz
-   kamerę → "Nagraj 30 s" → sprawdź nagrany chunk w lokalnym buforze
+   kamerę → wykonaj krótki test nagrania → sprawdź nagrany chunk w lokalnym buforze
    (recorder jest buffer-only; w trybie platformowym chunk trafia do R2
    przez presigned URL).
 
-Cel: krok 1–5 ≤ 5 min. Jeśli przekracza, problem zwykle leży w sieci
-(multicast, firewall) i opisany jest w sekcji Troubleshooting.
+Zapisz rzeczywisty wallclock i urządzenie, jeśli wynik ma później służyć jako
+estymata instalacji. Problemy z multicastem, firewallem i RTSP są opisane w
+sekcji Troubleshooting.
 
 ## Pliki w tym katalogu
 
@@ -246,7 +252,7 @@ Cel: krok 1–5 ≤ 5 min. Jeśli przekracza, problem zwykle leży w sieci
 | `install.sh` | idempotentny installer **root** (user `cctv`, venv, deps via uv/pip, kopiowanie pakietów, etc) |
 | `install-user.sh` | idempotentny installer **user-mode** (#84; venv + config w `$HOME`, linger, `systemctl --user`) |
 | `cameras.env.example` | template dla `/etc/cctv-client/cameras.env` (RTSP_DEFAULT_USER/PASS + opcjonalne per-IP) |
-| `platform.env.example` | template dla `/etc/cctv-client/platform.env` (PLATFORM_URL, APPLIANCE_TOKEN, opcjonalny BUFFER_HOURS) |
+| `platform.env.example` | template dla `/etc/cctv-client/platform.env` (platform credentials + cold-start runtime fallbacks) |
 
 ## Tryby pracy: standalone vs platform mode (issue #30)
 
@@ -258,7 +264,7 @@ wyłącznie zawartością env-files w `/etc/cctv-client/`.
 | Tryb | Env | Zachowanie |
 |------|-----|------------|
 | **Standalone** | `cameras.env` (`RTSP_*`), `platform.env` pusty | Flask UI :8080, camera discovery + snapshoty, recorder buffer-only (rolling buffer na dysku, bez uploadu) |
-| **Platform mode** (Phase 4) | `PLATFORM_URL` + `APPLIANCE_TOKEN` + opcjonalny `BUFFER_HOURS` w `platform.env` | Flask UI :8080 + TaskPoller w tle, rejestracja w platformie, rolling buffer, upload przez presigned URL |
+| **Platform mode** (implemented) | `PLATFORM_URL` + `APPLIANCE_TOKEN` + opcjonalny `BUFFER_HOURS` w `platform.env` | Flask UI :8080 + TaskPoller w tle, rejestracja w platformie, rolling buffer, upload przez presigned URL |
 
 Wybór trybu zależy od tego, czy appliance jest podpięty do GPU Exchange:
 
@@ -272,6 +278,42 @@ Wybór trybu zależy od tego, czy appliance jest podpięty do GPU Exchange:
 - domyślnie `1` (dev / MVP demo) — wystarczy do krótkich task'ów rzędu kilku minut wstecz;
 - produkcja: ustaw `8` (lub więcej) — operator zlecający task forensic z 6-godzinnym horyzontem musi mieć w buforze odpowiedni materiał;
 - wartość nie-liczbowa lub `≤ 0` → boot validation fails fast (`systemctl status cctv-client` pokaże stack ze stringa `BUFFER_HOURS must be ...`).
+
+### Runtime config z platformy — issue #85
+
+Cztery wartości są edytowalne w panelu administracyjnym platformy i wracają
+w odpowiedzi `register` oraz w każdym `heartbeat`:
+
+| Env fallback przy starcie | Klucz z platformy | Wbudowany default | Co zmienia |
+|---|---|---:|---|
+| `BUFFER_HOURS` | `buffer_hours` | `1` | retencja rolling buffera |
+| `POLLING_INTERVAL_SECONDS` | `polling_interval_seconds` | `5` | odstęp pustego task pollera |
+| `HEARTBEAT_INTERVAL_SECONDS` | `heartbeat_interval_seconds` | `30` | rytm heartbeatów |
+| `UPLOAD_CHUNK_BYTES` | `upload_chunk_bytes` | `52428800` | rozmiar części uploadu (50 MiB) |
+
+Kolejność ważności jest celowa:
+
+1. appliance startuje z dodatnimi wartościami całkowitymi z env lub z
+   wbudowanych defaultów;
+2. poprawna wartość z platformy wygrywa od pierwszego `register`/`heartbeat`;
+3. następne zmiany z platformy są stosowane **na żywo**, bez restartu unit-a;
+4. błędna wartość z platformy jest ignorowana z warningiem, a ostatnia dobra
+   wartość pozostaje aktywna.
+
+`platform.env` jest więc zabezpieczeniem cold-start, nie trwałym źródłem prawdy
+po połączeniu z platformą. Aktualny template opisuje wszystkie cztery env-y.
+
+### Snapshoty `thumbnail` i `detail`
+
+Platformowy claim snapshota może zawierać `variant`:
+
+- `thumbnail` — RTSP skalowany maksymalnie do 640 px szerokości, JPEG qscale 4;
+- `detail` — RTSP w natywnej rozdzielczości streamu, JPEG qscale 2, do zoomu;
+- brak/nieznana wartość — bezpieczny fallback do `thumbnail`.
+
+Dla RTSP oba profile najpierw dekodują jedną sekundę streamu, żeby ominąć
+uszkodzoną klatkę otwartą w połowie GOP. Natywny HTTP snapshot z kamery jest
+przekazywany bez re-encode i ma tę samą rozdzielczość dla obu wariantów.
 
 ### Migracja legacy Docker → bare-metal (issue #29 — **DONE**)
 
