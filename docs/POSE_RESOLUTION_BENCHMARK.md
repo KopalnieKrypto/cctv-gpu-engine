@@ -61,24 +61,40 @@ Run on `cctv-vps` only after commit → push → VPS pull. Each arm is a separat
 process so per-process VRAM and model allocator state cannot leak between arms.
 Use the same ordered `--throughput-clip` arguments for all three commands.
 
-```bash
-export PATH=$HOME/.local/bin:$PATH
+The host development environment does not include the VLM stack. Run inside
+the pinned GPU-service image while bind-mounting only the current source and
+fixtures; mounting the whole repository over `/app` would hide the image's
+`.venv`. Use `--pid=host` so the process PID reported by Python matches the PID
+reported by `nvidia-smi` for the per-process VRAM sampler. Select an idle GPU
+before the run; the measured issue #86 run used identical RTX 5070 GPU 1.
 
-uv run python -m pipeline.pose_benchmark run-arm \
+```bash
+export DOCKER_HOST=unix:///var/run/docker.sock
+IMAGE=ghcr.io/kopalniekrypto/cctv-gpu-engine/gpu-service@sha256:332b8b1cda232519b19341d9f894c8b0a73c68d026964320f041e8120ef2ef81
+
+docker run --rm --gpus device=1 --pid=host --ipc=host \
+  --entrypoint /app/.venv/bin/python \
+  -v "$PWD/pipeline:/app/pipeline:ro" \
+  -v "$PWD/benchmarks:/app/benchmarks:ro" \
+  -v "$PWD/models:/app/models:ro" \
+  -v "$PWD/benchmark-results:/app/benchmark-results" \
+  -v cctv-hf-cache:/root/.cache/huggingface \
+  "$IMAGE" -u -m pipeline.pose_benchmark run-arm \
   --arm baseline_640 \
   --fixture benchmarks/pose-resolution/bending-pilot-v1/manifest.json \
   --zones benchmarks/pose-resolution/bending-pilot-v1/zones.json \
-  --model models/yolo11s-pose.onnx \
+  --model models/yolo11s-pose-640-issue86.onnx \
   --throughput-clip benchmarks/pose-resolution/bending-pilot-v1/clips/window-1.mp4 \
   --throughput-clip benchmarks/pose-resolution/bending-pilot-v1/clips/window-2.mp4 \
   --throughput-clip benchmarks/pose-resolution/bending-pilot-v1/clips/window-3.mp4 \
-  --film-1-fixture benchmarks/pose-resolution/films/film-1/manifest.json \
-  --film-2-fixture benchmarks/pose-resolution/films/film-2/manifest.json \
+  --film-1-fixture benchmarks/pose-resolution/films-v1/film-1/manifest.json \
+  --film-2-fixture benchmarks/pose-resolution/films-v1/film-2/manifest.json \
   --output benchmark-results/baseline_640.json
 ```
 
-Repeat with `--arm full_frame_1280 --model models/yolo11s-pose-1280.onnx`
-and with `--arm focused_roi_640 --model models/yolo11s-pose.onnx`.
+Repeat in fresh containers with
+`--arm full_frame_1280 --model models/yolo11s-pose-1280-issue86.onnx` and with
+`--arm focused_roi_640 --model models/yolo11s-pose-640-issue86.onnx`.
 
 Every long stage emits `BENCHMARK_HEARTBEAT` with flushed output at least once
 per 60 seconds. Detection partial JSON is checkpointed after every frame;
@@ -94,9 +110,9 @@ uv run python -m pipeline.pose_benchmark select \
   --arm-result benchmark-results/baseline_640.json \
   --arm-result benchmark-results/full_frame_1280.json \
   --arm-result benchmark-results/focused_roi_640.json \
-  --output benchmark-results/issue-86.json
+  --output benchmark-results/issue-86/selection.json
 
-POSE_BENCHMARK_RESULTS=benchmark-results/issue-86.json \
+POSE_BENCHMARK_RESULTS=benchmark-results/issue-86/selection.json \
   uv run pytest -m perf pipeline/pose_benchmark_perf_test.py
 ```
 
