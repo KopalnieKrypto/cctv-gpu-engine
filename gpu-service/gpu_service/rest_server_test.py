@@ -8,12 +8,40 @@ closure for ``create_app``.
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
-from gpu_service.rest_api import TaskRegistry
-from gpu_service.rest_server import make_dispatcher
+from gpu_service.rest_api import Readiness, TaskRegistry, create_app
+from gpu_service.rest_server import _warm_up_pipeline, make_dispatcher
+from pipeline.zones import ZoneConfig
+
+
+class TestWarmPipeline:
+    def test_forwards_server_loaded_zones_to_json_pipeline(self, mocker) -> None:
+        run_full_video_to_json = mocker.patch(
+            "pipeline.analyze.run_full_video_to_json", return_value=b'{"zones":[]}'
+        )
+        load_pose_model = mocker.patch("pipeline.pose_detector.load_pose_model")
+        zones = ZoneConfig.from_dict(
+            {
+                "zones": [
+                    {
+                        "id": "bending-1",
+                        "name": "Giętarka 1",
+                        "polygon": [[0, 0], [100, 0], [100, 100], [0, 100]],
+                    }
+                ]
+            }
+        )
+
+        pipeline = _warm_up_pipeline("model.onnx", "vlm")
+        result = pipeline([Path("chunk.mp4")], lambda _pct: None, zones=zones)
+
+        assert result == b'{"zones":[]}'
+        load_pose_model.assert_called_once_with("model.onnx")
+        assert run_full_video_to_json.call_args.kwargs["zones"] is zones
 
 
 class TestMakeDispatcher:
@@ -90,6 +118,62 @@ class TestMakeDispatcher:
         assert (tmp_path / "b").exists()
         assert registry.get("a") == {"state": "completed"}
         assert registry.get("b") == {"state": "completed"}
+
+
+class TestRestZonesIntegration:
+    def test_post_analyze_uses_server_config_and_ignores_client_path(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        server_config = tmp_path / "server-zones.json"
+        server_config.write_text(
+            """{
+              "zones": [{
+                "id": "bending-1",
+                "name": "Giętarka 1",
+                "polygon": [[0,0], [100,0], [100,100], [0,100]]
+              }]
+            }"""
+        )
+        monkeypatch.setenv("ZONES_CONFIG_PATH", str(server_config))
+        observed_zone_ids: list[list[str]] = []
+
+        def pipeline(chunks, progress, *, zones=None):
+            observed_zone_ids.append([zone.id for zone in zones.zones])
+            return b'{"zones":[]}'
+
+        registry = TaskRegistry()
+        readiness = Readiness()
+        readiness.mark_ready()
+        http = MagicMock()
+        http.download.side_effect = lambda url, dest: dest.write_bytes(b"FAKE_MP4")
+        executor = MagicMock()
+        executor.submit.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+        dispatch = make_dispatcher(
+            registry=registry,
+            workdir_root=tmp_path / "work",
+            http=http,
+            concat=MagicMock(),
+            pipeline=pipeline,
+            executor=executor,
+        )
+        app = create_app(readiness=readiness, registry=registry, dispatch=dispatch)
+        task_id = "11111111-2222-3333-4444-555555555555"
+
+        response = app.test_client().post(
+            "/analyze",
+            json={
+                "task_id": task_id,
+                "input_presigned_urls": ["https://r2.example.com/chunk.mp4"],
+                "result_presigned_url": (
+                    f"https://r2.example.com/tenants/acme/results/{task_id}/result.json?sig=x"
+                ),
+                "params": {"zones_config_path": "/client/chosen.json"},
+            },
+        )
+
+        assert response.status_code == 202
+        assert registry.get(task_id) == {"state": "completed"}
+        assert observed_zone_ids == [["bending-1"]]
 
 
 class TestMainServing:

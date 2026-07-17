@@ -39,6 +39,7 @@ from gpu_service.rest_api import (
 )
 from gpu_service.task_runner import ConcatFn, HttpClientLike, PipelineFn, run_task
 from gpu_service.vram_preflight import preflight_or_exit
+from pipeline.zones import ZoneConfig
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +85,7 @@ def make_dispatcher(
 
 
 def _warm_up_pipeline(model_path: str, classifier: str) -> PipelineFn:
-    """Load YOLO + VLM, return the pipeline closure for run_task.
+    """Load YOLO + VLM, return the zones-aware pipeline closure for run_task.
 
     Imported lazily so unit tests on macOS never touch onnxruntime-gpu.
     """
@@ -93,12 +94,18 @@ def _warm_up_pipeline(model_path: str, classifier: str) -> PipelineFn:
     # these bytes to the presigned result URL for the platform to render.
     from pipeline.analyze import run_full_video_to_json
 
-    def pipeline_fn(chunks: list[Path], progress: Callable[[int], None]) -> bytes:
+    def pipeline_fn(
+        chunks: list[Path],
+        progress: Callable[[int], None],
+        *,
+        zones: ZoneConfig | None = None,
+    ) -> bytes:
         return run_full_video_to_json(
             chunks=chunks,
             progress=progress,
             model_path=model_path,
             classifier=classifier,
+            zones=zones,
         )
 
     # Touch the detector once to warm CUDA / cuDNN — fail fast if GPU is
