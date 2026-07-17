@@ -8,6 +8,7 @@ import pytest
 from activity_mlp.training import (
     TrainingConfig,
     build_model,
+    export_onnx,
     model_spec,
     seed_everything,
     train_model,
@@ -126,3 +127,30 @@ def test_seeded_cuda_training_is_reproducible() -> None:
     torch.testing.assert_close(first_probabilities, second_probabilities, rtol=0, atol=0)
     assert first.best_epoch == second.best_epoch
     assert first.best_validation_accuracy == second.best_validation_accuracy
+
+
+@pytest.mark.gpu
+def test_onnx_export_matches_torch_softmax_and_is_under_10_mb(tmp_path) -> None:
+    import onnx
+    import onnxruntime as ort
+    import torch
+
+    model = build_model(
+        TrainingConfig(),
+        feature_mean=np.linspace(0.0, 1.0, FEATURE_DIM, dtype=np.float32),
+        feature_std=np.linspace(1.0, 2.0, FEATURE_DIM, dtype=np.float32),
+    ).cuda()
+    model.eval()
+    sample = np.random.default_rng(3407).normal(size=(3, FEATURE_DIM)).astype(np.float32)
+    with torch.no_grad():
+        expected = model(torch.as_tensor(sample, device="cuda")).cpu().numpy()
+    model_path = tmp_path / "activity-mlp.onnx"
+
+    export_onnx(model, model_path)
+
+    assert model_path.stat().st_size <= 10 * 1024 * 1024
+    onnx.checker.check_model(onnx.load(model_path))
+    session = ort.InferenceSession(str(model_path), providers=["CUDAExecutionProvider"])
+    assert "CUDAExecutionProvider" in session.get_providers()
+    actual = session.run(None, {"features": sample})[0]
+    np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=1e-6)

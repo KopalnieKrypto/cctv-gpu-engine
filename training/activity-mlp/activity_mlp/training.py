@@ -6,6 +6,7 @@ import os
 import random
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -199,6 +200,28 @@ def train_model(
         best_validation_loss=best_loss,
         epochs_ran=len(history),
         history=history,
+    )
+
+
+def export_onnx(model: object, output_path: str | Path) -> None:
+    """Export the frozen model with dynamic batch and softmax probabilities."""
+    import torch
+
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    model.eval()
+    device = next(model.parameters()).device
+    example = torch.zeros((1, FEATURE_DIM), dtype=torch.float32, device=device)
+    torch.onnx.export(
+        model,
+        example,
+        str(path),
+        input_names=["features"],
+        output_names=["probabilities"],
+        dynamic_axes={"features": {0: "batch"}, "probabilities": {0: "batch"}},
+        opset_version=18,
+        do_constant_folding=True,
+        dynamo=False,
     )
 
 
