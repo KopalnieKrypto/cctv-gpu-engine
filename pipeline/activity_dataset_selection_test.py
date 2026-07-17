@@ -18,6 +18,7 @@ def _candidate(index: int, *, confidence: float = 0.8, frame_hash: str | None = 
 def test_selection_deduplicates_frames_and_spreads_across_time() -> None:
     """A quota is filled by unique source frames across the available interval."""
     candidates = [_candidate(index) for index in range(4)]
+    candidates.append(_candidate(1, confidence=0.99, frame_hash="alternate-hash"))
     candidates.append(_candidate(10, confidence=0.95, frame_hash="hash-1"))
 
     selected = select_evenly_spaced(candidates, quota=3, used_frame_hashes=set())
@@ -28,6 +29,7 @@ def test_selection_deduplicates_frames_and_spreads_across_time() -> None:
         "sample-3",
     ]
     assert len({candidate["frame_sha256"] for candidate in selected}) == 3
+    assert len({candidate["sample_id"] for candidate in selected}) == 3
 
 
 def test_quota_plan_assigns_splits_without_frame_leakage() -> None:

@@ -16,6 +16,7 @@ def select_from_quota_plan(
     """Apply geometry/activity/split quotas with global frame deduplication."""
     selected: list[dict[str, Any]] = []
     used_frame_hashes: set[str] = set()
+    used_sample_ids: set[str] = set()
     for quota in quota_plan:
         group = [
             candidate
@@ -27,6 +28,7 @@ def select_from_quota_plan(
             group,
             quota=int(quota["count"]),
             used_frame_hashes=used_frame_hashes,
+            used_sample_ids=used_sample_ids,
         )
         for candidate in picks:
             selected_candidate = dict(candidate)
@@ -34,6 +36,7 @@ def select_from_quota_plan(
             selected_candidate["review_status"] = "pending"
             selected.append(selected_candidate)
             used_frame_hashes.add(candidate["frame_sha256"])
+            used_sample_ids.add(candidate["sample_id"])
     return selected
 
 
@@ -42,6 +45,7 @@ def select_evenly_spaced(
     *,
     quota: int,
     used_frame_hashes: set[str],
+    used_sample_ids: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Select ``quota`` unique frames spread across source video and time."""
     ordered = sorted(
@@ -53,12 +57,15 @@ def select_evenly_spaced(
         ),
     )
     eligible: list[dict[str, Any]] = []
-    seen = set(used_frame_hashes)
+    seen_frame_hashes = set(used_frame_hashes)
+    seen_sample_ids = set(used_sample_ids or ())
     for candidate in ordered:
         frame_hash = candidate["frame_sha256"]
-        if frame_hash in seen:
+        sample_id = candidate["sample_id"]
+        if frame_hash in seen_frame_hashes or sample_id in seen_sample_ids:
             continue
-        seen.add(frame_hash)
+        seen_frame_hashes.add(frame_hash)
+        seen_sample_ids.add(sample_id)
         eligible.append(candidate)
 
     if len(eligible) < quota:
