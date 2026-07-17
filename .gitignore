@@ -1,6 +1,7 @@
 # Models (large binaries)
 models/*.onnx
 models/*.pt
+models/activity-mlp-*.json
 
 # Test data
 test-data/*.mp4
