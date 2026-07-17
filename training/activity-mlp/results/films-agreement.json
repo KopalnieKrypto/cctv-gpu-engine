@@ -1,0 +1,4913 @@
+{
+  "created_at": "2026-07-17T14:20:13.734082+00:00",
+  "image_id": "sha256:e3d905606d7ecd0f1812b4fa8004d6c4bc1dcc164e12944087e9b34b9e88629d",
+  "methodology": {
+    "agreement_floor": 0.89,
+    "person_selection": "runtime-confirmed track present per second; ties by total sightings then track_id",
+    "sample_rate_fps": 1,
+    "scored_scope": "annotated seconds only; visible-presence gaps excluded"
+  },
+  "promotion_film_gate": {
+    "film-1": {
+      "at_least_vlm": false,
+      "mlp_at_least_89_percent": false,
+      "passed": false
+    },
+    "film-2": {
+      "at_least_vlm": true,
+      "mlp_at_least_89_percent": true,
+      "passed": true
+    },
+    "passed": false
+  },
+  "results": {
+    "film-1": {
+      "heuristic": {
+        "agreement": 0.6846153846153846,
+        "annotated_seconds": 130,
+        "confirmed_track_ids": [
+          1,
+          3,
+          4
+        ],
+        "confusion": {
+          "running": {
+            "missing": 0,
+            "running": 0,
+            "sitting": 0,
+            "standing": 0,
+            "walking": 0
+          },
+          "sitting": {
+            "missing": 0,
+            "running": 0,
+            "sitting": 12,
+            "standing": 14,
+            "walking": 5
+          },
+          "standing": {
+            "missing": 0,
+            "running": 0,
+            "sitting": 0,
+            "standing": 15,
+            "walking": 4
+          },
+          "walking": {
+            "missing": 2,
+            "running": 0,
+            "sitting": 9,
+            "standing": 7,
+            "walking": 62
+          }
+        },
+        "correct_seconds": 89,
+        "detections_path": "/tmp/issue34-resource-work/heuristic/detections.jsonl",
+        "detections_sha256": "2fc7ca0a420c13f5405d6f9db9dc478c683171e7bf0fb357963c3fe37bf1a0e5",
+        "per_second": [
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 27,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 28,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 29,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 30,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 31,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 32,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 33,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 34,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 35,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 36,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 37,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 38,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 39,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "standing",
+            "prediction": "walking",
+            "second": 41,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 42,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 43,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 44,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 45,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 46,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": null,
+            "second": 47,
+            "track_id": null
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 48,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 49,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 50,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 51,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 52,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 53,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 54,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 55,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 56,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 57,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 58,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 59,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 60,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 61,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 62,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 63,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 64,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 80,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 81,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 82,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 83,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 84,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "walking",
+            "second": 87,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "walking",
+            "second": 88,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "walking",
+            "second": 89,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "walking",
+            "second": 90,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "standing",
+            "second": 91,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "standing",
+            "second": 92,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "standing",
+            "second": 93,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "standing",
+            "second": 94,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "standing",
+            "second": 95,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "standing",
+            "second": 96,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "standing",
+            "second": 97,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "standing",
+            "second": 98,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "standing",
+            "second": 99,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "standing",
+            "second": 100,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "standing",
+            "second": 101,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "standing",
+            "second": 102,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "standing",
+            "second": 103,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "standing",
+            "second": 104,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 106,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 107,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 108,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 109,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 110,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 111,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 112,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 113,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 114,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 115,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 116,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 117,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 118,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 119,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 120,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 121,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "walking",
+            "second": 125,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 126,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 127,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 128,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 129,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 130,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 131,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 132,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 133,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 134,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 135,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 136,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 137,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 138,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 139,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 140,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 141,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 142,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 143,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 144,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": null,
+            "second": 150,
+            "track_id": null
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 151,
+            "track_id": 3
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 152,
+            "track_id": 3
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 153,
+            "track_id": 3
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 154,
+            "track_id": 3
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 155,
+            "track_id": 3
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 157,
+            "track_id": 3
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 158,
+            "track_id": 3
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 159,
+            "track_id": 3
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 160,
+            "track_id": 3
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 171,
+            "track_id": 3
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 172,
+            "track_id": 4
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 173,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 174,
+            "track_id": 4
+          },
+          {
+            "correct": false,
+            "expected": "standing",
+            "prediction": "walking",
+            "second": 176,
+            "track_id": 4
+          },
+          {
+            "correct": false,
+            "expected": "standing",
+            "prediction": "walking",
+            "second": 177,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 178,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 179,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 180,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 181,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 182,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 183,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 185,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 186,
+            "track_id": 4
+          },
+          {
+            "correct": false,
+            "expected": "standing",
+            "prediction": "walking",
+            "second": 187,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 188,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 189,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 190,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 191,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 192,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 193,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 194,
+            "track_id": 4
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 196,
+            "track_id": 4
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 197,
+            "track_id": 4
+          }
+        ]
+      },
+      "mlp": {
+        "agreement": 0.4230769230769231,
+        "annotated_seconds": 130,
+        "confirmed_track_ids": [
+          1,
+          3,
+          4
+        ],
+        "confusion": {
+          "running": {
+            "missing": 0,
+            "running": 0,
+            "sitting": 0,
+            "standing": 0,
+            "walking": 0
+          },
+          "sitting": {
+            "missing": 0,
+            "running": 0,
+            "sitting": 20,
+            "standing": 11,
+            "walking": 0
+          },
+          "standing": {
+            "missing": 0,
+            "running": 0,
+            "sitting": 0,
+            "standing": 11,
+            "walking": 8
+          },
+          "walking": {
+            "missing": 2,
+            "running": 10,
+            "sitting": 3,
+            "standing": 41,
+            "walking": 24
+          }
+        },
+        "correct_seconds": 55,
+        "detections_path": "/tmp/issue34-resource-work/mlp/detections.jsonl",
+        "detections_sha256": "edb14e5d981d1a9f027bf526952e58b704e06f66977a4e72499e9e2c14297c21",
+        "per_second": [
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 27,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 28,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 29,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 30,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 31,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 32,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 33,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 34,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 35,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 36,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 37,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "running",
+            "second": 38,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 39,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "standing",
+            "prediction": "walking",
+            "second": 41,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 42,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 43,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 44,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 45,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 46,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": null,
+            "second": 47,
+            "track_id": null
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 48,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 49,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 50,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 51,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 52,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 53,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 54,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 55,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 56,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 57,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 58,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 59,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 60,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "running",
+            "second": 61,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "running",
+            "second": 62,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "running",
+            "second": 63,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "running",
+            "second": 64,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 80,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 81,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 82,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 83,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 84,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "standing",
+            "second": 87,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "standing",
+            "second": 88,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "standing",
+            "second": 89,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "standing",
+            "second": 90,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "standing",
+            "second": 91,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "standing",
+            "second": 92,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 93,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 94,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 95,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 96,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 97,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 98,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 99,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "standing",
+            "second": 100,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "standing",
+            "second": 101,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "standing",
+            "second": 102,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "standing",
+            "second": 103,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "standing",
+            "second": 104,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 106,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 107,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 108,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 109,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 110,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 111,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 112,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 113,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 114,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 115,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 116,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 117,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 118,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 119,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 120,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 121,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 125,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 126,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 127,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 128,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 129,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 130,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 131,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 132,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 133,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 134,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 135,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 136,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 137,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 138,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 139,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 140,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 141,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 142,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 143,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 144,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": null,
+            "second": 150,
+            "track_id": null
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 151,
+            "track_id": 3
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "running",
+            "second": 152,
+            "track_id": 3
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "running",
+            "second": 153,
+            "track_id": 3
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "running",
+            "second": 154,
+            "track_id": 3
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "running",
+            "second": 155,
+            "track_id": 3
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "running",
+            "second": 157,
+            "track_id": 3
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 158,
+            "track_id": 3
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 159,
+            "track_id": 3
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 160,
+            "track_id": 3
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 171,
+            "track_id": 3
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 172,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 173,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 174,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 176,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 177,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 178,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 179,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 180,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 181,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 182,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 183,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 185,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 186,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 187,
+            "track_id": 4
+          },
+          {
+            "correct": false,
+            "expected": "standing",
+            "prediction": "walking",
+            "second": 188,
+            "track_id": 4
+          },
+          {
+            "correct": false,
+            "expected": "standing",
+            "prediction": "walking",
+            "second": 189,
+            "track_id": 4
+          },
+          {
+            "correct": false,
+            "expected": "standing",
+            "prediction": "walking",
+            "second": 190,
+            "track_id": 4
+          },
+          {
+            "correct": false,
+            "expected": "standing",
+            "prediction": "walking",
+            "second": 191,
+            "track_id": 4
+          },
+          {
+            "correct": false,
+            "expected": "standing",
+            "prediction": "walking",
+            "second": 192,
+            "track_id": 4
+          },
+          {
+            "correct": false,
+            "expected": "standing",
+            "prediction": "walking",
+            "second": 193,
+            "track_id": 4
+          },
+          {
+            "correct": false,
+            "expected": "standing",
+            "prediction": "walking",
+            "second": 194,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 196,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 197,
+            "track_id": 4
+          }
+        ]
+      },
+      "vlm": {
+        "agreement": 0.8846153846153846,
+        "annotated_seconds": 130,
+        "confirmed_track_ids": [
+          1,
+          3,
+          4
+        ],
+        "confusion": {
+          "running": {
+            "missing": 0,
+            "running": 0,
+            "sitting": 0,
+            "standing": 0,
+            "walking": 0
+          },
+          "sitting": {
+            "missing": 0,
+            "running": 0,
+            "sitting": 26,
+            "standing": 1,
+            "walking": 4
+          },
+          "standing": {
+            "missing": 0,
+            "running": 0,
+            "sitting": 0,
+            "standing": 15,
+            "walking": 4
+          },
+          "walking": {
+            "missing": 2,
+            "running": 0,
+            "sitting": 1,
+            "standing": 3,
+            "walking": 74
+          }
+        },
+        "correct_seconds": 115,
+        "detections_path": "/tmp/issue34-resource-work/vlm/detections.jsonl",
+        "detections_sha256": "d7592b74da8f96aa3c48f7ec9dd31b1b552e3ffbf19aef9cb790097b33e51439",
+        "per_second": [
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 27,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 28,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 29,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 30,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 31,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 32,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 33,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 34,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 35,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 36,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 37,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 38,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 39,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "standing",
+            "prediction": "walking",
+            "second": 41,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 42,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 43,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 44,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 45,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 46,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": null,
+            "second": 47,
+            "track_id": null
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 48,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 49,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 50,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 51,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 52,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 53,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 54,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 55,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 56,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 57,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 58,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 59,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 60,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 61,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 62,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 63,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 64,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 80,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 81,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 82,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 83,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 84,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "walking",
+            "second": 87,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "walking",
+            "second": 88,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 89,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 90,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 91,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 92,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 93,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 94,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 95,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 96,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 97,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 98,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 99,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 100,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 101,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 102,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 103,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "standing",
+            "second": 104,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 106,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 107,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 108,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 109,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 110,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 111,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 112,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 113,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 114,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 115,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 116,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 117,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 118,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 119,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 120,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 121,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "walking",
+            "second": 125,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 126,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 127,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 128,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 129,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 130,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 131,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 132,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 133,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 134,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 135,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 136,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "walking",
+            "second": 137,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 138,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 139,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 140,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 141,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 142,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 143,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 144,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": null,
+            "second": 150,
+            "track_id": null
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 151,
+            "track_id": 3
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 152,
+            "track_id": 3
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 153,
+            "track_id": 3
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 154,
+            "track_id": 3
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 155,
+            "track_id": 3
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 157,
+            "track_id": 3
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 158,
+            "track_id": 3
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 159,
+            "track_id": 3
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 160,
+            "track_id": 3
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 171,
+            "track_id": 3
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 172,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 173,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 174,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 176,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 177,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 178,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 179,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 180,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 181,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 182,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 183,
+            "track_id": 4
+          },
+          {
+            "correct": false,
+            "expected": "standing",
+            "prediction": "walking",
+            "second": 185,
+            "track_id": 4
+          },
+          {
+            "correct": false,
+            "expected": "standing",
+            "prediction": "walking",
+            "second": 186,
+            "track_id": 4
+          },
+          {
+            "correct": false,
+            "expected": "standing",
+            "prediction": "walking",
+            "second": 187,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 188,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 189,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 190,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 191,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 192,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 193,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "standing",
+            "prediction": "standing",
+            "second": 194,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 196,
+            "track_id": 4
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 197,
+            "track_id": 4
+          }
+        ]
+      }
+    },
+    "film-2": {
+      "heuristic": {
+        "agreement": 0.8,
+        "annotated_seconds": 90,
+        "confirmed_track_ids": [
+          1
+        ],
+        "confusion": {
+          "running": {
+            "missing": 0,
+            "running": 0,
+            "sitting": 0,
+            "standing": 0,
+            "walking": 0
+          },
+          "sitting": {
+            "missing": 0,
+            "running": 0,
+            "sitting": 40,
+            "standing": 0,
+            "walking": 3
+          },
+          "standing": {
+            "missing": 0,
+            "running": 0,
+            "sitting": 0,
+            "standing": 0,
+            "walking": 0
+          },
+          "walking": {
+            "missing": 1,
+            "running": 0,
+            "sitting": 11,
+            "standing": 3,
+            "walking": 32
+          }
+        },
+        "correct_seconds": 72,
+        "detections_path": "/tmp/issue34-resource-work-film2/heuristic/detections.jsonl",
+        "detections_sha256": "ac93b4c90061e59981843dfc2450c5c8f5739c78e9dd02f76df4dd549671edbe",
+        "per_second": [
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 25,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 26,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 27,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 28,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 29,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 30,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 31,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 32,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 33,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 34,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 35,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 36,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 37,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 38,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 39,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 40,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 41,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 42,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 53,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 54,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 55,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 56,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 57,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 58,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 59,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 60,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 61,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 62,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 63,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 64,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 65,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 66,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 67,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 68,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 69,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 70,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 71,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 72,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 73,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 75,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 76,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 77,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 78,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 79,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 80,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 81,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "walking",
+            "second": 85,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 86,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 87,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 88,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 89,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 90,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 91,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 92,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 93,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 94,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 95,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 96,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 97,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 98,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 99,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 102,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 103,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 104,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": null,
+            "second": 166,
+            "track_id": null
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 167,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 168,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 169,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 170,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 171,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "walking",
+            "second": 173,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "walking",
+            "second": 174,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 175,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 176,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 177,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 178,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 179,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 180,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 181,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 182,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 183,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 184,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 186,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 187,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 188,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 189,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 195,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 196,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 197,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 198,
+            "track_id": 1
+          }
+        ]
+      },
+      "mlp": {
+        "agreement": 0.9222222222222223,
+        "annotated_seconds": 90,
+        "confirmed_track_ids": [
+          1
+        ],
+        "confusion": {
+          "running": {
+            "missing": 0,
+            "running": 0,
+            "sitting": 0,
+            "standing": 0,
+            "walking": 0
+          },
+          "sitting": {
+            "missing": 0,
+            "running": 0,
+            "sitting": 41,
+            "standing": 0,
+            "walking": 2
+          },
+          "standing": {
+            "missing": 0,
+            "running": 0,
+            "sitting": 0,
+            "standing": 0,
+            "walking": 0
+          },
+          "walking": {
+            "missing": 1,
+            "running": 0,
+            "sitting": 4,
+            "standing": 0,
+            "walking": 42
+          }
+        },
+        "correct_seconds": 83,
+        "detections_path": "/tmp/issue34-resource-work-film2/mlp/detections.jsonl",
+        "detections_sha256": "b85f459b2954061038176fc4e0aff2ab7480a220c5f1c653123ad32fccc4aff8",
+        "per_second": [
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 25,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 26,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 27,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 28,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 29,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 30,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 31,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 32,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 33,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 34,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 35,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 36,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 37,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 38,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 39,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 40,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 41,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 42,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 53,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 54,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 55,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 56,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 57,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "walking",
+            "second": 58,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 59,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 60,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 61,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 62,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 63,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 64,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 65,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 66,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 67,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 68,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 69,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 70,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 71,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 72,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 73,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 75,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 76,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 77,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 78,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 79,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 80,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 81,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 85,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 86,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 87,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 88,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 89,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 90,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 91,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 92,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 93,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 94,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 95,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 96,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 97,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 98,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 99,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 102,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "sitting",
+            "second": 103,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 104,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": null,
+            "second": 166,
+            "track_id": null
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 167,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 168,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 169,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 170,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 171,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "walking",
+            "second": 173,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 174,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 175,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 176,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 177,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 178,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 179,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 180,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 181,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 182,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 183,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 184,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 186,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 187,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 188,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 189,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 195,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 196,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 197,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 198,
+            "track_id": 1
+          }
+        ]
+      },
+      "vlm": {
+        "agreement": 0.8888888888888888,
+        "annotated_seconds": 90,
+        "confirmed_track_ids": [
+          1
+        ],
+        "confusion": {
+          "running": {
+            "missing": 0,
+            "running": 0,
+            "sitting": 0,
+            "standing": 0,
+            "walking": 0
+          },
+          "sitting": {
+            "missing": 0,
+            "running": 0,
+            "sitting": 38,
+            "standing": 0,
+            "walking": 5
+          },
+          "standing": {
+            "missing": 0,
+            "running": 0,
+            "sitting": 0,
+            "standing": 0,
+            "walking": 0
+          },
+          "walking": {
+            "missing": 1,
+            "running": 0,
+            "sitting": 0,
+            "standing": 4,
+            "walking": 42
+          }
+        },
+        "correct_seconds": 80,
+        "detections_path": "/tmp/issue34-resource-work-film2/vlm/detections.jsonl",
+        "detections_sha256": "3be3dc941c9b5c0d82e2873f297fdfbcee6ec3dd2de23dc194663cbdb370177a",
+        "per_second": [
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 25,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 26,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 27,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 28,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 29,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 30,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 31,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 32,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 33,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 34,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 35,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 36,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 37,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 38,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 39,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 40,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 41,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 42,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 53,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 54,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 55,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 56,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 57,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "walking",
+            "second": 58,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "walking",
+            "second": 59,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 60,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 61,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 62,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 63,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 64,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 65,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 66,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 67,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 68,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 69,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 70,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 71,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 72,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 73,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 75,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 76,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 77,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 78,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 79,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 80,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 81,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "walking",
+            "second": 85,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 86,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 87,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 88,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 89,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 90,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 91,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 92,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 93,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 94,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 95,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 96,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 97,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 98,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 99,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 102,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 103,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 104,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": null,
+            "second": 166,
+            "track_id": null
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 167,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 168,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 169,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 170,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "walking",
+            "prediction": "standing",
+            "second": 171,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "walking",
+            "second": 173,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 174,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 175,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 176,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 177,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 178,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 179,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 180,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 181,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 182,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "sitting",
+            "prediction": "sitting",
+            "second": 183,
+            "track_id": 1
+          },
+          {
+            "correct": false,
+            "expected": "sitting",
+            "prediction": "walking",
+            "second": 184,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 186,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 187,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 188,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 189,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 195,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 196,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 197,
+            "track_id": 1
+          },
+          {
+            "correct": true,
+            "expected": "walking",
+            "prediction": "walking",
+            "second": 198,
+            "track_id": 1
+          }
+        ]
+      }
+    }
+  },
+  "schema_version": 1,
+  "truth": {
+    "interval_semantics": "integer seconds, start inclusive, end exclusive",
+    "path": "training/activity-mlp/films-ground-truth.json",
+    "sha256": "5f2b9523d075698030ddff0cc1f5f14897293daac3b536da20dedac8c132e731"
+  }
+}
