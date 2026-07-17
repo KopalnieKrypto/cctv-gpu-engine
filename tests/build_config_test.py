@@ -651,3 +651,45 @@ class TestGpuServiceDockerfileBundlesReidModel:
             f"  setup-models.sh: {script_pin.group(1)}\n"
             f"Bump both together when releasing a new osnet-x0_25-vN.0 tag."
         )
+
+
+class TestActivityMlpReleasePackaging:
+    """Issue #34's optional MLP is immutable in local and image runtimes."""
+
+    MODEL_SHA256 = "4835d97e368567838d2c6ba2ccaf329ee541de283cfa377e72188783ac89cd67"
+    METADATA_SHA256 = "d387b156934d8498e3afc0554324959164327848dd9fc57e1d507da9f789d8f4"
+    MODEL_FILE = "activity-mlp-v1.0.0.onnx"
+    METADATA_FILE = "activity-mlp-v1.0.0.json"
+
+    def test_setup_models_pins_and_fetches_model_and_metadata(self):
+        script = SETUP_MODELS_SCRIPT.read_text()
+
+        assert re.search(
+            rf'ACTIVITY_MLP_SHA256="\$\{{ACTIVITY_MLP_SHA256:-{self.MODEL_SHA256}\}}"',
+            script,
+        )
+        assert re.search(
+            rf'ACTIVITY_MLP_METADATA_SHA256="\$\{{ACTIVITY_MLP_METADATA_SHA256:-{self.METADATA_SHA256}\}}"',
+            script,
+        )
+        assert self.MODEL_FILE in script
+        assert self.METADATA_FILE in script
+        assert 'fetch_model "${ACTIVITY_MLP_URL}"' in script
+        assert 'fetch_model "${ACTIVITY_MLP_METADATA_URL}"' in script
+
+    def test_dockerfile_bundles_both_release_assets_with_identical_pins(self):
+        dockerfile = GPU_SERVICE_DOCKERFILE.read_text()
+
+        assert f"ARG ACTIVITY_MLP_SHA256={self.MODEL_SHA256}" in dockerfile
+        assert f"ARG ACTIVITY_MLP_METADATA_SHA256={self.METADATA_SHA256}" in dockerfile
+        assert f"/app/models/{self.MODEL_FILE}" in dockerfile
+        assert f"/app/models/{self.METADATA_FILE}" in dockerfile
+        assert "${ACTIVITY_MLP_SHA256}" in dockerfile
+        assert "${ACTIVITY_MLP_METADATA_SHA256}" in dockerfile
+
+    def test_image_exposes_optional_paths_without_promoting_failed_model(self):
+        dockerfile = GPU_SERVICE_DOCKERFILE.read_text()
+
+        assert f"ACTIVITY_MODEL_PATH=/app/models/{self.MODEL_FILE}" in dockerfile
+        assert f"ACTIVITY_MODEL_METADATA_PATH=/app/models/{self.METADATA_FILE}" in dockerfile
+        assert "CLASSIFIER=vlm" in dockerfile

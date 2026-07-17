@@ -56,6 +56,19 @@ ARG OSNET_MODEL_SHA256=86f6314fc903d6b3c7e90c8f4dc5f438fb640faf2840574f3170b749c
 RUN curl -fL "${OSNET_MODEL_URL}" -o /app/models/osnet_x0_25.onnx \
     && echo "${OSNET_MODEL_SHA256}  /app/models/osnet_x0_25.onnx" | sha256sum -c -
 
+# Experimental per-person activity MLP (issue #34). Bundle both the ONNX
+# weights and the metadata sidecar: the runtime refuses to load weights unless
+# the checksum, feature schema, and class order match this sidecar. The failed
+# frozen quality gate means this is opt-in; CLASSIFIER stays ``vlm`` below.
+ARG ACTIVITY_MLP_URL=https://github.com/KopalnieKrypto/cctv-gpu-engine/releases/download/activity-mlp-v1.0.0/activity-mlp-v1.0.0.onnx
+ARG ACTIVITY_MLP_SHA256=4835d97e368567838d2c6ba2ccaf329ee541de283cfa377e72188783ac89cd67
+ARG ACTIVITY_MLP_METADATA_URL=https://github.com/KopalnieKrypto/cctv-gpu-engine/releases/download/activity-mlp-v1.0.0/model-metadata.json
+ARG ACTIVITY_MLP_METADATA_SHA256=d387b156934d8498e3afc0554324959164327848dd9fc57e1d507da9f789d8f4
+RUN curl -fL "${ACTIVITY_MLP_URL}" -o /app/models/activity-mlp-v1.0.0.onnx \
+    && echo "${ACTIVITY_MLP_SHA256}  /app/models/activity-mlp-v1.0.0.onnx" | sha256sum -c - \
+    && curl -fL "${ACTIVITY_MLP_METADATA_URL}" -o /app/models/activity-mlp-v1.0.0.json \
+    && echo "${ACTIVITY_MLP_METADATA_SHA256}  /app/models/activity-mlp-v1.0.0.json" | sha256sum -c -
+
 # uv (preferred per CLAUDE.md). Pinned version keeps the build reproducible.
 COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /usr/local/bin/uv
 
@@ -129,6 +142,8 @@ COPY pipeline /app/pipeline
 # want a different model can still mount their own ./models/ over /app/models/
 # via docker-compose.yml — the bind-mount overlays the baked file.
 ENV MODEL_PATH=/app/models/yolo11s-pose.onnx \
+    ACTIVITY_MODEL_PATH=/app/models/activity-mlp-v1.0.0.onnx \
+    ACTIVITY_MODEL_METADATA_PATH=/app/models/activity-mlp-v1.0.0.json \
     CLASSIFIER=vlm \
     DASHBOARD_PORT=5000 \
     REST_PORT=5003 \

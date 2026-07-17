@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Download the canonical ONNX models into ./models/.
 #
-# Two models, both required for a default pipeline run:
+# Three model families are pinned here. YOLO and OSNet are required for a
+# default pipeline run; the activity MLP is fetched for the opt-in issue #34
+# runtime and remains experimental because its frozen quality gate failed:
 #
 #   1. YOLO11s-pose v1.0 — person detection + COCO keypoints (38 MB,
 #      ~150 ms/frame on RTX 5070, noticeably better detection than nano).
@@ -43,6 +45,17 @@ OSNET_TAG="${OSNET_TAG:-osnet-x0_25-v1.0}"
 OSNET_FILE="${OSNET_FILE:-osnet_x0_25.onnx}"
 OSNET_SHA256="${OSNET_SHA256:-86f6314fc903d6b3c7e90c8f4dc5f438fb640faf2840574f3170b749c4765ce6}"
 OSNET_URL="${OSNET_URL:-https://github.com/KopalnieKrypto/cctv-gpu-engine/releases/download/${OSNET_TAG}/${OSNET_FILE}}"
+
+# Per-person activity MLP (issue #34). This prerelease artifact is available
+# for reproducible evaluation and explicit ``--classifier mlp`` runs. VLM
+# remains the deployed default because the frozen held-out quality gate failed.
+ACTIVITY_MLP_TAG="${ACTIVITY_MLP_TAG:-activity-mlp-v1.0.0}"
+ACTIVITY_MLP_FILE="${ACTIVITY_MLP_FILE:-activity-mlp-v1.0.0.onnx}"
+ACTIVITY_MLP_SHA256="${ACTIVITY_MLP_SHA256:-4835d97e368567838d2c6ba2ccaf329ee541de283cfa377e72188783ac89cd67}"
+ACTIVITY_MLP_URL="${ACTIVITY_MLP_URL:-https://github.com/KopalnieKrypto/cctv-gpu-engine/releases/download/${ACTIVITY_MLP_TAG}/${ACTIVITY_MLP_FILE}}"
+ACTIVITY_MLP_METADATA_FILE="${ACTIVITY_MLP_METADATA_FILE:-activity-mlp-v1.0.0.json}"
+ACTIVITY_MLP_METADATA_SHA256="${ACTIVITY_MLP_METADATA_SHA256:-d387b156934d8498e3afc0554324959164327848dd9fc57e1d507da9f789d8f4}"
+ACTIVITY_MLP_METADATA_URL="${ACTIVITY_MLP_METADATA_URL:-https://github.com/KopalnieKrypto/cctv-gpu-engine/releases/download/${ACTIVITY_MLP_TAG}/model-metadata.json}"
 
 DEST_DIR="models"
 
@@ -105,3 +118,5 @@ fetch_model() {
 
 fetch_model "${MODEL_URL}" "${MODEL_FILE}" "${MODEL_SHA256}" "MODEL_SHA256"
 fetch_model "${OSNET_URL}" "${OSNET_FILE}" "${OSNET_SHA256}" "OSNET_SHA256"
+fetch_model "${ACTIVITY_MLP_URL}" "${ACTIVITY_MLP_FILE}" "${ACTIVITY_MLP_SHA256}" "ACTIVITY_MLP_SHA256"
+fetch_model "${ACTIVITY_MLP_METADATA_URL}" "${ACTIVITY_MLP_METADATA_FILE}" "${ACTIVITY_MLP_METADATA_SHA256}" "ACTIVITY_MLP_METADATA_SHA256"

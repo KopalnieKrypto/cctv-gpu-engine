@@ -348,6 +348,10 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     model_path = os.environ.get("MODEL_PATH", "models/yolo11s-pose.onnx")
+    activity_model_path = os.environ.get("ACTIVITY_MODEL_PATH", "models/activity-mlp-v1.0.0.onnx")
+    activity_model_metadata_path = os.environ.get(
+        "ACTIVITY_MODEL_METADATA_PATH", "models/activity-mlp-v1.0.0.json"
+    )
 
     def pipeline(
         chunks: list[Path],
@@ -365,6 +369,8 @@ def main(argv: list[str] | None = None) -> int:
             progress=progress,
             model_path=model_path,
             classifier=classifier,
+            activity_model_path=activity_model_path,
+            activity_model_metadata_path=activity_model_metadata_path,
             dump_detections=dump_detections,
         )
 

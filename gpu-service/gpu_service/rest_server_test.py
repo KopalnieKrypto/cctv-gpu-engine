@@ -36,12 +36,23 @@ class TestWarmPipeline:
             }
         )
 
-        pipeline = _warm_up_pipeline("model.onnx", "vlm")
+        pipeline = _warm_up_pipeline(
+            "model.onnx",
+            "mlp",
+            "activity.onnx",
+            "activity.json",
+        )
         result = pipeline([Path("chunk.mp4")], lambda _pct: None, zones=zones)
 
         assert result == b'{"zones":[]}'
         load_pose_model.assert_called_once_with("model.onnx")
         assert run_full_video_to_json.call_args.kwargs["zones"] is zones
+        assert run_full_video_to_json.call_args.kwargs["classifier"] == "mlp"
+        assert run_full_video_to_json.call_args.kwargs["activity_model_path"] == "activity.onnx"
+        assert (
+            run_full_video_to_json.call_args.kwargs["activity_model_metadata_path"]
+            == "activity.json"
+        )
 
 
 class TestMakeDispatcher:
@@ -313,6 +324,25 @@ class TestMainPreflight:
         kwargs = preflight.call_args.kwargs
         assert kwargs["classifier"] == "vlm"
         assert kwargs["env_override"] == "4096"
+
+    def test_main_forwards_activity_model_env_to_warmup(self, mocker, tmp_path, monkeypatch):
+        from gpu_service.rest_server import main
+
+        warmup, _fake_app, _fake_serve = self._stub_heavy_deps(mocker, tmp_path, monkeypatch)
+        monkeypatch.setenv("CLASSIFIER", "mlp")
+        monkeypatch.setenv("ACTIVITY_MODEL_PATH", "/models/activity.onnx")
+        monkeypatch.setenv("ACTIVITY_MODEL_METADATA_PATH", "/models/activity.json")
+        monkeypatch.setenv("VRAM_BUDGET_MB", "4096")
+        mocker.patch("gpu_service.rest_server.preflight_or_exit")
+
+        main()
+
+        warmup.assert_called_once_with(
+            "/app/models/yolo11s-pose.onnx",
+            "mlp",
+            "/models/activity.onnx",
+            "/models/activity.json",
+        )
 
     def test_main_aborts_before_warm_up_when_preflight_fails(self, mocker, tmp_path, monkeypatch):
         # Source incident reproduction: insufficient VRAM → exit(2) before

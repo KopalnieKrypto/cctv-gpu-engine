@@ -84,8 +84,13 @@ def make_dispatcher(
     return dispatch
 
 
-def _warm_up_pipeline(model_path: str, classifier: str) -> PipelineFn:
-    """Load YOLO + VLM, return the zones-aware pipeline closure for run_task.
+def _warm_up_pipeline(
+    model_path: str,
+    classifier: str,
+    activity_model_path: str,
+    activity_model_metadata_path: str,
+) -> PipelineFn:
+    """Load YOLO and return the zones-aware configured pipeline closure.
 
     Imported lazily so unit tests on macOS never touch onnxruntime-gpu.
     """
@@ -105,6 +110,8 @@ def _warm_up_pipeline(model_path: str, classifier: str) -> PipelineFn:
             progress=progress,
             model_path=model_path,
             classifier=classifier,
+            activity_model_path=activity_model_path,
+            activity_model_metadata_path=activity_model_metadata_path,
             zones=zones,
         )
 
@@ -122,6 +129,12 @@ def main() -> int:
     port = int(os.environ.get("REST_PORT", "5003"))
     model_path = os.environ.get("MODEL_PATH", "/app/models/yolo11s-pose.onnx")
     classifier = os.environ.get("CLASSIFIER", "vlm")
+    activity_model_path = os.environ.get(
+        "ACTIVITY_MODEL_PATH", "/app/models/activity-mlp-v1.0.0.onnx"
+    )
+    activity_model_metadata_path = os.environ.get(
+        "ACTIVITY_MODEL_METADATA_PATH", "/app/models/activity-mlp-v1.0.0.json"
+    )
     workdir_root = Path(os.environ.get("WORKDIR", "/tmp/cctv-jobs"))
     workdir_root.mkdir(parents=True, exist_ok=True)
 
@@ -139,7 +152,12 @@ def main() -> int:
     http = PresignedHttpClient()
 
     logger.info("warming up pipeline (model=%s classifier=%s)", model_path, classifier)
-    pipeline_fn = _warm_up_pipeline(model_path, classifier)
+    pipeline_fn = _warm_up_pipeline(
+        model_path,
+        classifier,
+        activity_model_path,
+        activity_model_metadata_path,
+    )
     readiness.mark_ready()
     logger.info("readiness flipped — accepting /analyze")
 

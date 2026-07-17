@@ -797,6 +797,29 @@ class TestMainCli:
         assert kwargs["classifier"] == "vlm"
         assert kwargs["env_override"] == "512"
 
+    def test_main_pipeline_forwards_activity_model_env(self, mocker, monkeypatch):
+        from gpu_service.worker import main
+
+        for key, value in self._full_env().items():
+            monkeypatch.setenv(key, value)
+        monkeypatch.setenv("CLASSIFIER", "mlp")
+        monkeypatch.setenv("ACTIVITY_MODEL_PATH", "/models/activity.onnx")
+        monkeypatch.setenv("ACTIVITY_MODEL_METADATA_PATH", "/models/activity.json")
+
+        mocker.patch("gpu_service.r2_client.R2Client")
+        loop_mock = mocker.patch("gpu_service.worker.worker_loop")
+        mocker.patch("gpu_service.dashboard.serve")
+        mocker.patch("gpu_service.worker.preflight_or_exit")
+        analyze = mocker.patch("pipeline.analyze.run_full_video_to_json", return_value=b"{}")
+
+        assert main([]) == 0
+        pipeline = loop_mock.call_args.kwargs["pipeline"]
+        pipeline([Path("chunk.mp4")], lambda _pct: None)
+
+        assert analyze.call_args.kwargs["classifier"] == "mlp"
+        assert analyze.call_args.kwargs["activity_model_path"] == "/models/activity.onnx"
+        assert analyze.call_args.kwargs["activity_model_metadata_path"] == "/models/activity.json"
+
     def test_main_aborts_before_constructing_r2_client_when_preflight_fails(
         self, mocker, monkeypatch
     ):
