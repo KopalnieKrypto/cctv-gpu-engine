@@ -15,6 +15,7 @@ def apply_review_decisions(
 ) -> list[dict[str, Any]]:
     """Apply reviewer-authored confidence, interval, and sample exclusions."""
     minimum_confidence = decisions.get("minimum_pose_confidence", {})
+    minimum_bbox_height = decisions.get("minimum_bbox_height", {})
     excluded_sample_ids = set(decisions.get("exclude_sample_ids", ()))
     excluded_intervals = decisions.get("exclude_intervals", ())
     accepted: list[dict[str, Any]] = []
@@ -23,6 +24,10 @@ def apply_review_decisions(
         if candidate["sample_id"] in excluded_sample_ids:
             continue
         if float(candidate["pose_confidence"]) < float(minimum_confidence.get(geometry_id, 0)):
+            continue
+        if geometry_id in minimum_bbox_height and float(candidate["bbox"][3]) < float(
+            minimum_bbox_height[geometry_id]
+        ):
             continue
 
         timestamp = float(candidate["source_timestamp_s"])

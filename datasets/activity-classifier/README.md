@@ -61,8 +61,9 @@ seconds. Human-readable review artifacts remain separate from final labels.
 Automatic activity hints are accepted only for the controlled intervals and clearly running public
 clips. Factory hints from the geometric classifier are review candidates, not ground truth. Final
 rows are not accepted until their activity, bbox, and pose overlay have been visually reviewed.
-The reproducible confidence thresholds, transition ranges, and rejected corrupt frame are recorded
-in `review-decisions.json`; `review-record.json` binds the final labels to checksums of every sheet.
+The reproducible confidence/bbox thresholds, transition ranges, and rejected corrupt frames are
+recorded in `review-decisions.json`; `review-record.json` binds the final labels to checksums of
+every sheet.
 
 ## Label schema
 

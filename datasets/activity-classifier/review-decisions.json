@@ -4,6 +4,9 @@
     "factory-bending": 0.75,
     "factory-floor": 0.75
   },
+  "minimum_bbox_height": {
+    "pexels-marathon": 250.0
+  },
   "exclude_intervals": [
     {
       "camera_geometry_id": "controlled-garden",
@@ -22,8 +25,43 @@
     {
       "camera_geometry_id": "controlled-patio",
       "activity": "sitting",
-      "start_s": 184.0,
+      "start_s": 183.5,
       "end_s": 185.0,
+      "reason": "Subject is rising from the chair; rejected during contact-sheet review."
+    },
+    {
+      "camera_geometry_id": "controlled-patio",
+      "activity": "walking",
+      "start_s": 57.0,
+      "end_s": 58.0,
+      "reason": "Subject is transitioning into the chair rather than walking."
+    },
+    {
+      "camera_geometry_id": "controlled-patio",
+      "activity": "walking",
+      "start_s": 75.0,
+      "end_s": 76.0,
+      "reason": "Subject is rising from the chair rather than walking."
+    },
+    {
+      "camera_geometry_id": "controlled-patio",
+      "activity": "walking",
+      "start_s": 80.0,
+      "end_s": 82.0,
+      "reason": "Subject has stopped and is transitioning into the chair."
+    },
+    {
+      "camera_geometry_id": "controlled-patio",
+      "activity": "walking",
+      "start_s": 171.5,
+      "end_s": 172.0,
+      "reason": "Subject is transitioning into the chair rather than walking."
+    },
+    {
+      "camera_geometry_id": "controlled-garden",
+      "activity": "sitting",
+      "start_s": 137.5,
+      "end_s": 138.0,
       "reason": "Subject is rising from the chair; rejected during contact-sheet review."
     },
     {
@@ -34,6 +72,7 @@
     }
   ],
   "exclude_sample_ids": [
-    "factory-bending-1ee52b56e1ec-000005500"
+    "factory-bending-1ee52b56e1ec-000005500",
+    "factory-bending-1ee52b56e1ec-000007000"
   ]
 }

@@ -106,3 +106,22 @@ def test_review_decisions_filter_confidence_intervals_and_sample_ids() -> None:
     filtered = apply_review_decisions(candidates, decisions)
 
     assert [candidate["sample_id"] for candidate in filtered] == ["sample-1", "sample-3"]
+
+
+def test_review_decisions_can_reject_tiny_distant_detections() -> None:
+    """A source-specific bbox floor prevents selecting a stationary bystander."""
+    candidates = []
+    for index, bbox_height in enumerate((249.0, 250.0)):
+        candidate = _candidate(index)
+        candidate.update(
+            {
+                "camera_geometry_id": "geometry-1",
+                "activity": "running",
+                "bbox": [10.0, 20.0, 100.0, bbox_height],
+            }
+        )
+        candidates.append(candidate)
+
+    filtered = apply_review_decisions(candidates, {"minimum_bbox_height": {"geometry-1": 250.0}})
+
+    assert [candidate["sample_id"] for candidate in filtered] == ["sample-1"]
