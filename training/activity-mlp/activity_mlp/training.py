@@ -39,6 +39,46 @@ def model_spec(config: TrainingConfig) -> dict:
     }
 
 
+def build_model(
+    config: TrainingConfig,
+    *,
+    feature_mean: np.ndarray,
+    feature_std: np.ndarray,
+    torch_module: object | None = None,
+) -> object:
+    """Build the fixed two-layer model with normalization inside its graph."""
+    if torch_module is None:
+        import torch as torch_module
+
+    nn = torch_module.nn
+
+    class ActivityMLP(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            safe_std = np.where(feature_std > 1e-6, feature_std, 1.0).astype(np.float32)
+            self.register_buffer("feature_mean", torch_module.as_tensor(feature_mean))
+            self.register_buffer("feature_std", torch_module.as_tensor(safe_std))
+            first_hidden, second_hidden = config.hidden_sizes
+            self.hidden = nn.Sequential(
+                nn.Linear(FEATURE_DIM, first_hidden),
+                nn.ReLU(),
+                nn.Dropout(config.dropout),
+                nn.Linear(first_hidden, second_hidden),
+                nn.ReLU(),
+                nn.Dropout(config.dropout),
+            )
+            self.output = nn.Linear(second_hidden, len(ACTIVITY_CLASSES))
+
+        def forward_logits(self, features):
+            normalized = (features - self.feature_mean) / self.feature_std
+            return self.output(self.hidden(normalized))
+
+        def forward(self, features):
+            return torch_module.softmax(self.forward_logits(features), dim=1)
+
+    return ActivityMLP()
+
+
 def seed_everything(seed: int, *, torch_module: object | None = None) -> None:
     """Seed every training RNG and request deterministic CUDA kernels."""
     if torch_module is None:

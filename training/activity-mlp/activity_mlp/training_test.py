@@ -3,8 +3,10 @@
 from dataclasses import asdict
 
 import numpy as np
+import pytest
 
-from activity_mlp.training import TrainingConfig, model_spec, seed_everything
+from activity_mlp.training import TrainingConfig, build_model, model_spec, seed_everything
+from pipeline.activity_features import FEATURE_DIM
 
 
 def test_training_configuration_is_frozen_without_a_hyperparameter_search() -> None:
@@ -73,3 +75,20 @@ def test_model_spec_is_two_small_relu_dropout_layers_and_softmax_output() -> Non
         "output_dimension": 4,
         "output_activation": "softmax",
     }
+
+
+@pytest.mark.gpu
+def test_model_runs_the_frozen_softmax_architecture_on_cuda() -> None:
+    import torch
+
+    assert torch.cuda.is_available()
+    model = build_model(
+        TrainingConfig(),
+        feature_mean=np.zeros(FEATURE_DIM, dtype=np.float32),
+        feature_std=np.ones(FEATURE_DIM, dtype=np.float32),
+    ).cuda()
+
+    probabilities = model(torch.zeros((2, FEATURE_DIM), device="cuda"))
+
+    assert tuple(probabilities.shape) == (2, 4)
+    torch.testing.assert_close(probabilities.sum(dim=1), torch.ones(2, device="cuda"))
