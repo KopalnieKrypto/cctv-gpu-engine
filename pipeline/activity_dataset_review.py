@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -17,6 +18,63 @@ _ACTIVITY_COLORS = {
     "walking": (0, 165, 255),
     "running": (0, 0, 255),
 }
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source_file:
+        for chunk in iter(lambda: source_file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def finalize_review(
+    *,
+    dataset_dir: Path,
+    review_dir: Path,
+    review_decisions_path: Path,
+    reviewer: str,
+) -> dict[str, Any]:
+    """Promote labels only when review sheets index every sample exactly once."""
+    labels_path = dataset_dir / "labels.jsonl"
+    with labels_path.open(encoding="utf-8") as labels_file:
+        samples = [json.loads(line) for line in labels_file if line.strip()]
+    label_ids = [sample["sample_id"] for sample in samples]
+
+    review_index_path = review_dir / "review-index.json"
+    review_index = json.loads(review_index_path.read_text(encoding="utf-8"))
+    indexed_ids = [sample_id for sample_ids in review_index.values() for sample_id in sample_ids]
+    if len(indexed_ids) != len(set(indexed_ids)) or sorted(indexed_ids) != sorted(label_ids):
+        raise ValueError("review index does not cover labels exactly once")
+
+    sheet_hashes: dict[str, str] = {}
+    for sheet_name in sorted(review_index):
+        sheet_path = review_dir / sheet_name
+        if not sheet_path.is_file():
+            raise ValueError(f"review index references missing sheet {sheet_name}")
+        sheet_hashes[sheet_name] = _sha256_file(sheet_path)
+
+    for sample in samples:
+        sample["review_status"] = "reviewed"
+    pending_labels_path = labels_path.with_suffix(".jsonl.pending")
+    with pending_labels_path.open("w", encoding="utf-8") as labels_file:
+        for sample in samples:
+            labels_file.write(json.dumps(sample, sort_keys=True) + "\n")
+    pending_labels_path.replace(labels_path)
+
+    record: dict[str, Any] = {
+        "schema_version": 1,
+        "reviewer": reviewer,
+        "sample_count": len(samples),
+        "sheet_count": len(review_index),
+        "review_index_sha256": _sha256_file(review_index_path),
+        "review_decisions_sha256": _sha256_file(review_decisions_path),
+        "sheet_sha256": sheet_hashes,
+    }
+    (dataset_dir / "review-record.json").write_text(
+        json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return record
 
 
 def _annotated_thumbnail(

@@ -10,6 +10,43 @@ from pathlib import Path
 from typing import Any
 
 
+def apply_review_decisions(
+    candidates: list[dict[str, Any]], decisions: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Apply reviewer-authored confidence, interval, and sample exclusions."""
+    minimum_confidence = decisions.get("minimum_pose_confidence", {})
+    excluded_sample_ids = set(decisions.get("exclude_sample_ids", ()))
+    excluded_intervals = decisions.get("exclude_intervals", ())
+    accepted: list[dict[str, Any]] = []
+    for candidate in candidates:
+        geometry_id = candidate["camera_geometry_id"]
+        if candidate["sample_id"] in excluded_sample_ids:
+            continue
+        if float(candidate["pose_confidence"]) < float(minimum_confidence.get(geometry_id, 0)):
+            continue
+
+        timestamp = float(candidate["source_timestamp_s"])
+        rejected_by_interval = False
+        for interval in excluded_intervals:
+            if geometry_id != interval["camera_geometry_id"]:
+                continue
+            if interval.get("activity") not in (None, candidate["activity"]):
+                continue
+            if interval.get("source_video_sha256") not in (
+                None,
+                candidate["source_video_sha256"],
+            ):
+                continue
+            start_s = float(interval.get("start_s", "-inf"))
+            end_s = float(interval.get("end_s", "inf"))
+            if start_s <= timestamp < end_s:
+                rejected_by_interval = True
+                break
+        if not rejected_by_interval:
+            accepted.append(candidate)
+    return accepted
+
+
 def select_from_quota_plan(
     candidates: list[dict[str, Any]], quota_plan: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -102,12 +139,15 @@ def materialize_selection(
     metadata_dir: Path,
     output_dir: Path,
     quota_plan_path: Path,
+    review_decisions_path: Path,
 ) -> dict[str, int]:
     """Select exact quotas and copy their immutable full-frame assets."""
     if output_dir.exists():
         raise RuntimeError(f"refusing to overwrite existing output directory {output_dir}")
     quota_plan = json.loads(quota_plan_path.read_text(encoding="utf-8"))["quotas"]
     candidates = load_candidates(candidate_roots)
+    decisions = json.loads(review_decisions_path.read_text(encoding="utf-8"))
+    candidates = apply_review_decisions(candidates, decisions)
     selected = select_from_quota_plan(candidates, quota_plan)
 
     output_dir.mkdir(parents=True)
@@ -134,6 +174,7 @@ def materialize_selection(
         "README.md",
         "geometries.json",
         "quota-plan.json",
+        "review-decisions.json",
         "source-manifest.json",
     ):
         shutil.copy2(metadata_dir / metadata_name, output_dir / metadata_name)
@@ -158,6 +199,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--metadata-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--quota-plan", type=Path, required=True)
+    parser.add_argument("--review-decisions", type=Path, required=True)
     return parser.parse_args(argv)
 
 
@@ -168,6 +210,7 @@ def main(argv: list[str] | None = None) -> int:
         metadata_dir=args.metadata_dir,
         output_dir=args.output,
         quota_plan_path=args.quota_plan,
+        review_decisions_path=args.review_decisions,
     )
     return 0
 

@@ -23,6 +23,7 @@ REQUIRED_SAMPLE_FIELDS = frozenset(
         "frame_sha256",
         "frame_width",
         "keypoints",
+        "review_status",
         "sample_id",
         "source_id",
         "split",
@@ -95,6 +96,11 @@ def validate_dataset(dataset_dir: str | Path, *, verify_assets: bool = True) -> 
         if sample["sample_id"] in sample_ids:
             raise DatasetValidationError(f"duplicate sample_id: {sample['sample_id']}")
         sample_ids.add(sample["sample_id"])
+        if sample["review_status"] != "reviewed":
+            raise DatasetValidationError(
+                f"sample {sample_number}: review_status must be 'reviewed'; "
+                f"found {sample['review_status']!r}"
+            )
 
         x, y, width, height = sample["bbox"]
         frame_width = sample["frame_width"]

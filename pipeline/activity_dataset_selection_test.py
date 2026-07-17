@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from pipeline.activity_dataset_selection import select_evenly_spaced, select_from_quota_plan
+from pipeline.activity_dataset_selection import (
+    apply_review_decisions,
+    select_evenly_spaced,
+    select_from_quota_plan,
+)
 
 
 def _candidate(index: int, *, confidence: float = 0.8, frame_hash: str | None = None) -> dict:
@@ -63,3 +67,42 @@ def test_quota_plan_assigns_splits_without_frame_leakage() -> None:
     ]
     assert len({candidate["frame_sha256"] for candidate in selected}) == 3
     assert all(candidate["review_status"] == "pending" for candidate in selected)
+
+
+def test_review_decisions_filter_confidence_intervals_and_sample_ids() -> None:
+    """Visual-review corrections are reproducible inputs to quota selection."""
+    candidates = []
+    for index, confidence in enumerate((0.74, 0.75, 0.9, 0.95)):
+        candidate = _candidate(index, confidence=confidence)
+        candidate.update(
+            {
+                "camera_geometry_id": "geometry-1",
+                "activity": "sitting",
+                "source_timestamp_s": 100.0 + index,
+            }
+        )
+        candidates.append(candidate)
+    candidates.append(
+        {
+            **_candidate(10, confidence=0.99),
+            "camera_geometry_id": "geometry-2",
+            "activity": "walking",
+            "source_timestamp_s": 10.0,
+        }
+    )
+    decisions = {
+        "minimum_pose_confidence": {"geometry-1": 0.75},
+        "exclude_intervals": [
+            {
+                "camera_geometry_id": "geometry-1",
+                "activity": "sitting",
+                "start_s": 102.0,
+                "end_s": 103.0,
+            }
+        ],
+        "exclude_sample_ids": ["sample-10"],
+    }
+
+    filtered = apply_review_decisions(candidates, decisions)
+
+    assert [candidate["sample_id"] for candidate in filtered] == ["sample-1", "sample-3"]

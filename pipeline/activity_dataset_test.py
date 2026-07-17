@@ -42,6 +42,7 @@ def _valid_sample(index: int) -> dict:
         "split": "train",
         "source_id": "fixture-source",
         "synthetic": False,
+        "review_status": "reviewed",
     }
 
 
@@ -146,11 +147,24 @@ def test_each_sample_requires_the_published_label_fields(tmp_path) -> None:  # n
         DatasetValidationError,
         match=(
             r"sample 1: missing required fields: activity, bbox, camera_geometry_id, "
-            r"frame_height, frame_path, frame_sha256, frame_width, keypoints, sample_id, "
-            r"source_id, split, synthetic"
+            r"frame_height, frame_path, frame_sha256, frame_width, keypoints, review_status, "
+            r"sample_id, source_id, split, synthetic"
         ),
     ):
         validate_dataset(tmp_path)
+
+
+def test_every_final_sample_must_be_visually_reviewed(tmp_path) -> None:  # noqa: ANN001
+    """Pending prelabels cannot pass as the completed ground-truth corpus."""
+    samples = _six_geometry_samples()
+    samples[0]["review_status"] = "pending"
+    _write_samples(tmp_path, samples)
+
+    with pytest.raises(
+        DatasetValidationError,
+        match=r"sample 1: review_status must be 'reviewed'; found 'pending'",
+    ):
+        validate_dataset(tmp_path, verify_assets=False)
 
 
 def test_bbox_must_be_xywh_pixels_inside_the_source_frame(tmp_path) -> None:  # noqa: ANN001

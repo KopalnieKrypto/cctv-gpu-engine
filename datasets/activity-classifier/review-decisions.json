@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "minimum_pose_confidence": {
+    "factory-bending": 0.75,
+    "factory-floor": 0.75
+  },
+  "exclude_intervals": [
+    {
+      "camera_geometry_id": "controlled-garden",
+      "activity": "sitting",
+      "start_s": 104.0,
+      "end_s": 105.0,
+      "reason": "Subject is rising from the chair; rejected during contact-sheet review."
+    },
+    {
+      "camera_geometry_id": "controlled-patio",
+      "activity": "standing",
+      "start_s": 43.0,
+      "end_s": 46.0,
+      "reason": "The provisional standing interval is continued walking."
+    },
+    {
+      "camera_geometry_id": "controlled-patio",
+      "activity": "sitting",
+      "start_s": 184.0,
+      "end_s": 185.0,
+      "reason": "Subject is rising from the chair; rejected during contact-sheet review."
+    },
+    {
+      "camera_geometry_id": "pexels-track",
+      "activity": "running",
+      "start_s": 28.0,
+      "reason": "Foreground runner leaves frame and pose selection switches to distant people."
+    }
+  ],
+  "exclude_sample_ids": [
+    "factory-bending-1ee52b56e1ec-000005500"
+  ]
+}
