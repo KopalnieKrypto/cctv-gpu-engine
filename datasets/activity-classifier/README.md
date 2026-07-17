@@ -7,6 +7,7 @@ reviewed person in one unique full source frame; images are resized without crop
 The materialized corpus is generated as a checksummed release payload because the operational
 camera frames cannot be redistributed in the public source repository. `labels.jsonl`, source
 checksums, camera metadata, split assignments, and the public-source rights remain versioned here.
+Private archive names, byte sizes, and checksums are recorded in `ARTIFACTS.md`.
 
 ## Camera geometries
 
@@ -74,6 +75,7 @@ every sheet.
 - `keypoints`: exactly 17 COCO-order `{x, y, vis}` objects; `vis` is confidence in `[0, 1]`.
 - `camera_geometry_id`, `source_id`, source timestamp/video checksum, split, image checksum, and
   image dimensions.
+- `review_status`: must be `reviewed`; pending prelabels fail final validation.
 
 Run metadata-only validation with `verify_assets=False`; release verification checks every frame
 file, SHA-256, and pixel dimension.

@@ -1,0 +1,10 @@
+{
+  "activity:running": 250,
+  "activity:sitting": 250,
+  "activity:standing": 250,
+  "activity:walking": 250,
+  "samples": 1000,
+  "split:test": 150,
+  "split:train": 700,
+  "split:validation": 150
+}
