@@ -13,6 +13,7 @@ should not break these tests.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from pathlib import Path
@@ -465,6 +466,105 @@ def test_run_platform_session_applies_settings_from_register_and_heartbeat() -> 
 
     # Register block applied first, then the heartbeat block.
     assert applied == [register_settings, heartbeat_settings]
+
+
+def test_run_platform_session_logs_applied_settings_deltas(caplog) -> None:
+    """A config change that reaches the box must leave a trace in the journal.
+
+    ``RuntimeConfig.apply`` returns exactly the keys that changed so the caller
+    can log the delta, but both call sites used to discard the return value.
+    That made platform→box config propagation unobservable: proving a value had
+    landed meant timing heartbeat sleep gaps in journald by hand. An empty
+    delta (the steady-state case, every beat) must stay silent — otherwise the
+    log fills with no-ops and the signal is worth nothing."""
+    import httpx
+    import respx
+
+    from client_agent.appliance import run_platform_session
+    from client_agent.platform import PlatformClient
+
+    register_delta = {"buffer_hours": 5}
+    heartbeat_delta = {"heartbeat_interval_seconds": 25}
+    deltas = [register_delta, heartbeat_delta]
+
+    class DeltaReturningRuntimeConfig:
+        heartbeat_interval_seconds = 30
+
+        def apply(self, settings: dict | None) -> dict:
+            return deltas.pop(0) if deltas else {}
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/register").mock(
+            return_value=httpx.Response(
+                200, json={"appliance_id": "a", "tenant_id": "t", "settings": {"buffer_hours": 5}}
+            )
+        )
+        mock.post("/appliance/cameras").mock(return_value=httpx.Response(204))
+        mock.post("/appliance/heartbeat").mock(
+            return_value=httpx.Response(
+                200,
+                json={"config": {"cameras": [], "settings": {"heartbeat_interval_seconds": 25}}},
+            )
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        with caplog.at_level(logging.INFO, logger="client_agent.appliance"):
+            run_platform_session(
+                platform_client=client,
+                discover_fn=lambda: [_make_camera()],
+                recorder_factory=lambda: MagicMock(),
+                environ={},
+                runtime_config=DeltaReturningRuntimeConfig(),
+            )
+
+    messages = [r.getMessage() for r in caplog.records]
+    register_logs = [m for m in messages if "buffer_hours" in m and "5" in m]
+    heartbeat_logs = [m for m in messages if "heartbeat_interval_seconds" in m and "25" in m]
+    assert register_logs, f"register-delivered delta not logged; got {messages}"
+    assert heartbeat_logs, f"heartbeat-delivered delta not logged; got {messages}"
+
+
+def test_run_platform_session_does_not_log_when_settings_unchanged(caplog) -> None:
+    """Steady state is the common case: the same settings arrive on every beat
+    and ``apply`` returns an empty delta. Logging that would bury the real
+    changes, so an empty delta must produce no config line at all."""
+    import httpx
+    import respx
+
+    from client_agent.appliance import run_platform_session
+    from client_agent.platform import PlatformClient
+
+    class NoDeltaRuntimeConfig:
+        heartbeat_interval_seconds = 30
+
+        def apply(self, settings: dict | None) -> dict:
+            return {}
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/register").mock(
+            return_value=httpx.Response(
+                200, json={"appliance_id": "a", "tenant_id": "t", "settings": {"buffer_hours": 5}}
+            )
+        )
+        mock.post("/appliance/cameras").mock(return_value=httpx.Response(204))
+        mock.post("/appliance/heartbeat").mock(
+            return_value=httpx.Response(
+                200, json={"config": {"cameras": [], "settings": {"buffer_hours": 5}}}
+            )
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        with caplog.at_level(logging.INFO, logger="client_agent.appliance"):
+            run_platform_session(
+                platform_client=client,
+                discover_fn=lambda: [_make_camera()],
+                recorder_factory=lambda: MagicMock(),
+                environ={},
+                runtime_config=NoDeltaRuntimeConfig(),
+            )
+
+    config_logs = [r.getMessage() for r in caplog.records if "runtime config" in r.getMessage()]
+    assert config_logs == [], f"empty delta must not log; got {config_logs}"
 
 
 def test_run_platform_session_without_runtime_config_skips_apply() -> None:

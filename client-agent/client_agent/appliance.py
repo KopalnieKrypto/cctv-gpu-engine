@@ -382,7 +382,9 @@ def run_platform_session(
     # cold-start seeds. A single-iteration / legacy caller passes no
     # runtime_config and the settings are simply ignored.
     if runtime_config is not None:
-        runtime_config.apply(register_response.settings)
+        applied = runtime_config.apply(register_response.settings)
+        if applied:
+            logger.info("runtime config applied from register: %s", applied)
 
     cameras = discover_fn()
     if not cameras:
@@ -434,7 +436,9 @@ def run_platform_session(
     # admin edit in the platform UI lands on the next beat without an appliance
     # restart (issue #85).
     if runtime_config is not None:
-        runtime_config.apply(response.settings)
+        applied = runtime_config.apply(response.settings)
+        if applied:
+            logger.info("runtime config applied from heartbeat: %s", applied)
 
     def _spawn(cam: dict) -> Any:
         rec = recorder_factory()
