@@ -151,20 +151,18 @@ def rtsp_stream(mediamtx_url: str):
             proc.wait(timeout=3)
 
 
-def _normalize_chunks(cam_dir: Path) -> list[Path]:
-    """Rename short-recording outputs to the chunk_NNN.mp4 pattern.
+def _buffer_chunks(cam_dir: Path) -> list[Path]:
+    """The chunks a buffer-mode recording left for :class:`RollingBuffer`.
 
-    ``build_ffmpeg_cmd`` only switches to the segment muxer when
-    ``duration_s > SEGMENT_SECONDS`` (3600s). A 5-second integration
-    recording therefore lands in ``recording.mp4`` while
-    :class:`RollingBuffer.chunks_in_range` scans for ``chunk_*.mp4``.
-    Renaming bridges the two layouts without touching production code
-    — production recordings are always > 1h in buffer mode (see the
-    appliance reconcile path's default ``duration_s``)."""
-    files = sorted(cam_dir.glob("*.mp4"))
-    for i, src in enumerate(files, start=1):
-        if not src.name.startswith("chunk_"):
-            src.rename(cam_dir / f"chunk_{i:03d}.mp4")
+    Passing ``camera_id`` selects buffer mode, which *always* uses the segment
+    muxer, so the recorder already writes ``chunk_*.mp4`` regardless of how
+    short the recording is — the same glob the buffer scans for. This used to
+    rename ``recording.mp4`` into place on the belief that segmenting only
+    kicked in above ``SEGMENT_SECONDS``; that only holds for the non-buffer
+    branch, so the rename never actually fired.
+
+    Sorting lexically is sorting chronologically — see ``BUFFER_CHUNK_TEMPLATE``
+    (issue #90)."""
     return sorted(cam_dir.glob("chunk_*.mp4"))
 
 
@@ -260,7 +258,7 @@ def test_full_pipeline_mediamtx_to_status_uploaded(rtsp_stream: str, tmp_path: P
         output_dir_factory=lambda c: str(buffer_dir / c),
     )
     rec.start(url=rtsp_stream, duration_s=5, camera_id=cam_id)
-    chunks = _normalize_chunks(buffer_dir / cam_id)
+    chunks = _buffer_chunks(buffer_dir / cam_id)
     assert chunks, "no usable chunks after recorder finished"
 
     # 2. Build a Task whose window overlaps the chunks' inferred range

@@ -825,7 +825,9 @@ def main(argv: Sequence[str] | None = None) -> None:
 
         # Buffer-mode recorder factory (issue #27): each platform-approved
         # camera gets its own BackgroundRecorder writing into the per-camera
-        # rolling buffer at ``BUFFER_DIR/{camera_id}/chunk_NNN.mp4``. The
+        # rolling buffer at ``BUFFER_DIR/{camera_id}/chunk_<UTC timestamp>.mp4``
+        # (timestamp-named so hourly respawns append instead of overwriting —
+        # issue #90; retention is what bounds the dir, not the filenames). The
         # uploader is None — buffer mode skips R2; the task poller picks
         # up chunks from the buffer on demand.
         import subprocess as _sp

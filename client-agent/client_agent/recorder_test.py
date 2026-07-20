@@ -13,11 +13,16 @@ code can pass ``subprocess.run`` directly with no shim.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import threading
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from client_agent.recorder import (
+    BUFFER_CHUNK_TEMPLATE,
+    BUFFER_SEGMENT_SECONDS,
     Recorder,
     RecorderBusy,
     build_ffmpeg_cmd,
@@ -160,6 +165,179 @@ def test_build_ffmpeg_cmd_always_uses_tcp_transport_and_stream_copy() -> None:
         assert cmd[c_index + 1] == "copy"
         # Output (last positional) sits under the requested directory.
         assert cmd[-1].startswith("/tmp/rec-xyz/")
+
+
+# ----- 7. buffer mode: segment names survive a recorder respawn (issue #90) -----
+
+
+def test_build_ffmpeg_cmd_buffer_mode_names_segments_uniquely_across_respawns() -> None:
+    """Buffer-mode chunk names must not collide between recorder runs.
+
+    The production recorder respawns roughly hourly (``-t 3600`` is a
+    liveness cadence, not a retention knob — see #85). With the old
+    ``chunk_%03d.mp4`` template every respawn restarted the counter at 000
+    and ffmpeg **overwrote in place**, destroying in-retention history: an
+    appliance configured for ``buffer_hours=5`` held ~1 h of footage
+    (observed on cctv-vps-camera, #90).
+
+    So the naming contract is *time*-derived, not counter-derived. We assert
+    it the way ffmpeg realises it: expand the emitted template with
+    ``strftime`` at two wallclock instants one respawn apart and require
+    distinct names. A counter-based template collapses both to the same
+    filename and fails here."""
+    cmd = build_ffmpeg_cmd(
+        url="rtsp://camera.local/stream",
+        duration_s=3600,
+        output_dir="/tmp/buf/cam-1",
+        buffer_mode=True,
+    )
+    template = Path(cmd[-1]).name
+
+    first_run = datetime(2026, 7, 20, 12, 19, 0, tzinfo=UTC)
+    respawn = datetime(2026, 7, 20, 15, 0, 41, tzinfo=UTC)
+
+    assert first_run.strftime(template) != respawn.strftime(template)
+
+
+# ----- 8. buffer mode: names stay discoverable by RollingBuffer (issue #90) -----
+
+
+def test_buffer_mode_chunk_names_are_found_by_rolling_buffer(tmp_path) -> None:  # noqa: ANN001
+    """The recorder's filenames and the buffer's ``chunk_*.mp4`` glob are one
+    contract across two modules, and #90 changed one side of it.
+
+    Nothing in :mod:`client_agent.buffer` was touched, so this test is what
+    justifies that: expand the real template into real files and drive the
+    buffer's two public queries against them. If a future rename drops the
+    ``chunk_`` prefix, ``chunks_in_range`` silently returns nothing and every
+    task reports "no footage" — a failure mode with no other alarm on it.
+
+    Retention is asserted here too, deliberately. Unique names removed the
+    accidental ~1 h cap that overwriting used to provide, so ``trim_old_chunks``
+    is now the only thing bounding disk (#90 acceptance, #51)."""
+    from client_agent.buffer import RollingBuffer
+
+    cam_dir = tmp_path / "cam-1"
+    cam_dir.mkdir(parents=True)
+
+    now = datetime(2026, 7, 20, 15, 0, 0, tzinfo=UTC)
+    template = Path(
+        build_ffmpeg_cmd(
+            url="rtsp://camera.local/stream",
+            duration_s=3600,
+            output_dir=str(cam_dir),
+            buffer_mode=True,
+        )[-1]
+    ).name
+
+    # Six segments one minute apart, the oldest 5 minutes back — as ffmpeg
+    # would name them, with mtime set to the segment's close time.
+    written: list[Path] = []
+    for age_min in range(5, -1, -1):
+        closed_at = now - timedelta(minutes=age_min)
+        path = cam_dir / closed_at.strftime(template)
+        path.write_bytes(b"segment")
+        os.utime(path, (closed_at.timestamp(), closed_at.timestamp()))
+        written.append(path)
+
+    assert len({p.name for p in written}) == 6, "template produced colliding names"
+
+    buffer = RollingBuffer(base_dir=tmp_path, buffer_hours=1, segment_seconds=60)
+
+    # Discovery: the glob still matches, and mtime ordering still works.
+    # The window sits mid-segment (…:30) on purpose — landing it exactly on a
+    # boundary would also pull in the neighbouring chunk, since overlap is
+    # inclusive at both ends, and obscure what this test is actually about.
+    assert buffer.has_recorded("cam-1") is True
+    found = buffer.chunks_in_range(
+        "cam-1",
+        start=now - timedelta(seconds=150),
+        end=now - timedelta(seconds=90),
+    )
+    assert [c.path.name for c in found] == [
+        (now - timedelta(minutes=2)).strftime(template),
+        (now - timedelta(minutes=1)).strftime(template),
+    ]
+
+    # Retention: with a 2-minute window the three oldest segments go.
+    buffer.set_buffer_hours(0)
+    deleted = buffer.trim_old_chunks("cam-1", now=now - timedelta(minutes=2))
+    assert deleted == 4
+    assert sorted(p.name for p in cam_dir.glob("chunk_*.mp4")) == [
+        (now - timedelta(minutes=1)).strftime(template),
+        now.strftime(template),
+    ]
+
+
+# ----- 9. buffer mode: the flags the rest of the appliance assumes -----
+
+
+def test_build_ffmpeg_cmd_buffer_mode_emits_strftime_segments_bounded_by_duration() -> None:
+    """Pin the whole buffer-mode flag set — the only branch that runs in
+    production, and until #90 the only one with no test at all. That gap is
+    how a filename template that overwrote live footage reached a customer box.
+
+    Each flag has a distinct failure mode if dropped:
+
+    * ``-strftime 1`` — without it ffmpeg treats ``%Y…`` as literal text and
+      every segment fights over one filename. Strictly worse than the #90 bug.
+    * ``-segment_time 60`` — must equal ``BUFFER_SEGMENT_SECONDS``, which the
+      appliance also feeds to ``RollingBuffer(segment_seconds=)``. Disagreement
+      silently skews every chunk's inferred start time.
+    * ``-t duration_s`` — the respawn cadence (#85). Dropping it lets one
+      ffmpeg run forever, so a wedged RTSP connection is never noticed.
+    * ``-reset_timestamps 1`` — each chunk must start at 0 to be independently
+      trimmable.
+    """
+    cmd = build_ffmpeg_cmd(
+        url="rtsp://camera.local/stream",
+        duration_s=3600,
+        output_dir="/tmp/buf/cam-1",
+        buffer_mode=True,
+    )
+
+    def _value_after(flag: str) -> str:
+        assert flag in cmd, f"buffer mode must pass {flag}"
+        return cmd[cmd.index(flag) + 1]
+
+    assert _value_after("-f") == "segment"
+    assert _value_after("-strftime") == "1"
+    assert _value_after("-segment_time") == str(BUFFER_SEGMENT_SECONDS)
+    assert _value_after("-reset_timestamps") == "1"
+    # Respawn cadence stays bounded and stays decoupled from buffer_hours (#85).
+    assert _value_after("-t") == "3600"
+    assert cmd[-1] == f"/tmp/buf/cam-1/{BUFFER_CHUNK_TEMPLATE}"
+
+
+# ----- 10. buffer mode: lexical order == chronological order -----
+
+
+def test_buffer_mode_chunk_names_sort_lexically_in_time_order() -> None:
+    """``%03d`` gave lexical == chronological sort for free; the timestamp
+    template must not quietly give that up.
+
+    ``Recorder._run`` and the mediamtx integration test both reach for a plain
+    ``sorted(glob(...))``, and a human reading ``ls`` output expects the same.
+    Zero-padded big-endian fields preserve it — a format like ``%-d/%-m`` or a
+    day-first ordering would not, and the breakage would only show up as
+    mis-ordered concat footage."""
+    base = datetime(2026, 7, 20, 23, 58, 0, tzinfo=UTC)
+    # Spans a minute, an hour, a day, a month and a year rollover — every
+    # boundary where a badly-ordered format flips lexical and chronological
+    # order apart.
+    instants = [
+        base,
+        base + timedelta(minutes=1),
+        base + timedelta(minutes=2),
+        base + timedelta(hours=1),
+        base + timedelta(days=1),
+        datetime(2026, 12, 31, 23, 59, 0, tzinfo=UTC),
+        datetime(2027, 1, 1, 0, 0, 0, tzinfo=UTC),
+    ]
+    names = [t.strftime(BUFFER_CHUNK_TEMPLATE) for t in instants]
+
+    assert names == sorted(names)
+    assert len(set(names)) == len(names)
 
 
 # ===== Recorder class — single-recording state machine =====
@@ -412,6 +590,70 @@ def test_recorder_rejects_zero_byte_chunks(tmp_path) -> None:  # noqa: ANN001
     snapshot = rec.status()
     assert snapshot.state == "failed"
     assert "pcm_mulaw" in snapshot.message
+
+
+# ----- 9c. Buffer mode: history from earlier runs is not counted as this run's -----
+
+
+def test_recorder_ignores_pre_existing_chunks_when_judging_the_run(tmp_path) -> None:  # noqa: ANN001
+    """A buffer-mode camera dir accumulates across respawns, so the recorder
+    must judge a run by what *this* run wrote — not by whatever is on disk.
+
+    The camera dir is keyed by ``camera_id`` and (since #90) holds uniquely
+    named history from every prior run. A run that fails instantly — camera
+    unplugged, RTSP credentials rotated — writes nothing, yet the dir is still
+    full of yesterday's chunks. Judging on the whole directory reports that
+    failure as ``idle`` with a healthy-looking chunk count, and the operator's
+    status page shows green while the camera records nothing.
+
+    Pre-#90 the ``%03d`` wrap capped the dir at 60 files so the miscount was
+    merely wrong; unique names make it wrong *and* unbounded."""
+    cam_dir = tmp_path / "buffer" / "cam-front-door"
+    cam_dir.mkdir(parents=True)
+    # Yesterday's history — real, non-empty, and none of it this run's work.
+    for name in ("chunk_20260719-100000.mp4", "chunk_20260719-100100.mp4"):
+        (cam_dir / name).write_bytes(b"yesterday")
+
+    rec = Recorder(
+        # ffmpeg exits immediately having written nothing.
+        popen_factory=_popen_factory(returncode=1, stderr="rtsp://cam: Connection refused"),
+        output_dir_factory=lambda cam_id: str(tmp_path / "buffer" / cam_id),
+    )
+
+    rec.start(url="rtsp://cam.local/stream", duration_s=3600, camera_id="cam-front-door")
+
+    snapshot = rec.status()
+    assert snapshot.state == "failed"
+    assert "Connection refused" in snapshot.message
+    # History is untouched — the poller still owns it, and only retention deletes.
+    assert len(list(cam_dir.glob("chunk_*.mp4"))) == 2
+
+
+def test_recorder_counts_only_chunks_written_by_this_run(tmp_path) -> None:  # noqa: ANN001
+    """``chunks_uploaded`` reports this run's output, not the buffer's depth.
+
+    The UI renders it as "last recording: N chunks". Counting the whole camera
+    dir made it a disk-occupancy number that only ever grew, which reads as a
+    wildly productive recording no matter what ffmpeg actually did."""
+    cam_dir = tmp_path / "buffer" / "cam-side"
+    cam_dir.mkdir(parents=True)
+    for name in ("chunk_20260719-100000.mp4", "chunk_20260719-100100.mp4"):
+        (cam_dir / name).write_bytes(b"yesterday")
+
+    rec = Recorder(
+        popen_factory=_popen_factory(
+            {"chunk_20260720-150000.mp4": b"new", "chunk_20260720-150100.mp4": b"new"}
+        ),
+        output_dir_factory=lambda cam_id: str(tmp_path / "buffer" / cam_id),
+    )
+
+    rec.start(url="rtsp://cam.local/stream", duration_s=3600, camera_id="cam-side")
+
+    snapshot = rec.status()
+    assert snapshot.state == "idle"
+    assert snapshot.chunks_uploaded == 2, "counted pre-existing history as this run's output"
+    # All four files coexist — unique names mean the new run appended.
+    assert len(list(cam_dir.glob("chunk_*.mp4"))) == 4
 
 
 # ----- 10. Partial recording (camera offline mid-recording) is kept on disk -----

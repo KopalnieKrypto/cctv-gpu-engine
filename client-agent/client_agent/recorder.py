@@ -92,6 +92,42 @@ enough that recent footage (last ~minute) lands in trimmable chunks within
 a heartbeat cycle. Must stay in sync with ``RollingBuffer(segment_seconds=)``
 in :func:`client_agent.appliance.start_poller_thread`."""
 
+BUFFER_CHUNK_TEMPLATE = "chunk_%Y%m%d-%H%M%S.mp4"
+"""ffmpeg segment filename template for buffer mode — a ``strftime`` pattern,
+so the command MUST also carry ``-strftime 1`` or ffmpeg writes the literal
+``%Y…`` string as a filename.
+
+Time-derived, not counter-derived, and that is the whole point (issue #90).
+The recorder respawns about hourly (``-t`` is a liveness cadence, not a
+retention knob — #85), and the previous ``chunk_%03d.mp4`` restarted its
+counter at 000 on every respawn, silently **overwriting** chunks the
+retention cron intended to keep. An appliance set to ``buffer_hours=5``
+therefore held ~1 h of footage. Timestamps never repeat, so a respawn now
+appends to history instead of destroying it.
+
+Two properties downstream code leans on:
+
+* Still matches :class:`~client_agent.buffer.RollingBuffer`'s ``chunk_*.mp4``
+  glob, so ``chunks_in_range`` / ``trim_old_chunks`` needed no change — both
+  derive time from ``st_mtime``, never from the filename.
+* Zero-padded, fixed-width, big-endian fields, so lexical sort == chronological
+  sort (the property ``%03d`` used to provide).
+
+One caveat worth knowing before reusing this template elsewhere: ffmpeg stamps
+the name with **wallclock** time at segment open, not media time. Uniqueness
+therefore relies on the source being realtime, so that consecutive segments
+close in different seconds. A live RTSP camera always is — and it is the only
+input this recorder ever has — which leaves a 60 s margin at
+``BUFFER_SEGMENT_SECONDS``. Feed the same flags a *file* instead and ffmpeg
+races through it, closing every segment inside one wallclock second so they
+all overwrite each other (verified against ffmpeg 8.1.2: a 6 s clip at
+``segment_time 1`` yields 5 files with ``-re`` and 1 without).
+
+Removing the wrap also removes the accidental ~1 h disk cap that overwriting
+provided: ``RollingBuffer.trim_all_cameras`` (ticked by the appliance's
+maintenance thread every 60 s, issue #51) is now the ONLY thing bounding
+buffer size."""
+
 
 def build_ffmpeg_cmd(
     *, url: str, duration_s: int, output_dir: str, buffer_mode: bool = False
@@ -136,7 +172,9 @@ def build_ffmpeg_cmd(
             str(BUFFER_SEGMENT_SECONDS),
             "-reset_timestamps",
             "1",
-            f"{output_dir}/chunk_%03d.mp4",
+            "-strftime",
+            "1",
+            f"{output_dir}/{BUFFER_CHUNK_TEMPLATE}",
         ]
     if duration_s > SEGMENT_SECONDS:
         return [
@@ -285,6 +323,15 @@ class Recorder:
         cmd = build_ffmpeg_cmd(
             url=url, duration_s=duration_s, output_dir=str(out_dir), buffer_mode=buffer_mode
         )
+        # Snapshot the dir BEFORE ffmpeg runs so the post-run walk can tell
+        # this run's output from history. In buffer mode ``out_dir`` is keyed
+        # by camera and persists across respawns, so it is routinely full of
+        # earlier chunks; counting them would report a run that wrote nothing
+        # as a healthy one (and, since #90 removed the ``%03d`` wrap that
+        # capped the dir at 60 files, by an ever-growing margin). Safe for the
+        # legacy job_id-keyed path too — that dir is freshly created per run,
+        # so the snapshot is empty and behaviour is unchanged.
+        pre_existing = set(out_dir.glob("*.mp4"))
         # Spawn ffmpeg and KEEP THE HANDLE so ``stop`` can terminate it
         # (issue #52). ``communicate`` blocks until ffmpeg exits — naturally
         # (``-t`` elapsed), on a crash, or because ``stop`` sent it a signal.
@@ -315,7 +362,7 @@ class Recorder:
             # machine, so we must not clobber it).
             return job_id
 
-        chunks = sorted(out_dir.glob("*.mp4"))
+        chunks = sorted(set(out_dir.glob("*.mp4")) - pre_existing)
         # Filter out 0-byte files — ffmpeg creates the output file before
         # opening the input, so a mux failure (e.g. pcm_mulaw codec
         # unsupported by MP4) leaves an empty file on disk. Treat that the

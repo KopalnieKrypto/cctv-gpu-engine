@@ -1,7 +1,12 @@
 """Rolling recording buffer for the client appliance (issue #27).
 
-The appliance records continuously into a ring of 1-hour chunks per camera
-under ``base_dir/{camera_id}/chunk_NNN.mp4``. When the platform sends a
+The appliance records continuously into a ring of chunks per camera under
+``base_dir/{camera_id}/chunk_<UTC timestamp>.mp4`` (the recorder's
+``BUFFER_CHUNK_TEMPLATE``; timestamp-named since issue #90, because the old
+counter names collided across recorder respawns and overwrote live history).
+Nothing here parses that name — every query below globs ``chunk_*.mp4`` and
+takes its times from ``st_mtime``, which is what let #90 change the naming
+without touching this module. When the platform sends a
 task with a historical ``[start_time, end_time]`` window, the task poller
 asks the buffer for the chunks that overlap that window and hands them to
 :mod:`ffmpeg_trim`.
