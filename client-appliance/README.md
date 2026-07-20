@@ -205,9 +205,25 @@ bo Python ładuje kod przy imporcie — podmiana plików na dysku go nie zmienia
 `systemctl is-active` wypisuje "activating", a `is-active | grep -q active`
 przechodzi. Pętla jest niewidoczna dla naiwnego health-checku.
 
-Incydent źródłowy (cameraboy, 2026-07-17 → 20): stray proces z `nohup` trzymał
-:8080, unit crash-loopował **4484 razy**, a box obsługiwał produkcję kodem
-sprzed trzech dni. Nic tego nie wykryło — stąd ten skrypt.
+**check 3 — box nie przeżyje reboota.** Unit *user-mode* wymaga **obu** rzeczy:
+`systemctl --user is-enabled` = `enabled` **oraz** `Linger=yes`. Bez lingera
+systemd ubija user managera przy wylogowaniu i odtwarza go dopiero przy
+następnym logowaniu — na headless boxie to znaczy "nigdy". Unit jest
+`enabled`, proces chodzi, wszystko wygląda zdrowo — aż do restartu. A te boxy
+restartują się same (unattended-upgrades).
+
+```bash
+systemctl --user enable cctv-client
+sudo loginctl enable-linger "$(id -un)"
+```
+
+Incydenty źródłowe. **check 1 + 2** (cameraboy, 2026-07-17 → 20): stray proces
+z `nohup` trzymał :8080, unit crash-loopował **4484 razy**, a box obsługiwał
+produkcję kodem sprzed trzech dni. **check 3** (cameraboy, 2026-07-14 → 16):
+brak jakiejkolwiek supervizji, reboot = ~18 h ciszy; zakolejkowane zadanie
+zdążyło wypaść z 1 h rolling buffera i nie dało się go odzyskać (platforma nie
+reapuje stale `queued` — wisi w nieskończoność zamiast failować głośno).
+Żaden z tych trybów nie był wykrywany — stąd ten skrypt.
 
 #### Recovering from a double-run
 
@@ -299,7 +315,7 @@ sekcji Troubleshooting.
 | `install-user.sh` | idempotentny installer **user-mode** (#84; venv + config w `$HOME`, linger, `systemctl --user`) |
 | `cameras.env.example` | template dla `/etc/cctv-client/cameras.env` (RTSP_DEFAULT_USER/PASS + opcjonalne per-IP) |
 | `platform.env.example` | template dla `/etc/cctv-client/platform.env` (platform credentials + cold-start runtime fallbacks) |
-| `audit-appliance.sh` | read-only audit zdalnego boxa — wykrywa double-run i restart-loop (patrz niżej) |
+| `audit-appliance.sh` | read-only audit zdalnego boxa — wykrywa double-run, restart-loop i brak reboot-survival (patrz niżej) |
 
 ## Tryby pracy: standalone vs platform mode (issue #30)
 

@@ -57,9 +57,18 @@ def _run(tmp_path: Path, blob: str, *args: str) -> subprocess.CompletedProcess[s
 
 
 def _blob(
-    *, procs: int = 1, active: str = "active", sub: str = "running", restarts: int = 0
+    *,
+    procs: int = 1,
+    active: str = "active",
+    sub: str = "running",
+    restarts: int = 0,
+    enabled: str = "enabled",
+    linger: str = "yes",
 ) -> str:
-    return f"PROC_COUNT={procs}\nACTIVE_STATE={active}\nSUB_STATE={sub}\nN_RESTARTS={restarts}"
+    return (
+        f"PROC_COUNT={procs}\nACTIVE_STATE={active}\nSUB_STATE={sub}\n"
+        f"N_RESTARTS={restarts}\nUNIT_ENABLED={enabled}\nLINGER={linger}"
+    )
 
 
 def test_audit_script_exists() -> None:
@@ -155,6 +164,50 @@ def test_unreachable_host_warns_rather_than_false_passing(tmp_path: Path) -> Non
     assert "PASS" not in result.stdout
 
 
+def test_reboot_survival_passes_when_enabled_and_lingering(tmp_path: Path) -> None:
+    result = _run(tmp_path, _blob())
+    assert result.returncode == EXIT_PASS
+    assert "survives reboot" in result.stdout
+
+
+def test_enabled_without_linger_fails(tmp_path: Path) -> None:
+    """The trap this check exists for. `is-enabled` says "enabled" and the unit
+    is running right now, so the box looks entirely healthy — but without
+    lingering systemd tears the user manager down at logout and never rebuilds
+    it on a headless box. The unit simply never starts after a reboot."""
+    result = _run(tmp_path, _blob(linger="no"))
+    assert result.returncode == EXIT_FAIL
+    assert "will NOT survive reboot" in result.stdout
+    assert "Linger=no" in result.stdout
+    assert "enable-linger" in result.stdout, "must give the fix, not just the diagnosis"
+
+
+def test_lingering_but_unit_disabled_fails(tmp_path: Path) -> None:
+    """The other half. Linger alone starts the user manager but nothing pulls
+    a disabled unit into default.target."""
+    result = _run(tmp_path, _blob(enabled="disabled"))
+    assert result.returncode == EXIT_FAIL
+    assert "not enabled" in result.stdout
+
+
+def test_both_missing_reports_both_causes(tmp_path: Path) -> None:
+    """Fixing one and rebooting only to find it still dead is the worst
+    possible feedback loop — report both causes in one pass."""
+    result = _run(tmp_path, _blob(enabled="disabled", linger="no"))
+    assert result.returncode == EXIT_FAIL
+    assert "not enabled" in result.stdout
+    assert "Linger=no" in result.stdout
+
+
+def test_reboot_survival_failure_is_independent_of_running_state(tmp_path: Path) -> None:
+    """A box can be perfectly healthy *now* and still be one unattended-upgrades
+    reboot away from a silent outage. checks 1 and 2 must pass while 3 fails."""
+    result = _run(tmp_path, _blob(procs=1, active="active", sub="running", linger="no"))
+    assert result.returncode == EXIT_FAIL
+    assert "PASS" in result.stdout, "checks 1 and 2 should still pass"
+    assert "check 3" in result.stdout
+
+
 def test_check_flag_runs_only_that_check(tmp_path: Path) -> None:
     result = _run(tmp_path, _blob(procs=2, restarts=4484), "--check", "1", "cameraboy")
     assert "check 1" in result.stdout
@@ -182,6 +235,60 @@ def test_multiple_hosts_are_all_audited(tmp_path: Path) -> None:
     assert "boxb" in result.stdout
 
 
+def test_probe_script_actually_executes_against_stubbed_remote(tmp_path: Path) -> None:
+    """Regression: the probe used to be a double-quoted ssh argument, and the
+    escaping mangled the nested ``$(id -un)`` inside the linger lookup. Every
+    box then reported ``Linger=`` empty → a FAIL on correctly-configured hosts.
+
+    A canned-blob fake ssh cannot catch that class of bug — it never runs the
+    script. So this fake *executes* the received remote script against stubbed
+    pgrep/systemctl/loginctl/id, which is what a real box would do. Any future
+    quoting regression in the probe fails here instead of on a live host.
+    """
+    stub = tmp_path / "bin"
+    stub.mkdir()
+
+    (stub / "pgrep").write_text("#!/usr/bin/env bash\necho 1\n")
+    (stub / "id").write_text("#!/usr/bin/env bash\necho cameraboy\n")
+    # Echoes the user it was given, so a mangled $(id -un) yields an empty or
+    # wrong value rather than silently still saying "yes".
+    (stub / "loginctl").write_text(
+        "#!/usr/bin/env bash\n"
+        'if [[ "$2" == "cameraboy" ]]; then echo yes; else echo "BAD_USER:$2"; fi\n'
+    )
+    (stub / "systemctl").write_text(
+        "#!/usr/bin/env bash\n"
+        'case "$*" in\n'
+        "  *is-enabled*) echo enabled ;;\n"
+        "  *ActiveState*) echo active ;;\n"
+        "  *SubState*) echo running ;;\n"
+        "  *NRestarts*) echo 0 ;;\n"
+        "esac\n"
+    )
+    for f in stub.iterdir():
+        f.chmod(0o755)
+
+    fake = tmp_path / "fake-ssh"
+    fake.write_text(
+        f'#!/usr/bin/env bash\ncmd="${{@: -1}}"\nexport PATH="{stub}:$PATH"\neval "$cmd"\n'
+    )
+    fake.chmod(0o755)
+
+    result = subprocess.run(
+        [str(AUDIT), "cameraboy"],
+        capture_output=True,
+        text=True,
+        env={"PATH": "/usr/bin:/bin:/usr/local/bin", "SSH": str(fake)},
+        check=False,
+    )
+
+    assert result.returncode == EXIT_PASS, result.stdout + result.stderr
+    assert "survives reboot" in result.stdout, (
+        f"nested $(id -un) must survive transport to the remote shell; got: {result.stdout}"
+    )
+    assert "BAD_USER" not in result.stdout
+
+
 def test_probe_uses_bracket_trick_against_self_match() -> None:
     """Without the bracket, the pattern matches the probe's own remote command
     line and every box reports a phantom extra process — turning check 1 into
@@ -201,10 +308,14 @@ def test_script_is_read_only(tmp_path: Path) -> None:
     """
     capture = tmp_path / "sent"
     fake = tmp_path / "fake-ssh"
+    # Capture BOTH argv and stdin: the remote script body travels on stdin, so
+    # an argv-only capture would inspect almost nothing and pass vacuously.
     fake.write_text(
         "#!/usr/bin/env bash\n"
         f'printf "%s\\n" "$@" >> {capture}\n'
-        "printf 'PROC_COUNT=1\\nACTIVE_STATE=active\\nSUB_STATE=running\\nN_RESTARTS=0\\n'\n"
+        f"cat >> {capture}\n"
+        "printf 'PROC_COUNT=1\\nACTIVE_STATE=active\\nSUB_STATE=running\\n"
+        "N_RESTARTS=0\\nUNIT_ENABLED=enabled\\nLINGER=yes\\n'\n"
     )
     fake.chmod(0o755)
 

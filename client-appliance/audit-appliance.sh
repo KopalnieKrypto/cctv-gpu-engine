@@ -6,8 +6,9 @@
 #
 #   check 1  more than one client_agent process
 #   check 2  the unit stuck in a restart loop
+#   check 3  the unit will not survive a reboot (enabled + linger)
 #
-# Both are silent by construction. A unit crash-looping under
+# All three are silent by construction. A unit crash-looping under
 # `Restart=on-failure` reports ActiveState=activating / SubState=auto-restart,
 # never `failed`, so `is-active` prints "activating" and any naive
 # `is-active | grep -q active` check passes. Meanwhile a stray hand-launched
@@ -86,14 +87,27 @@ fail() { printf 'FAIL  %s  check %s: %s\n' "$1" "$2" "$3"; EXIT_FAIL=1; }
 # form, which does not match the literal it expands to. Without it every box
 # reports one phantom process. (Same trap as `pkill -f client_agent` over ssh,
 # which matches its own ssh command and kills the session.)
+# The remote script is fed on stdin from a QUOTED heredoc and the unit name is
+# passed as a positional arg. Nothing is interpolated locally, so nested
+# command substitution (`$(id -un)` inside a quoted argument) survives intact.
+#
+# The earlier version inlined this as a double-quoted ssh argument and the
+# escaping mangled `$(id -un)`, making the linger probe return empty on every
+# box — a false FAIL on a host that was correctly configured. Keep it on stdin.
+#
+# Bonus: the pattern no longer appears in the remote *command line* at all
+# (it arrives via stdin), so there is nothing for pgrep to self-match on.
 probe() {
   local host="$1"
-  "$SSH" "${SSH_FLAGS[@]}" "$host" "
-    printf 'PROC_COUNT=%s\n' \"\$(pgrep -fc 'client_agent[.]appliance' 2>/dev/null || echo 0)\"
-    printf 'ACTIVE_STATE=%s\n' \"\$(systemctl --user show ${UNIT} -p ActiveState --value 2>/dev/null)\"
-    printf 'SUB_STATE=%s\n' \"\$(systemctl --user show ${UNIT} -p SubState --value 2>/dev/null)\"
-    printf 'N_RESTARTS=%s\n' \"\$(systemctl --user show ${UNIT} -p NRestarts --value 2>/dev/null)\"
-  " 2>/dev/null
+  "$SSH" "${SSH_FLAGS[@]}" "$host" "bash -s -- '$UNIT'" 2>/dev/null <<'REMOTE'
+unit="$1"
+printf 'PROC_COUNT=%s\n' "$(pgrep -fc 'client_agent[.]appliance' 2>/dev/null || echo 0)"
+printf 'ACTIVE_STATE=%s\n' "$(systemctl --user show "$unit" -p ActiveState --value 2>/dev/null)"
+printf 'SUB_STATE=%s\n' "$(systemctl --user show "$unit" -p SubState --value 2>/dev/null)"
+printf 'N_RESTARTS=%s\n' "$(systemctl --user show "$unit" -p NRestarts --value 2>/dev/null)"
+printf 'UNIT_ENABLED=%s\n' "$(systemctl --user is-enabled "$unit" 2>/dev/null)"
+printf 'LINGER=%s\n' "$(loginctl show-user "$(id -un)" --property=Linger --value 2>/dev/null)"
+REMOTE
 }
 
 # check 1 - exactly one client_agent process.
@@ -148,19 +162,53 @@ check_2() {
   pass "$host" 2 "unit active, no restarts"
 }
 
+# check 3 - the unit will actually come back after a reboot.
+#
+# A *user* unit needs BOTH `is-enabled` and lingering. Without linger, systemd
+# tears the user manager down at logout and only rebuilds it on the next login
+# - so an enabled unit on a headless box simply never starts, and the box looks
+# fine right up until it reboots. Unattended-upgrades reboots these boxes on
+# their own schedule, so "fine until reboot" means "fine until some night".
+#
+# This is not hypothetical: before the unit existed, cameraboy ran from a
+# `nohup` one-liner and a reboot cost an ~18 h outage (2026-07-14 → 16), during
+# which a queued task aged its footage out of the 1 h rolling buffer and could
+# never be recovered. Nothing on the platform reaps a stale `queued` task, so
+# it hangs invisibly rather than failing loudly.
+check_3() {
+  local host="$1" enabled="$2" linger="$3"
+  if [[ -z "$enabled" && -z "$linger" ]]; then
+    warn "$host" 3 "could not read enablement/linger (host unreachable?)"
+    return
+  fi
+  local problems=()
+  [[ "$enabled" != "enabled" ]] && problems+=("unit is '${enabled:-unknown}', not enabled")
+  [[ "$linger" != "yes" ]] && problems+=("Linger=${linger:-unknown}, not yes")
+  if [[ ${#problems[@]} -eq 0 ]]; then
+    pass "$host" 3 "survives reboot (unit enabled, linger on)"
+    return
+  fi
+  local joined
+  joined=$(IFS='; '; echo "${problems[*]}")
+  fail "$host" 3 "will NOT survive reboot: ${joined}. A user unit needs both. Fix: systemctl --user enable ${UNIT}; sudo loginctl enable-linger \$(id -un)"
+}
+
 for host in "${HOSTS_ARG[@]}"; do
-  PROC_COUNT=""; ACTIVE_STATE=""; SUB_STATE=""; N_RESTARTS=""
+  PROC_COUNT=""; ACTIVE_STATE=""; SUB_STATE=""; N_RESTARTS=""; UNIT_ENABLED=""; LINGER=""
   while IFS='=' read -r key value; do
     case "$key" in
       PROC_COUNT) PROC_COUNT="$value" ;;
       ACTIVE_STATE) ACTIVE_STATE="$value" ;;
       SUB_STATE) SUB_STATE="$value" ;;
       N_RESTARTS) N_RESTARTS="$value" ;;
+      UNIT_ENABLED) UNIT_ENABLED="$value" ;;
+      LINGER) LINGER="$value" ;;
     esac
   done < <(probe "$host")
 
   [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "1" ]] && check_1 "$host" "$PROC_COUNT"
   [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "2" ]] && check_2 "$host" "$ACTIVE_STATE" "$SUB_STATE" "$N_RESTARTS"
+  [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "3" ]] && check_3 "$host" "$UNIT_ENABLED" "$LINGER"
 done
 
 if [[ "$EXIT_FAIL" -eq 1 ]]; then exit 1; fi
