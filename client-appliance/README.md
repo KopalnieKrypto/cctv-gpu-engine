@@ -213,6 +213,36 @@ sudo systemctl restart cctv-client
 zmienił), zostawi `/etc/cctv-client/*.env` nietknięte. Kontrola wersji:
 `git -C /opt/src/cctv-gpu-engine rev-parse HEAD`.
 
+### Co box raportuje jako swoją wersję
+
+Oba installery (`install.sh` i `install-user.sh`) zapisują przy instalacji
+`_build_info.py` w site-packages: **commit**, czy drzewo było czyste
+(**dirty**), **czas instalacji** i **hash zawartości** pakietu. Appliance
+raportuje to w `host_info.build` przy każdym `register`, a panel admina
+(`/admin/appliances/{id}`) renderuje commit z linkiem do GitHuba i link
+„Porównaj z main" (GitHub sam pokazuje, ile commitów doszło od wersji boxa).
+
+Hash istnieje po to, żeby wykryć wdrożenie **z pominięciem installera**:
+`tar`/`scp` prosto do site-packages zostawia commit zamrożony na ostatniej
+prawdziwej instalacji, podczas gdy działa inny kod. Runtime przelicza hash i
+porównuje z zapisanym — rozjazd renderuje się w panelu jako **„Build
+zmodyfikowany po instalacji"**.
+
+Pole `agent_version` (dawniej `0.5.0`) jest hardkodowanym literałem, który
+nie śledził niczego — zostaje wyłącznie dla wstecznej zgodności. Nie używaj
+go do niczego.
+
+Weryfikacja lokalnie na boxie:
+
+```bash
+# root layout:
+sudo -u cctv /opt/cctv-client/bin/python -c \
+  'from client_agent.build_info import resolve_build_state as r; print(r())'
+# user-mode:
+~/.local/share/cctv-client/bin/python -c \
+  'from client_agent.build_info import resolve_build_state as r; print(r())'
+```
+
 **Wariant user-mode** (boxy bez sudo, np. `cameraboy`):
 
 ```bash

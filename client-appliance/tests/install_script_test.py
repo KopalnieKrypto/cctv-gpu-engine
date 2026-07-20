@@ -191,3 +191,57 @@ def test_unit_file_source_path_resolved_relative_to_script() -> None:
     own directory, not ``$PWD``."""
     text = INSTALL.read_text()
     assert re.search(r"BASH_SOURCE|dirname\s+.*\$0", text), "no SCRIPT_DIR resolution"
+
+
+# --- Build record (what the appliance reports as its identity) --------------
+
+
+def test_writes_a_build_record() -> None:
+    """The installer is the only place that knows which commit was installed.
+    Without this the appliance reports a hand-written literal that tracks
+    nothing, and the admin UI renders "Brak danych o buildzie" for every
+    root-layout box while user-mode boxes report properly."""
+    text = INSTALL.read_text()
+    assert "_build_info.py" in text, "installer must write the build record"
+    assert re.search(r"rev-parse\s+HEAD", text), "must capture the installed commit"
+    assert "COMMIT" in text and "CONTENT_HASH" in text and "INSTALLED_AT" in text
+
+
+def test_build_hash_comes_from_the_package_not_bash() -> None:
+    """The runtime recomputes this hash and compares. One implementation only —
+    a bash-side digest would drift from the Python one and flag every box as
+    modified forever."""
+    text = INSTALL.read_text()
+    assert "compute_content_hash" in text
+    for reimplementation in ("sha256sum", "md5sum", "shasum"):
+        assert reimplementation not in text, (
+            f"{reimplementation} would diverge from the runtime's Python digest"
+        )
+
+
+def test_build_record_written_after_copy_and_before_chown() -> None:
+    """Order is doubly load-bearing here. After the copy, so the hash covers
+    the files as installed; before ``chown -R cctv:cctv``, so the generated
+    file inherits the same ownership as the rest of the venv instead of
+    staying root-owned — a root-owned file inside a cctv-owned tree is the
+    kind of drift nobody notices until a later reinstall fails."""
+    text = INSTALL.read_text()
+    copy_at = text.find('cp -R "$REPO_ROOT/client-agent/client_agent"')
+    record_at = text.find("_build_info.py")
+    chown_at = text.find("chown -R cctv:cctv")
+    assert copy_at != -1 and record_at != -1 and chown_at != -1
+    assert copy_at < record_at, "build record must be written after the source copy"
+    assert record_at < chown_at, "build record must be written before the chown"
+
+
+def test_git_call_tolerates_root_running_on_a_foreign_checkout() -> None:
+    """This installer runs under sudo, so the repo is frequently owned by the
+    invoking user rather than root. Git then refuses with "detected dubious
+    ownership" and rev-parse yields nothing — every box would silently record
+    COMMIT=unknown. ``safe.directory`` is what keeps that from happening
+    quietly."""
+    text = INSTALL.read_text()
+    assert "safe.directory" in text, (
+        "root-run git on a user-owned checkout needs -c safe.directory or it "
+        "fails with 'dubious ownership' and records an unknown commit"
+    )
