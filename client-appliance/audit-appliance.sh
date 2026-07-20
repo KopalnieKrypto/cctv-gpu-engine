@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # audit-appliance.sh - read-only health audit for cctv-client appliance boxes.
 #
-# Detects the two failure modes that are invisible to `systemctl is-active`
-# and therefore went unnoticed on cameraboy for three days (2026-07-17 → 20):
+# Detects failure modes that are invisible to `systemctl is-active` and to a
+# casual `git rev-parse HEAD` — the combination that went unnoticed on
+# cameraboy for three days (2026-07-17 → 20):
 #
 #   check 1  more than one client_agent process
 #   check 2  the unit stuck in a restart loop
 #   check 3  the unit will not survive a reboot (enabled + linger)
+#   check 4  deployed code does not match the checkout (or was hand-patched)
 #
-# All three are silent by construction. A unit crash-looping under
+# All are silent by construction. A unit crash-looping under
 # `Restart=on-failure` reports ActiveState=activating / SubState=auto-restart,
 # never `failed`, so `is-active` prints "activating" and any naive
 # `is-active | grep -q active` check passes. Meanwhile a stray hand-launched
@@ -107,6 +109,41 @@ printf 'SUB_STATE=%s\n' "$(systemctl --user show "$unit" -p SubState --value 2>/
 printf 'N_RESTARTS=%s\n' "$(systemctl --user show "$unit" -p NRestarts --value 2>/dev/null)"
 printf 'UNIT_ENABLED=%s\n' "$(systemctl --user is-enabled "$unit" 2>/dev/null)"
 printf 'LINGER=%s\n' "$(loginctl show-user "$(id -un)" --property=Linger --value 2>/dev/null)"
+
+# Both layouts: user-mode ($HOME) and root (/opt). First match wins; a box
+# only ever has one.
+venv=""
+for candidate in "$HOME/.local/share/cctv-client" /opt/cctv-client; do
+    [ -x "$candidate/bin/python" ] && venv="$candidate" && break
+done
+checkout=""
+for candidate in "$HOME/cctv-gpu-engine" /opt/src/cctv-gpu-engine; do
+    [ -d "$candidate/.git" ] && checkout="$candidate" && break
+done
+
+install_commit=""
+build_modified=""
+if [ -n "$venv" ]; then
+    # Ask the installed package what it is. Printing two lines rather than
+    # parsing _build_info.py here keeps one implementation of the hash
+    # comparison — the box's own.
+    read -r install_commit build_modified <<EOF2
+$("$venv/bin/python" -c 'from client_agent.build_info import resolve_build_state as r
+s = r()
+print(f"{s.commit or str()} {s.modified}")' 2>/dev/null)
+EOF2
+fi
+printf 'INSTALL_COMMIT=%s\n' "$install_commit"
+printf 'BUILD_MODIFIED=%s\n' "$build_modified"
+
+checkout_commit=""
+if [ -n "$checkout" ]; then
+    # safe.directory: the auditor may not own the checkout (root layout, or a
+    # shared box). Without it git refuses and every host reports an empty SHA,
+    # which would read as "no checkout" instead of "could not read it".
+    checkout_commit="$(git -c "safe.directory=$checkout" -C "$checkout" rev-parse HEAD 2>/dev/null)"
+fi
+printf 'CHECKOUT_COMMIT=%s\n' "$checkout_commit"
 REMOTE
 }
 
@@ -193,8 +230,48 @@ check_3() {
   fail "$host" 3 "will NOT survive reboot: ${joined}. A user unit needs both. Fix: systemctl --user enable ${UNIT}; sudo loginctl enable-linger \$(id -un)"
 }
 
+# check 4 - the deployed code is the code the checkout claims.
+#
+# `git rev-parse HEAD` in the box's checkout is how everyone asks "what is
+# deployed here". That answer is only true if the installer was the last thing
+# to touch site-packages. Two ways it goes wrong, both silent:
+#
+#   commit mismatch  — someone ran `git pull` and skipped the installer, so
+#                      the checkout advertises code the box is not running
+#   modified build   — someone tar/scp'd into site-packages, so BOTH SHAs
+#                      agree and are both wrong; only the content hash sees it
+#
+# Both happened on cameraboy on 2026-07-20, the second one undetected for
+# three days.
+check_4() {
+  local host="$1" install_commit="$2" checkout_commit="$3" modified="$4"
+
+  if [[ -z "$install_commit" ]]; then
+    warn "$host" 4 "no build record — box predates build reporting, or was not installed by install.sh/install-user.sh. Re-install to make its version knowable"
+    return
+  fi
+  if [[ "$modified" == "True" ]]; then
+    fail "$host" 4 "build zmodyfikowany po instalacji: site-packages differs from what was installed at ${install_commit:0:7}. Both SHAs still look correct — only the content hash catches this. Someone bypassed the installer; re-deploy with install-user.sh"
+    return
+  fi
+  if [[ -z "$checkout_commit" ]]; then
+    warn "$host" 4 "installed ${install_commit:0:7}, but no git checkout on the box to compare against (offline tarball install?)"
+    return
+  fi
+  if [[ "$install_commit" != "$checkout_commit" ]]; then
+    fail "$host" 4 "checkout says ${checkout_commit:0:7} but ${install_commit:0:7} is installed — someone pulled without re-running the installer, so 'git rev-parse HEAD' on this box does NOT describe what runs. Fix: ./client-appliance/install-user.sh (or install.sh for root layout)"
+    return
+  fi
+  if [[ "$modified" != "False" ]]; then
+    warn "$host" 4 "installed ${install_commit:0:7}, matches checkout, but integrity could not be verified (no recorded hash)"
+    return
+  fi
+  pass "$host" 4 "installed ${install_commit:0:7}, matches checkout, contents unmodified"
+}
+
 for host in "${HOSTS_ARG[@]}"; do
   PROC_COUNT=""; ACTIVE_STATE=""; SUB_STATE=""; N_RESTARTS=""; UNIT_ENABLED=""; LINGER=""
+  INSTALL_COMMIT=""; CHECKOUT_COMMIT=""; BUILD_MODIFIED=""
   while IFS='=' read -r key value; do
     case "$key" in
       PROC_COUNT) PROC_COUNT="$value" ;;
@@ -203,12 +280,17 @@ for host in "${HOSTS_ARG[@]}"; do
       N_RESTARTS) N_RESTARTS="$value" ;;
       UNIT_ENABLED) UNIT_ENABLED="$value" ;;
       LINGER) LINGER="$value" ;;
+      INSTALL_COMMIT) INSTALL_COMMIT="$value" ;;
+      CHECKOUT_COMMIT) CHECKOUT_COMMIT="$value" ;;
+      BUILD_MODIFIED) BUILD_MODIFIED="$value" ;;
     esac
   done < <(probe "$host")
 
   [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "1" ]] && check_1 "$host" "$PROC_COUNT"
   [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "2" ]] && check_2 "$host" "$ACTIVE_STATE" "$SUB_STATE" "$N_RESTARTS"
   [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "3" ]] && check_3 "$host" "$UNIT_ENABLED" "$LINGER"
+  [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "4" ]] &&
+    check_4 "$host" "$INSTALL_COMMIT" "$CHECKOUT_COMMIT" "$BUILD_MODIFIED"
 done
 
 if [[ "$EXIT_FAIL" -eq 1 ]]; then exit 1; fi

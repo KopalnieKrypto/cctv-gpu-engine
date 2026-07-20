@@ -64,10 +64,15 @@ def _blob(
     restarts: int = 0,
     enabled: str = "enabled",
     linger: str = "yes",
+    install_commit: str = "5b43d72f69b2bb607a1d86eb31070b39c3e11c34",
+    checkout_commit: str = "5b43d72f69b2bb607a1d86eb31070b39c3e11c34",
+    modified: str = "False",
 ) -> str:
     return (
         f"PROC_COUNT={procs}\nACTIVE_STATE={active}\nSUB_STATE={sub}\n"
-        f"N_RESTARTS={restarts}\nUNIT_ENABLED={enabled}\nLINGER={linger}"
+        f"N_RESTARTS={restarts}\nUNIT_ENABLED={enabled}\nLINGER={linger}\n"
+        f"INSTALL_COMMIT={install_commit}\nCHECKOUT_COMMIT={checkout_commit}\n"
+        f"BUILD_MODIFIED={modified}"
     )
 
 
@@ -208,6 +213,55 @@ def test_reboot_survival_failure_is_independent_of_running_state(tmp_path: Path)
     assert "check 3" in result.stdout
 
 
+def test_build_matching_checkout_passes(tmp_path: Path) -> None:
+    result = _run(tmp_path, _blob())
+    assert result.returncode == EXIT_PASS
+    assert "check 4" in result.stdout
+
+
+def test_checkout_ahead_of_install_fails(tmp_path: Path) -> None:
+    """`git pull` without re-running the installer. The checkout then reports
+    one commit while site-packages holds another, so `git rev-parse HEAD` on
+    that box — the documented way to ask what is deployed — lies.
+
+    Exactly what a tar-deploy left behind on cameraboy on 2026-07-20: checkout
+    at 4488cf8, running code from 349845e.
+    """
+    result = _run(
+        tmp_path,
+        _blob(install_commit="4488cf8aaa", checkout_commit="1295403bbb"),
+    )
+    assert result.returncode == EXIT_FAIL
+    assert "4488cf8" in result.stdout and "1295403" in result.stdout
+    assert "install-user.sh" in result.stdout, "must name the remedy"
+
+
+def test_modified_build_fails_even_when_commits_agree(tmp_path: Path) -> None:
+    """The nastiest shape: install SHA and checkout SHA match perfectly, so
+    every commit-based check is green — but the contents were hand-patched
+    after install. Only the content hash sees it."""
+    result = _run(tmp_path, _blob(modified="True"))
+    assert result.returncode == EXIT_FAIL
+    assert "zmodyfikowany" in result.stdout.lower() or "modified" in result.stdout.lower()
+
+
+def test_missing_build_record_warns(tmp_path: Path) -> None:
+    """A box installed before build recording existed. Unknown, not broken —
+    WARN so it shows up as something to re-install without failing a fleet
+    sweep that is otherwise healthy."""
+    result = _run(tmp_path, _blob(install_commit="", modified=""))
+    assert result.returncode == EXIT_WARN
+    assert "WARN" in result.stdout
+
+
+def test_missing_checkout_warns_rather_than_failing(tmp_path: Path) -> None:
+    """An offline-tarball box legitimately has no git checkout. There is
+    nothing to compare against, which is not the same as a mismatch."""
+    result = _run(tmp_path, _blob(checkout_commit=""))
+    assert result.returncode == EXIT_WARN
+    assert "FAIL" not in result.stdout
+
+
 def test_check_flag_runs_only_that_check(tmp_path: Path) -> None:
     result = _run(tmp_path, _blob(procs=2, restarts=4484), "--check", "1", "cameraboy")
     assert "check 1" in result.stdout
@@ -248,6 +302,20 @@ def test_probe_script_actually_executes_against_stubbed_remote(tmp_path: Path) -
     stub = tmp_path / "bin"
     stub.mkdir()
 
+    # A fake $HOME so the probe's layout detection (venv + checkout) has
+    # something to find, without touching the real one. This also makes the
+    # check-4 probe lines execute — they contain a heredoc nested inside the
+    # outer remote heredoc, the single riskiest quoting construct in the file.
+    fake_home = tmp_path / "home"
+    venv_bin = fake_home / ".local/share/cctv-client/bin"
+    venv_bin.mkdir(parents=True)
+    (venv_bin / "python").write_text(
+        "#!/usr/bin/env bash\necho 'cd87eb8aaa False'\n"  # commit + modified
+    )
+    (venv_bin / "python").chmod(0o755)
+    (fake_home / "cctv-gpu-engine" / ".git").mkdir(parents=True)
+
+    (stub / "git").write_text("#!/usr/bin/env bash\necho cd87eb8aaa\n")
     (stub / "pgrep").write_text("#!/usr/bin/env bash\necho 1\n")
     (stub / "id").write_text("#!/usr/bin/env bash\necho cameraboy\n")
     # Echoes the user it was given, so a mangled $(id -un) yields an empty or
@@ -270,7 +338,8 @@ def test_probe_script_actually_executes_against_stubbed_remote(tmp_path: Path) -
 
     fake = tmp_path / "fake-ssh"
     fake.write_text(
-        f'#!/usr/bin/env bash\ncmd="${{@: -1}}"\nexport PATH="{stub}:$PATH"\neval "$cmd"\n'
+        f'#!/usr/bin/env bash\ncmd="${{@: -1}}"\nexport PATH="{stub}:$PATH"\n'
+        f'export HOME="{fake_home}"\neval "$cmd"\n'
     )
     fake.chmod(0o755)
 
@@ -287,6 +356,12 @@ def test_probe_script_actually_executes_against_stubbed_remote(tmp_path: Path) -
         f"nested $(id -un) must survive transport to the remote shell; got: {result.stdout}"
     )
     assert "BAD_USER" not in result.stdout
+    # check 4's heredoc-inside-a-heredoc survived, and its two values parsed
+    # apart into commit + modified rather than collapsing into one string.
+    assert "cd87eb8" in result.stdout, (
+        f"check 4 probe must round-trip the install commit; got: {result.stdout}"
+    )
+    assert "unmodified" in result.stdout
 
 
 def test_probe_uses_bracket_trick_against_self_match() -> None:

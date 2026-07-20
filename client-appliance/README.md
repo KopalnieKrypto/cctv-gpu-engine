@@ -306,6 +306,19 @@ systemctl --user enable cctv-client
 sudo loginctl enable-linger "$(id -un)"
 ```
 
+**check 4 — kod na boxie nie zgadza się z checkoutem.** `git rev-parse HEAD`
+w checkoucie na boxie to sposób, w jaki wszyscy pytają „co tu jest wdrożone".
+Ta odpowiedź jest prawdziwa tylko wtedy, gdy ostatnią rzeczą, która dotykała
+site-packages, był installer. Dwa ciche sposoby, żeby to przestało być prawdą:
+
+| Objaw | Co się stało |
+|---|---|
+| commit checkoutu ≠ commit instalacji | ktoś zrobił `git pull` i pominął installer — checkout reklamuje kod, którego box nie uruchamia |
+| `modified=True` przy zgodnych commitach | ktoś wrzucił pliki `tar`/`scp` — **oba** SHA się zgadzają i **oba** kłamią; łapie to wyłącznie hash zawartości |
+
+Oba warianty wystąpiły na `cameraboy` 2026-07-20; drugi był niewykryty przez
+trzy dni.
+
 Incydenty źródłowe. **check 1 + 2** (cameraboy, 2026-07-17 → 20): stray proces
 z `nohup` trzymał :8080, unit crash-loopował **4484 razy**, a box obsługiwał
 produkcję kodem sprzed trzech dni. **check 3** (cameraboy, 2026-07-14 → 16):
