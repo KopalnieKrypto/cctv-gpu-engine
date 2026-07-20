@@ -182,6 +182,52 @@ przenieś plik na docelowy mini-PC, rozpakuj do `/opt/src/`, uruchom
 
 ## Troubleshooting
 
+### Audyt boxa: `audit-appliance.sh`
+
+Zanim zaczniesz diagnozować cokolwiek innego, uruchom audyt — wykrywa dwa
+tryby awarii, których `systemctl is-active` **nie** pokazuje:
+
+```bash
+client-appliance/audit-appliance.sh cameraboy
+HOSTS="cameraboy inny-box" client-appliance/audit-appliance.sh
+```
+
+Kody wyjścia: `0` = wszystko PASS, `1` = jakikolwiek FAIL, `2` = tylko WARN.
+Skrypt jest **read-only** — niczego sam nie naprawia (patrz niżej, dlaczego).
+
+**check 1 — więcej niż jeden proces `client_agent`.** Ręcznie odpalony proces
+obok unitu systemd. Ten, który wygra bind na :8080, obsługuje produkcję;
+drugi crash-loopuje w tle. Zwycięzca może działać na kodzie sprzed wielu dni,
+bo Python ładuje kod przy imporcie — podmiana plików na dysku go nie zmienia.
+
+**check 2 — unit w pętli restartów.** Unit pod `Restart=on-failure` raportuje
+`ActiveState=activating` / `SubState=auto-restart`, **nigdy `failed`**. Czyli
+`systemctl is-active` wypisuje "activating", a `is-active | grep -q active`
+przechodzi. Pętla jest niewidoczna dla naiwnego health-checku.
+
+Incydent źródłowy (cameraboy, 2026-07-17 → 20): stray proces z `nohup` trzymał
+:8080, unit crash-loopował **4484 razy**, a box obsługiwał produkcję kodem
+sprzed trzech dni. Nic tego nie wykryło — stąd ten skrypt.
+
+#### Recovering from a double-run
+
+Kolejność ma znaczenie i **nie jest zautomatyzowana celowo**: zatrzymanie
+niewłaściwego procesu w trakcie nagrywania jest gorsze niż sam dryf, a wybór
+wymaga człowieka.
+
+```bash
+systemctl --user show cctv-client -p MainPID   # ← ten ZOSTAJE
+pgrep -af "client_agent[.]appliance"           # ← wszystkie procesy
+kill -TERM <PID innego procesu>                # ← po dokładnym PID
+systemctl --user restart cctv-client           # dopiero gdy :8080 wolne
+```
+
+**Nigdy `pkill -f client_agent` przez SSH** — wzorzec pasuje też do własnej
+linii poleceń sesji SSH i zabija ją w połowie zapisu.
+
+Nawias w `client_agent[.]appliance` jest konieczny: bez niego wzorzec pasuje
+do własnej komendy zdalnej i każdy box raportuje jeden fantomowy proces.
+
 ### ONVIF discovery nic nie znajduje
 
 - **Multicast w LAN**: discovery używa WS-Discovery (UDP multicast
@@ -253,6 +299,7 @@ sekcji Troubleshooting.
 | `install-user.sh` | idempotentny installer **user-mode** (#84; venv + config w `$HOME`, linger, `systemctl --user`) |
 | `cameras.env.example` | template dla `/etc/cctv-client/cameras.env` (RTSP_DEFAULT_USER/PASS + opcjonalne per-IP) |
 | `platform.env.example` | template dla `/etc/cctv-client/platform.env` (platform credentials + cold-start runtime fallbacks) |
+| `audit-appliance.sh` | read-only audit zdalnego boxa — wykrywa double-run i restart-loop (patrz niżej) |
 
 ## Tryby pracy: standalone vs platform mode (issue #30)
 
