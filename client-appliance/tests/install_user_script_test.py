@@ -110,6 +110,36 @@ def test_uses_systemctl_user() -> None:
         assert "--user" in stripped, f"systemctl call without --user: {stripped}"
 
 
+def test_restarts_an_already_running_unit() -> None:
+    """``enable --now`` starts a *stopped* unit but no-ops on a running one, so
+    an update installs new code into site-packages and leaves the old code
+    running in memory — Python loads at import, so replacing files under a live
+    process changes nothing about what executes.
+
+    That is not hypothetical: on 2026-07-20 a reconcile run of this script
+    finished with MainPID unchanged, i.e. new code on disk and the previous
+    import still serving production. It was harmless only because the two
+    copies happened to be identical. The installer must close this itself
+    rather than depend on the operator not skipping the documented
+    `systemctl --user restart` that follows it.
+    """
+    text = _text()
+    assert re.search(r"systemctl\s+--user\s+(try-)?restart\s+cctv-client", text), (
+        "installer must restart an already-running unit, or a deploy can "
+        "silently leave the old process serving"
+    )
+
+
+def test_restart_is_conditional_on_the_unit_already_running() -> None:
+    """A blind `restart` on a *stopped* unit would start it before linger and
+    the unit file are verified, and would also mask a genuine "was not
+    running" state. The restart must be gated on is-active."""
+    text = _text()
+    assert re.search(r"is-active\s+.*cctv-client", text), (
+        "restart must be gated on `systemctl --user is-active cctv-client`"
+    )
+
+
 def test_enables_linger() -> None:
     """Linger is the load-bearing step, and the least obvious one.
 

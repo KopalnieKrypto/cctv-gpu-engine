@@ -147,9 +147,32 @@ log "linger confirmed enabled for $ME"
 # 8. Enable + start. `enable` wires into default.target (the user manager's
 #    boot target — it has no multi-user.target); `--now` starts it this boot.
 #    daemon-reload first so a re-run picks up changed unit directives.
+#
+#    Capture "was it already running" BEFORE enable --now, because after it the
+#    answer is always yes and the distinction is lost.
+WAS_ACTIVE=0
+if systemctl --user is-active --quiet cctv-client.service 2>/dev/null; then
+    WAS_ACTIVE=1
+fi
+
 log "enabling and starting the unit"
 systemctl --user daemon-reload
 systemctl --user enable --now cctv-client.service
+
+# `enable --now` starts a *stopped* unit but no-ops on a running one. On an
+# update that means step 3 copied new sources into site-packages while the
+# live process keeps executing the code it imported at ITS start — Python
+# loads at import, so replacing files under a running process changes nothing
+# about what actually runs. The box then reports one version on disk and
+# executes another in memory, which is exactly the state that hid a stale
+# build on cameraboy for three days (2026-07-20).
+#
+# So: restart only when the unit was already up. A unit that was *stopped* has
+# just been started by --now with the new code and must not be bounced again.
+if [[ "$WAS_ACTIVE" -eq 1 ]]; then
+    log "unit was already running — restarting so it imports the newly installed code"
+    systemctl --user restart cctv-client.service
+fi
 
 log "done — check status with: systemctl --user status cctv-client"
 log "logs: journalctl --user -u cctv-client -f"
