@@ -110,6 +110,41 @@ def test_uses_systemctl_user() -> None:
         assert "--user" in stripped, f"systemctl call without --user: {stripped}"
 
 
+def test_writes_a_build_record() -> None:
+    """The installer is the only place that knows which commit was installed,
+    so it has to record it. Without this the appliance reports a hand-written
+    literal that tracks nothing."""
+    text = _text()
+    assert "_build_info.py" in text, "installer must write the build record"
+    assert re.search(r"git\s+-C\s+.*rev-parse\s+HEAD", text), "must capture the installed commit"
+    assert "COMMIT" in text and "CONTENT_HASH" in text and "INSTALLED_AT" in text
+
+
+def test_build_hash_comes_from_the_package_not_bash() -> None:
+    """The runtime compares its own computed hash against the recorded one, so
+    the two must use one implementation. A bash-side digest (sha256sum, find |
+    sort) would drift from the Python one and flag every box as modified
+    forever — a permanent false alarm is worse than no alarm."""
+    text = _text()
+    assert "compute_content_hash" in text, (
+        "hash must be computed by the package's own function via the venv python"
+    )
+    for reimplementation in ("sha256sum", "md5sum", "shasum"):
+        assert reimplementation not in text, (
+            f"{reimplementation} would diverge from the runtime's Python digest"
+        )
+
+
+def test_build_record_written_after_sources_are_copied() -> None:
+    """Order is load-bearing: the hash must cover the files as installed. If
+    the record were written first, it would hash a previous install."""
+    text = _text()
+    copy_at = text.find('cp -R "$REPO_ROOT/client-agent/client_agent"')
+    record_at = text.find("_build_info.py")
+    assert copy_at != -1 and record_at != -1
+    assert copy_at < record_at, "build record must be written after the source copy"
+
+
 def test_restarts_an_already_running_unit() -> None:
     """``enable --now`` starts a *stopped* unit but no-ops on a running one, so
     an update installs new code into site-packages and leaves the old code

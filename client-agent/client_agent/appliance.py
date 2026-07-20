@@ -33,6 +33,7 @@ from waitress import serve
 
 from client_agent.agent import build_app
 from client_agent.buffer import RollingBuffer
+from client_agent.build_info import build_payload
 from client_agent.discovery import (
     DiscoveredCamera,
     inject_credentials,
@@ -372,9 +373,13 @@ def run_platform_session(
     chunks land in the per-camera rolling buffer for the task poller to
     pick up, not in R2."""
     resolved_hostname = hostname or environ.get("HOSTNAME") or "cctv-appliance"
+    # `build` carries the real identity of the installed code (git SHA, whether
+    # the worktree was clean, and whether site-packages has changed since the
+    # install). `agent_version` is a hand-maintained literal that tracks
+    # nothing — kept only so an older platform keeps rendering something.
     register_response = platform_client.register(
         agent_version=version,
-        host_info={"hostname": resolved_hostname},
+        host_info={"hostname": resolved_hostname, "build": build_payload()},
     )
     # Apply the register-delivered settings before anything else so the box is
     # correct from beat zero (issue #85), not just after the first heartbeat.
