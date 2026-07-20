@@ -9,6 +9,40 @@ wycofany w #29). Cała logika żyje w pakiecie
 [`client_agent`](../client-agent/client_agent/); ten katalog zawiera
 **wyłącznie packaging**: systemd unit, install.sh, env templates, README.
 
+## Zasada wdrożeniowa: TYLKO przez installer
+
+**Appliance wdrażamy wyłącznie przez `install.sh` (root) albo `install-user.sh`
+(user-mode). Żadnych `tar`-ów po site-packages, żadnych `scp`, żadnego
+`nohup`/`setsid`, żadnego ręcznego kopiowania plików.**
+
+Nie chodzi o czystość — chodzi o to, żeby dało się **ustalić, co na boxie
+faktycznie działa**. Installer jest jedyną ścieżką, która utrzymuje trzy rzeczy
+jednocześnie prawdziwe:
+
+| Gwarancja | Dlaczego bez niej diagnostyka jest ślepa |
+|---|---|
+| `git rev-parse HEAD` w checkoucie **opisuje** to, co działa | Po ręcznym `tar`-ze checkout mówi jedno, `site-packages` zawiera drugie — jedyny wskaźnik wersji **kłamie**, a nikt tego nie zauważy, dopóki nie zacznie ścigać buga, którego "przecież już naprawiliśmy" |
+| Proces należy do systemd (jeden, nadzorowany) | Ręczny launch daje drugi proces obok unitu; ten, kto wygra bind na :8080, obsługuje produkcję, a przegrany crash-loopuje niewidocznie |
+| Unit + linger są ustawione i **zweryfikowane** | Bez lingera box działa do pierwszego reboota, a potem cicho znika |
+
+Każde z tych trzech złamań kosztowało nas już przestój (patrz Troubleshooting →
+Audyt boxa). Wszystkie trzy są **ciche** — żadne nie zapala się w
+`systemctl is-active`.
+
+Po każdym wdrożeniu uruchom audyt — to jest test akceptacyjny wdrożenia:
+
+```bash
+client-appliance/audit-appliance.sh <host>   # oczekiwane: exit 0, 3× PASS
+```
+
+**Update = `git pull --ff-only` + ponowne uruchomienie installera.** Installer
+jest idempotentny; nie nadpisuje `*.env`. Nigdy nie podmieniaj samych plików
+`.py` na boxie — nawet "tylko na chwilę, żeby przetestować". Python ładuje kod
+przy imporcie, więc podmiana plików pod działającym procesem **nie zmienia
+tego, co działa**: dostajesz boxa, który raportuje nową wersję na dysku i
+wykonuje starą w pamięci. Dokładnie ten stan utrzymywał się na `cameraboy`
+przez trzy dni.
+
 ## Wymagania sprzętowe
 
 - Mini-PC z Linuksem: **Raspberry Pi 5 8 GB** lub **Intel N100 (z NVMe)** —
@@ -147,7 +181,11 @@ Site'y bootstrapowane przed #84 mają checkout w `~/cctv-gpu-engine`, env dir w
 `~/cctv-client-<site>-production` i proces odpalony z ręki. Migracja:
 
 ```bash
-pkill -f "client_agent.appliance"                      # ubij ręczny proces
+# Ubij ręczny proces PO DOKŁADNYM PID. Nie `pkill -f "client_agent.appliance"`
+# przez SSH — wzorzec pasuje też do linii poleceń własnej sesji SSH i zabija ją
+# w połowie migracji, zostawiając box w połowicznym stanie.
+pgrep -af "client_agent[.]appliance"                   # znajdź PID
+kill -TERM <PID>
 mkdir -p ~/.config/cctv-client
 cp ~/cctv-client-*-production/*.env ~/.config/cctv-client/   # przenieś creds
 cd ~/cctv-gpu-engine && git pull --ff-only
@@ -175,10 +213,31 @@ sudo systemctl restart cctv-client
 zmienił), zostawi `/etc/cctv-client/*.env` nietknięte. Kontrola wersji:
 `git -C /opt/src/cctv-gpu-engine rev-parse HEAD`.
 
+**Wariant user-mode** (boxy bez sudo, np. `cameraboy`):
+
+```bash
+cd ~/cctv-gpu-engine
+git pull --ff-only
+./client-appliance/install-user.sh
+systemctl --user restart cctv-client
+```
+
+Po wdrożeniu — **zawsze** audyt jako test akceptacyjny (patrz Troubleshooting):
+
+```bash
+client-appliance/audit-appliance.sh <host>   # oczekiwane: exit 0, 3× PASS
+```
+
 **Wariant offline (tarball)**: na hoście z dostępem do internetu zrób
 `tar czf cctv-client-$(git rev-parse --short HEAD).tar.gz cctv-gpu-engine/`,
 przenieś plik na docelowy mini-PC, rozpakuj do `/opt/src/`, uruchom
 `install.sh`. Ten sam skrypt — różnica tylko w transporcie.
+
+> Uwaga: tarball przenosi **całe repo** i kończy się uruchomieniem installera —
+> to nadal ścieżka zgodna z zasadą wdrożeniową. Czym innym (i czego robić
+> **nie wolno**) jest `tar`/`scp` samego katalogu `client_agent` prosto do
+> `site-packages` z pominięciem installera: wtedy checkout i to, co działa,
+> rozjeżdżają się, a `git rev-parse HEAD` przestaje cokolwiek znaczyć.
 
 ## Troubleshooting
 
