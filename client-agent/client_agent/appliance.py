@@ -45,6 +45,7 @@ from client_agent.poller import TaskPoller
 from client_agent.runtime_config import RuntimeConfig
 from client_agent.snapshot import build_snapshot_grabber
 from client_agent.snapshot_poller import SnapshotPoller
+from client_agent.telemetry import sample_disk_bytes
 from client_agent.uploader import PresignedUploader
 from client_agent.web import CameraSnapshotSource
 
@@ -338,6 +339,7 @@ def run_platform_session(
     hostname: str | None = None,
     version: str = "0.5.0",
     runtime_config: RuntimeConfig | None = None,
+    buffer: RollingBuffer | None = None,
 ) -> HeartbeatResponse:
     """One iteration of the platform-mode loop.
 
@@ -433,9 +435,22 @@ def run_platform_session(
     if active_recorders is None:
         active_recorders = {}
 
+    # Health telemetry (#92). Sampled per-iteration rather than at boot: a disk
+    # that fills at 03:00 has to surface on the next beat, not the next restart
+    # — which is exactly how a box ran to 17.4 % free over seven days unnoticed.
+    # `buffer` is absent for legacy / single-iteration callers; the fields are
+    # then omitted entirely rather than sent as zeros, which the platform would
+    # band as a full disk.
+    disk_free_bytes, disk_total_bytes = (
+        sample_disk_bytes(buffer.base_dir) if buffer is not None else (None, None)
+    )
     response = platform_client.heartbeat(
         status={},
         recording_cameras=list(active_recorders.keys()),
+        agent_version=version,
+        disk_free_bytes=disk_free_bytes,
+        disk_total_bytes=disk_total_bytes,
+        buffer_depth=buffer.buffer_depths() if buffer is not None else None,
     )
     # Every heartbeat carries the current settings block; apply on-change so an
     # admin edit in the platform UI lands on the next beat without an appliance
@@ -839,6 +854,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         buffer_dir.mkdir(parents=True, exist_ok=True)
 
+        # Read-only view of the buffer for heartbeat telemetry (#92). A separate
+        # instance from the maintenance thread's on purpose: that one owns the
+        # mutable retention window (``set_buffer_hours``), while this one only
+        # ever stats. ``buffer_hours`` is irrelevant here — neither
+        # ``buffer_depths`` nor ``base_dir`` consults it.
+        telemetry_buffer = _build_rolling_buffer(buffer_dir, os.environ)
+
         def _recorder_factory() -> BackgroundRecorder:
             return BackgroundRecorder(
                 Recorder(
@@ -883,6 +905,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             supervision=recorder_supervision,
             environ=os.environ,
             runtime_config=runtime_config,
+            buffer=telemetry_buffer,
         )
         # Issue #41: seed the snapshot resolver registry from the boot
         # heartbeat config so a curl right after appliance start (before
@@ -914,6 +937,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                         supervision=recorder_supervision,
                         environ=os.environ,
                         runtime_config=runtime_config,
+                        buffer=telemetry_buffer,
                     )
                     # Keep the snapshot resolver registry in lockstep with
                     # the heartbeat config — a camera the operator just

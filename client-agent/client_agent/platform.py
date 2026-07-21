@@ -242,18 +242,67 @@ class PlatformClient:
         here."""
         self._post("/appliance/cameras", json={"cameras": cameras})
 
-    def heartbeat(self, *, status: dict, recording_cameras: list[str]) -> HeartbeatResponse:
+    def heartbeat(
+        self,
+        *,
+        status: dict,
+        recording_cameras: list[str],
+        agent_version: str | None = None,
+        disk_free_bytes: int | None = None,
+        disk_total_bytes: int | None = None,
+        buffer_depth: dict[str, datetime] | None = None,
+    ) -> HeartbeatResponse:
         """POST ``/appliance/heartbeat`` — keepalive + config pull.
 
         Body carries the appliance's current state (``status``) and which
         cameras it is currently recording (``recording_cameras``) so the
         platform can detect drift between requested and actual state. The
         response carries the desired config; the appliance reconciles by
-        spawning / stopping recorder threads to match."""
-        response = self._post(
-            "/appliance/heartbeat",
-            json={"status": status, "recording_cameras": recording_cameras},
-        )
+        spawning / stopping recorder threads to match.
+
+        The health block (#92 / gpu-exchange#157) rides as *top-level typed
+        fields* rather than inside ``status``. ``status`` is typed
+        ``z.record(z.string(), z.unknown())`` platform-side — unvalidated, and
+        that is a fair part of why it was accepted and then silently discarded
+        for so long. Typed fields get Zod validation and force the platform to
+        handle them deliberately:
+
+        ``disk_free_bytes`` / ``disk_total_bytes``
+            Raw bytes off the buffer volume. The platform derives the
+            OK/LOW/CRITICAL band so thresholds retune without redeploying
+            every box.
+        ``buffer_depth``
+            Oldest buffered chunk per camera — how far back the box's history
+            *actually* reaches, as opposed to the ``buffer_hours`` it was
+            asked for. Retires the "SSH the box and check chunk mtimes"
+            workaround (#90 hid behind it for weeks).
+        ``agent_version``
+            Which code is really running, without an SSH round trip.
+
+        Every field is omitted when unavailable rather than sent as ``null``
+        — the same convention as ``actual_start`` in #91, and load-bearing
+        here: the platform types ``buffer_depth`` values as ISO datetime
+        strings and applies each field with an ``!== undefined`` guard, so a
+        null would either fail validation for the whole beat or overwrite a
+        good stored value with nothing.
+
+        Safe to send at a platform that predates the fields: the server-side
+        Zod object is non-strict, so unknown keys are stripped rather than
+        400'd."""
+        body: dict = {"status": status, "recording_cameras": recording_cameras}
+        if agent_version is not None:
+            body["agent_version"] = agent_version
+        if disk_free_bytes is not None:
+            body["disk_free_bytes"] = disk_free_bytes
+        if disk_total_bytes is not None:
+            body["disk_total_bytes"] = disk_total_bytes
+        if buffer_depth:
+            # ISO-8601 *with offset* — the platform validates with
+            # ``z.string().datetime({ offset: true })``. A naive datetime would
+            # serialize without the ``+00:00`` and fail the entire heartbeat,
+            # not just this field.
+            body["buffer_depth"] = {cam: at.isoformat() for cam, at in buffer_depth.items()}
+        response = self._post("/appliance/heartbeat", json=body)
         data = response.json()
         return HeartbeatResponse(config=data["config"])
 

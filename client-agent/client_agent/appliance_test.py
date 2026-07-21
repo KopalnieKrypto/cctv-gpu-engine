@@ -2314,3 +2314,106 @@ def test_main_does_not_start_maintenance_thread_in_legacy_mode(
         main(["--env-dir", str(env_dir)])
 
     fake_maint.assert_not_called()
+
+
+# ----- health telemetry rides the heartbeat (#92) -----
+
+
+def test_run_platform_session_reports_disk_buffer_depth_and_version(tmp_path) -> None:
+    """The session samples the box's own health each beat.
+
+    Before this the platform had no way to see a filling disk (a production
+    appliance burned 1.2 GB/day for a week behind healthy heartbeats) or how
+    far a buffer actually reached (#90's ~1 h cap hid for weeks). All three
+    signals are sampled per-iteration, not at boot, so a disk that fills at
+    03:00 shows up on the next beat rather than the next restart.
+
+    Disk is read from the *buffer* volume — that is the thing that grows, and
+    on an appliance it need not be the same filesystem as ``/``."""
+    import os
+    from datetime import UTC, datetime
+
+    import httpx
+    import respx
+
+    from client_agent.appliance import run_platform_session
+    from client_agent.buffer import RollingBuffer
+    from client_agent.platform import PlatformClient
+
+    base = tmp_path / "cctv-buffer"
+    oldest = datetime(2026, 7, 21, 4, 52, 22, tzinfo=UTC)
+    chunk = base / "cam-1" / "chunk_1.mp4"
+    chunk.parent.mkdir(parents=True)
+    chunk.write_bytes(b"fake-mp4")
+    os.utime(chunk, (oldest.timestamp(), oldest.timestamp()))
+
+    buffer = RollingBuffer(base_dir=base, buffer_hours=6, segment_seconds=3600)
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/register").mock(
+            return_value=httpx.Response(
+                200, json={"appliance_id": "app-1", "tenant_id": "tenant-1"}
+            )
+        )
+        mock.post("/appliance/cameras").mock(return_value=httpx.Response(204))
+        heartbeat_route = mock.post("/appliance/heartbeat").mock(
+            return_value=httpx.Response(200, json={"config": {"cameras": []}})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        run_platform_session(
+            platform_client=client,
+            discover_fn=lambda: [],
+            recorder_factory=lambda: MagicMock(),
+            environ={"HOSTNAME": "cctv-mini-01"},
+            version="ce95aad",
+            buffer=buffer,
+        )
+
+    import json as _json
+
+    body = _json.loads(heartbeat_route.calls.last.request.read())
+    assert body["agent_version"] == "ce95aad"
+    assert body["buffer_depth"] == {"cam-1": "2026-07-21T04:52:22+00:00"}
+    # Real syscall against tmp_path's volume — assert the shape and that the
+    # reading is plausible, not an exact figure the CI disk cannot guarantee.
+    assert isinstance(body["disk_free_bytes"], int)
+    assert isinstance(body["disk_total_bytes"], int)
+    assert 0 < body["disk_free_bytes"] <= body["disk_total_bytes"]
+
+
+def test_run_platform_session_without_buffer_omits_health_fields() -> None:
+    """A legacy / single-iteration caller passes no buffer. It must still
+    heartbeat — telemetry is an addition to the beat, never a precondition
+    for it — and must omit the fields rather than send zeros, which the
+    platform would band as a full disk and flag CRITICAL."""
+    import httpx
+    import respx
+
+    from client_agent.appliance import run_platform_session
+    from client_agent.platform import PlatformClient
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/register").mock(
+            return_value=httpx.Response(
+                200, json={"appliance_id": "app-1", "tenant_id": "tenant-1"}
+            )
+        )
+        mock.post("/appliance/cameras").mock(return_value=httpx.Response(204))
+        heartbeat_route = mock.post("/appliance/heartbeat").mock(
+            return_value=httpx.Response(200, json={"config": {"cameras": []}})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        run_platform_session(
+            platform_client=client,
+            discover_fn=lambda: [],
+            recorder_factory=lambda: MagicMock(),
+            environ={},
+        )
+
+    import json as _json
+
+    body = _json.loads(heartbeat_route.calls.last.request.read())
+    for key in ("disk_free_bytes", "disk_total_bytes", "buffer_depth"):
+        assert key not in body

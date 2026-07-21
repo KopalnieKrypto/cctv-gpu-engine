@@ -251,3 +251,75 @@ def test_set_buffer_hours_changes_retention_window_for_next_trim(tmp_path: Path)
     survivors = sorted(p.name for p in (base / cam).glob("chunk_*.mp4"))
     assert deleted == 4
     assert survivors == [f"chunk_{i:03d}.mp4" for i in range(4, 10)]
+
+
+# ----- 5. oldest_chunk_at: how far back the buffer actually reaches (#92) -----
+
+
+def test_oldest_chunk_at_returns_oldest_chunk_mtime(tmp_path: Path) -> None:
+    """The platform cannot see what the box holds, so the heartbeat reports
+    the oldest buffered chunk per camera (#92 / gpu-exchange#157 Tier 2).
+
+    Raw mtime, not the inferred ``mtime - segment_seconds`` start: the
+    platform column is literally ``buffer_oldest_chunk_at`` and its
+    ``cameraBufferDepth`` derivation does ``now - value`` against a
+    deliberately generous half-window floor, which absorbs the sub-segment
+    difference. Reporting the inferred start would over-claim history
+    whenever the oldest chunk is a respawn-truncated partial."""
+    from client_agent.buffer import RollingBuffer
+
+    base = tmp_path / "cctv-buffer"
+    cam = "cam-1"
+    now = datetime(2026, 7, 21, 12, 0, 0, tzinfo=UTC)
+    oldest = now - timedelta(hours=5)
+    # Written out of order so the result cannot come from glob iteration order.
+    _make_chunk(base / cam / "chunk_b.mp4", end=now - timedelta(hours=1))
+    _make_chunk(base / cam / "chunk_a.mp4", end=oldest)
+    _make_chunk(base / cam / "chunk_c.mp4", end=now - timedelta(hours=3))
+
+    buffer = RollingBuffer(base_dir=base, buffer_hours=6, segment_seconds=3600)
+
+    assert buffer.oldest_chunk_at(cam) == oldest
+
+
+# ----- 6. buffer_depths: whole-root map for the heartbeat (#92) -----
+
+
+def test_buffer_depths_maps_every_camera_and_omits_empty_dirs(tmp_path: Path) -> None:
+    """The heartbeat needs one map for the whole box, not a per-camera loop
+    at the call site — so the buffer owns the root walk, exactly as
+    :meth:`trim_all_cameras` already does.
+
+    A camera whose directory exists but holds no chunk is *omitted* rather
+    than sent as ``null``: the platform stores NULL for "unknown depth" and
+    its schema is ``z.record(z.string(), z.string().datetime())``, so an
+    explicit null would fail validation for the entire beat."""
+    from client_agent.buffer import RollingBuffer
+
+    base = tmp_path / "cctv-buffer"
+    now = datetime(2026, 7, 21, 12, 0, 0, tzinfo=UTC)
+    _make_chunk(base / "cam-a" / "chunk_1.mp4", end=now - timedelta(hours=4))
+    _make_chunk(base / "cam-a" / "chunk_2.mp4", end=now - timedelta(hours=1))
+    _make_chunk(base / "cam-b" / "chunk_1.mp4", end=now - timedelta(hours=2))
+    # Recorder created the dir but ffmpeg never finalized a chunk.
+    (base / "cam-empty").mkdir(parents=True)
+    # A stray file at the root is not a camera.
+    (base / "notes.txt").write_bytes(b"x")
+
+    buffer = RollingBuffer(base_dir=base, buffer_hours=6, segment_seconds=3600)
+
+    assert buffer.buffer_depths() == {
+        "cam-a": now - timedelta(hours=4),
+        "cam-b": now - timedelta(hours=2),
+    }
+
+
+def test_buffer_depths_empty_when_root_missing(tmp_path: Path) -> None:
+    """No recorder has ever written — "nothing buffered", not a crash. This
+    runs inside the boot heartbeat, before any recorder spawns, so raising
+    here would take down registration on every cold start."""
+    from client_agent.buffer import RollingBuffer
+
+    buffer = RollingBuffer(base_dir=tmp_path / "never-created", buffer_hours=6)
+
+    assert buffer.buffer_depths() == {}

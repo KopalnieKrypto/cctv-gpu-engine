@@ -996,3 +996,85 @@ def test_update_task_status_serializes_actual_start_iso8601() -> None:
         },
         {"status": "recording"},
     ]
+
+
+# ----- 6.6. heartbeat: disk + buffer depth + agent_version (#92) -----
+
+
+def test_heartbeat_sends_disk_buffer_depth_and_agent_version() -> None:
+    """Health telemetry rides as *top-level typed fields*, not nested in the
+    free-form ``status`` dict. ``status`` is ``z.record(z.string(),
+    z.unknown())`` platform-side — unvalidated, which is a large part of why
+    it was easy to accept and then silently drop. Typed fields get Zod
+    validation and force deliberate handling (gpu-exchange#157).
+
+    ``buffer_depth`` values must carry a UTC offset: the platform validates
+    with ``z.string().datetime({ offset: true })``, so Python's
+    ``isoformat()`` (``+00:00``) passes where a naive datetime would fail the
+    whole beat."""
+    from datetime import UTC, datetime
+
+    from client_agent.platform import PlatformClient
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        route = mock.post("/appliance/heartbeat").mock(
+            return_value=httpx.Response(200, json={"config": {"cameras": []}})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        client.heartbeat(
+            status={},
+            recording_cameras=["cam-1"],
+            agent_version="ce95aad",
+            disk_free_bytes=38_654_705_664,
+            disk_total_bytes=123_480_309_760,
+            buffer_depth={"cam-1": datetime(2026, 7, 21, 4, 52, 22, tzinfo=UTC)},
+        )
+
+    import json as _json
+
+    body = _json.loads(route.calls.last.request.read())
+    assert body == {
+        "status": {},
+        "recording_cameras": ["cam-1"],
+        "agent_version": "ce95aad",
+        "disk_free_bytes": 38_654_705_664,
+        "disk_total_bytes": 123_480_309_760,
+        "buffer_depth": {"cam-1": "2026-07-21T04:52:22+00:00"},
+    }
+
+
+def test_heartbeat_omits_telemetry_keys_when_unavailable() -> None:
+    """Absent, not ``null`` (#91's ``actual_start`` convention).
+
+    The platform applies each field with an ``!== undefined`` guard, so an
+    explicit null is not "no reading" — it either fails Zod (``buffer_depth``
+    values are typed as datetime strings) or, for the numeric fields,
+    overwrites a previously-good stored value with nothing. A box that cannot
+    read its disk must leave the last known figure standing, not erase it.
+
+    An *empty* ``buffer_depth`` is omitted for the same reason: it carries no
+    observation, only the fact that nothing is buffered yet."""
+    from client_agent.platform import PlatformClient
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        route = mock.post("/appliance/heartbeat").mock(
+            return_value=httpx.Response(200, json={"config": {"cameras": []}})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        client.heartbeat(
+            status={},
+            recording_cameras=[],
+            agent_version=None,
+            disk_free_bytes=None,
+            disk_total_bytes=None,
+            buffer_depth={},
+        )
+
+    import json as _json
+
+    body = _json.loads(route.calls.last.request.read())
+    assert body == {"status": {}, "recording_cameras": []}
+    for key in ("agent_version", "disk_free_bytes", "disk_total_bytes", "buffer_depth"):
+        assert key not in body

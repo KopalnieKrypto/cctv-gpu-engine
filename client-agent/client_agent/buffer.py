@@ -49,6 +49,15 @@ class RollingBuffer:
         self._buffer_hours = buffer_hours
         self._segment_seconds = segment_seconds
 
+    @property
+    def base_dir(self) -> Path:
+        """Root the buffer writes under.
+
+        Exposed so the heartbeat can sample disk usage on the volume that
+        actually fills (#92) without a second copy of the path being threaded
+        through the session — the buffer already owns it."""
+        return self._base_dir
+
     def set_buffer_hours(self, buffer_hours: int) -> None:
         """Re-point the retention window at runtime (issue #85).
 
@@ -118,6 +127,54 @@ class RollingBuffer:
             if cam_dir.is_dir():
                 deleted += self.trim_old_chunks(cam_dir.name, now=now)
         return deleted
+
+    def oldest_chunk_at(self, camera_id: str) -> datetime | None:
+        """mtime of the oldest chunk on disk, or ``None`` if there is none.
+
+        This is the observation the heartbeat reports so the platform can see
+        how far back a buffer *actually* reaches (#92 / gpu-exchange#157), which
+        retires the documented "never trust ``buffer_hours``, SSH the box and
+        check chunk mtimes" workaround — the blind spot that let #90's ~1 h cap
+        hide for weeks.
+
+        Raw mtime, deliberately not the ``mtime - segment_seconds`` start that
+        :meth:`chunks_in_range` infers. mtime ≈ *end* of the oldest window, so
+        this under-claims depth by up to one segment; the platform's
+        ``cameraBufferDepth`` compares ``now - value`` against a half-window
+        floor, which absorbs that. Inferring the start would instead over-claim
+        whenever the oldest chunk is a respawn-truncated partial — and claiming
+        history the box cannot serve is the failure that actually hurts."""
+        cam_dir = self._base_dir / camera_id
+        if not cam_dir.exists():
+            return None
+        mtimes = [path.stat().st_mtime for path in cam_dir.glob("chunk_*.mp4")]
+        if not mtimes:
+            return None
+        return datetime.fromtimestamp(min(mtimes), tz=UTC)
+
+    def buffer_depths(self) -> dict[str, datetime]:
+        """Oldest-chunk mtime per camera across the whole buffer root.
+
+        The buffer owns its root, so it — not the heartbeat — enumerates the
+        per-camera dirs (same ownership split as :meth:`trim_all_cameras`).
+        Reporting every dir on disk rather than only the currently-recording
+        set is deliberate: a camera the operator just disabled still holds
+        servable history, and that history is exactly what the platform needs
+        to know about when validating a task window.
+
+        Cameras with no chunk are omitted, never mapped to ``None`` — the
+        platform's schema types the values as ISO datetime strings, so a null
+        would fail validation for the entire beat, not just that camera."""
+        if not self._base_dir.exists():
+            return {}
+        depths: dict[str, datetime] = {}
+        for cam_dir in self._base_dir.iterdir():
+            if not cam_dir.is_dir():
+                continue
+            oldest = self.oldest_chunk_at(cam_dir.name)
+            if oldest is not None:
+                depths[cam_dir.name] = oldest
+        return depths
 
     def has_recorded(self, camera_id: str) -> bool:
         """``True`` iff the camera has at least one chunk on disk.
