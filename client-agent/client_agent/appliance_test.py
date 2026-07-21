@@ -17,6 +17,7 @@ import logging
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -2417,3 +2418,73 @@ def test_run_platform_session_without_buffer_omits_health_fields() -> None:
     body = _json.loads(heartbeat_route.calls.last.request.read())
     for key in ("disk_free_bytes", "disk_total_bytes", "buffer_depth"):
         assert key not in body
+
+
+# ----- recording health rides the heartbeat (#93) -----
+
+
+def _run_session_capturing_status(active_recorders):
+    """Drive one ``run_platform_session`` and return the heartbeat's ``status``."""
+    import json as _json
+
+    import httpx
+    import respx
+
+    from client_agent.appliance import run_platform_session
+    from client_agent.platform import PlatformClient
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/register").mock(
+            return_value=httpx.Response(
+                200, json={"appliance_id": "app-1", "tenant_id": "tenant-1"}
+            )
+        )
+        mock.post("/appliance/cameras").mock(return_value=httpx.Response(204))
+        heartbeat_route = mock.post("/appliance/heartbeat").mock(
+            return_value=httpx.Response(200, json={"config": {"cameras": []}})
+        )
+        run_platform_session(
+            platform_client=PlatformClient(base_url="https://platform.example", token="tok"),
+            discover_fn=lambda: [],
+            recorder_factory=lambda: MagicMock(),
+            environ={},
+            active_recorders=active_recorders,
+        )
+
+    return _json.loads(heartbeat_route.calls.last.request.read())["status"]
+
+
+def test_heartbeat_status_carries_recording_health_when_broken() -> None:
+    """The failure the box already knew about now reaches the wire.
+
+    ``status`` was a hardcoded ``{}`` on every beat, so the platform's
+    ``appliances.last_error`` was permanently NULL and the fault banner it
+    ships had never rendered once."""
+    dead = MagicMock()
+    dead.status.return_value = SimpleNamespace(
+        state="failed", message="method DESCRIBE failed: 401 Unauthorized"
+    )
+    dead.is_running.return_value = False
+
+    assert _run_session_capturing_status({"cam-1": dead}) == {
+        "recordingStatus": "recording_failed",
+        "reason": "rtsp_auth",
+    }
+
+
+def test_heartbeat_status_carries_recording_health_when_healthy() -> None:
+    """Healthy beats carry ``status`` too — that is what clears a fault.
+
+    ``deriveApplianceLastError`` reads a missing ``recordingStatus`` as "no
+    evidence" and leaves the stored value untouched, precisely so a beat never
+    erases a real error. The consequence is that only a healthy beat can clear
+    one: emitting ``status`` only when broken would pin an appliance's
+    first-ever failure to its admin page forever."""
+    live = MagicMock()
+    live.status.return_value = SimpleNamespace(state="recording", message="")
+    live.is_running.return_value = True
+
+    assert _run_session_capturing_status({"cam-1": live}) == {
+        "recordingStatus": "recording",
+        "reason": None,
+    }

@@ -42,6 +42,7 @@ from client_agent.discovery import (
 from client_agent.ffmpeg_trim import trim_and_concat
 from client_agent.platform import HeartbeatResponse, PlatformClient
 from client_agent.poller import TaskPoller
+from client_agent.recording_health import recording_status
 from client_agent.runtime_config import RuntimeConfig
 from client_agent.snapshot import build_snapshot_grabber
 from client_agent.snapshot_poller import SnapshotPoller
@@ -444,8 +445,14 @@ def run_platform_session(
     disk_free_bytes, disk_total_bytes = (
         sample_disk_bytes(buffer.base_dir) if buffer is not None else (None, None)
     )
+    # Recording health (#93). Read from the handles as they stand *before*
+    # this beat's reconcile, which is the correct vantage point: a recorder
+    # that crashed since the last beat is still in ``active_recorders`` with
+    # its failure intact, and once reconcile respawns it the next beat sees a
+    # live handle and reports healthy — which is the only thing that clears
+    # ``appliances.last_error`` platform-side.
     response = platform_client.heartbeat(
-        status={},
+        status=recording_status(active_recorders),
         recording_cameras=list(active_recorders.keys()),
         agent_version=version,
         disk_free_bytes=disk_free_bytes,
