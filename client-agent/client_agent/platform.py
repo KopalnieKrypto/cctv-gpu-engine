@@ -251,6 +251,7 @@ class PlatformClient:
         disk_free_bytes: int | None = None,
         disk_total_bytes: int | None = None,
         buffer_depth: dict[str, datetime] | None = None,
+        buffer_newest: dict[str, datetime] | None = None,
     ) -> HeartbeatResponse:
         """POST ``/appliance/heartbeat`` — keepalive + config pull.
 
@@ -276,6 +277,16 @@ class PlatformClient:
             *actually* reaches, as opposed to the ``buffer_hours`` it was
             asked for. Retires the "SSH the box and check chunk mtimes"
             workaround (#90 hid behind it for weeks).
+        ``buffer_newest``
+            Newest buffered chunk per camera — the only signal derived from
+            the latest *write*, and therefore the only one that tells a
+            recording camera from a stopped one (#94 / gpu-exchange#158).
+            Depth cannot: a dead camera genuinely holds a deep buffer, so the
+            old ``now - oldest`` derivation *grew* after a recorder died until
+            it read perfectly healthy. The platform warns once this falls more
+            than ``BUFFER_STALE_SECONDS`` (300 s) behind — 5 × the recorder's
+            ``BUFFER_SEGMENT_SECONDS``, so changing that constant means
+            retuning the platform's in lockstep.
         ``agent_version``
             Which code is really running, without an SSH round trip.
 
@@ -302,6 +313,11 @@ class PlatformClient:
             # serialize without the ``+00:00`` and fail the entire heartbeat,
             # not just this field.
             body["buffer_depth"] = {cam: at.isoformat() for cam, at in buffer_depth.items()}
+        if buffer_newest:
+            # Same offset contract as ``buffer_depth`` above — and independent
+            # of it on the wire, so a box that can read one map but not the
+            # other still reports what it has.
+            body["buffer_newest"] = {cam: at.isoformat() for cam, at in buffer_newest.items()}
         response = self._post("/appliance/heartbeat", json=body)
         data = response.json()
         return HeartbeatResponse(config=data["config"])

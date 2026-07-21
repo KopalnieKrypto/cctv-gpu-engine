@@ -458,6 +458,10 @@ def run_platform_session(
         disk_free_bytes=disk_free_bytes,
         disk_total_bytes=disk_total_bytes,
         buffer_depth=buffer.buffer_depths() if buffer is not None else None,
+        # Liveness (#94). Depth alone is not just incomplete but misleading
+        # once a recorder dies — it keeps growing until it reads healthy — so
+        # the newest mtime ships on every beat that carries a depth.
+        buffer_newest=buffer.buffer_newest() if buffer is not None else None,
     )
     # Every heartbeat carries the current settings block; apply on-change so an
     # admin edit in the platform UI lands on the next beat without an appliance

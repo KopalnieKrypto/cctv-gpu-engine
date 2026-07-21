@@ -282,6 +282,56 @@ def test_oldest_chunk_at_returns_oldest_chunk_mtime(tmp_path: Path) -> None:
     assert buffer.oldest_chunk_at(cam) == oldest
 
 
+# ----- 5b. newest_chunk_at: proof the camera is still writing (#94) -----
+
+
+def test_newest_chunk_at_returns_newest_chunk_mtime(tmp_path: Path) -> None:
+    """Depth alone cannot tell a recording camera from a stopped one.
+
+    Platform depth was ``now - oldest``, so a dead recorder's number *grew*
+    on its own: a camera stopped at 10:00 with ``buffer_hours=5`` read 1.0 h
+    at 11:00, 3.5 h at 13:30 (the warning self-clears) and a perfect 5.0 h at
+    15:00 — the metric inverted under the exact fault it existed to catch. No
+    depth formula fixes that, because a dead camera genuinely does hold a
+    deep buffer; it just holds old footage. The newest mtime is the only
+    signal derived from the latest *write* (gpu-exchange#158).
+
+    ``max`` lands on the in-progress chunk, whose mtime advances as ffmpeg
+    writes — so it tracks liveness closely rather than lagging a full
+    segment."""
+    from client_agent.buffer import RollingBuffer
+
+    base = tmp_path / "cctv-buffer"
+    cam = "cam-1"
+    now = datetime(2026, 7, 21, 12, 0, 0, tzinfo=UTC)
+    newest = now - timedelta(minutes=1)
+    # Written out of order so the result cannot come from glob iteration order.
+    _make_chunk(base / cam / "chunk_b.mp4", end=now - timedelta(hours=1))
+    _make_chunk(base / cam / "chunk_c.mp4", end=newest)
+    _make_chunk(base / cam / "chunk_a.mp4", end=now - timedelta(hours=5))
+
+    buffer = RollingBuffer(base_dir=base, buffer_hours=6, segment_seconds=3600)
+
+    assert buffer.newest_chunk_at(cam) == newest
+
+
+def test_newest_chunk_at_none_when_camera_has_no_chunk(tmp_path: Path) -> None:
+    """Missing dir and empty dir both mean "no observation", not zero.
+
+    The caller omits the camera from the beat entirely on ``None``; a
+    sentinel timestamp would read platform-side as a camera that recorded at
+    the epoch and went stale — a false alarm rather than a blind spot."""
+    from client_agent.buffer import RollingBuffer
+
+    base = tmp_path / "cctv-buffer"
+    (base / "cam-empty").mkdir(parents=True)
+
+    buffer = RollingBuffer(base_dir=base, buffer_hours=6, segment_seconds=3600)
+
+    assert buffer.newest_chunk_at("cam-empty") is None
+    assert buffer.newest_chunk_at("cam-never-existed") is None
+
+
 # ----- 6. buffer_depths: whole-root map for the heartbeat (#92) -----
 
 
@@ -323,3 +373,44 @@ def test_buffer_depths_empty_when_root_missing(tmp_path: Path) -> None:
     buffer = RollingBuffer(base_dir=tmp_path / "never-created", buffer_hours=6)
 
     assert buffer.buffer_depths() == {}
+
+
+# ----- 6b. buffer_newest: whole-root liveness map for the heartbeat (#94) -----
+
+
+def test_buffer_newest_maps_every_camera_and_omits_empty_dirs(tmp_path: Path) -> None:
+    """Mirror of :meth:`buffer_depths` over the newest chunk instead of the
+    oldest — same root walk, same ownership split, same omission rule.
+
+    Omitting a chunkless camera rather than mapping it to ``None`` is
+    load-bearing: the platform types the values as ISO datetime strings, so
+    one null fails validation for the whole beat, taking down every *other*
+    camera's reading with it."""
+    from client_agent.buffer import RollingBuffer
+
+    base = tmp_path / "cctv-buffer"
+    now = datetime(2026, 7, 21, 12, 0, 0, tzinfo=UTC)
+    _make_chunk(base / "cam-a" / "chunk_1.mp4", end=now - timedelta(hours=4))
+    _make_chunk(base / "cam-a" / "chunk_2.mp4", end=now - timedelta(minutes=1))
+    # cam-b stopped recording hours ago — its depth still looks healthy, only
+    # the newest mtime reveals it, which is the whole point of #94.
+    _make_chunk(base / "cam-b" / "chunk_1.mp4", end=now - timedelta(hours=2))
+    (base / "cam-empty").mkdir(parents=True)
+    (base / "notes.txt").write_bytes(b"x")
+
+    buffer = RollingBuffer(base_dir=base, buffer_hours=6, segment_seconds=3600)
+
+    assert buffer.buffer_newest() == {
+        "cam-a": now - timedelta(minutes=1),
+        "cam-b": now - timedelta(hours=2),
+    }
+
+
+def test_buffer_newest_empty_when_root_missing(tmp_path: Path) -> None:
+    """Cold start: the boot heartbeat fires before any recorder spawns, so a
+    missing root is "nothing buffered", not an error that kills registration."""
+    from client_agent.buffer import RollingBuffer
+
+    buffer = RollingBuffer(base_dir=tmp_path / "never-created", buffer_hours=6)
+
+    assert buffer.buffer_newest() == {}

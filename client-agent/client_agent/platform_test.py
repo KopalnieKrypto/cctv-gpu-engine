@@ -1044,6 +1044,71 @@ def test_heartbeat_sends_disk_buffer_depth_and_agent_version() -> None:
     }
 
 
+def test_heartbeat_sends_buffer_newest_alongside_depth() -> None:
+    """``buffer_newest`` is what lets the platform tell a recording camera
+    from a stopped one (#94 / gpu-exchange#158).
+
+    It rides beside ``buffer_depth``, not instead of it: depth answers "how
+    far back can this box serve", newest answers "is it still writing". The
+    platform warns once newest is more than ``BUFFER_STALE_SECONDS`` (300 s
+    = 5 × the recorder's 60 s segment) behind now.
+
+    Same offset requirement as ``buffer_depth`` — ``z.string().datetime({
+    offset: true })`` rejects a naive or ``Z``-only value and fails the whole
+    beat, so Python's ``isoformat()`` on a tz-aware datetime is the contract."""
+    from datetime import UTC, datetime
+
+    from client_agent.platform import PlatformClient
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        route = mock.post("/appliance/heartbeat").mock(
+            return_value=httpx.Response(200, json={"config": {"cameras": []}})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        client.heartbeat(
+            status={},
+            recording_cameras=["cam-1"],
+            buffer_depth={"cam-1": datetime(2026, 7, 21, 4, 52, 22, tzinfo=UTC)},
+            buffer_newest={"cam-1": datetime(2026, 7, 21, 9, 51, 3, tzinfo=UTC)},
+        )
+
+    import json as _json
+
+    body = _json.loads(route.calls.last.request.read())
+    assert body["buffer_depth"] == {"cam-1": "2026-07-21T04:52:22+00:00"}
+    assert body["buffer_newest"] == {"cam-1": "2026-07-21T09:51:03+00:00"}
+
+
+def test_heartbeat_sends_buffer_depth_alone_when_newest_absent() -> None:
+    """The two maps are independent on the wire — the platform tolerates
+    either alone. That independence is what let the platform half ship first
+    (``buffer_newest`` optional in ``ApplianceHeartbeatRequestSchema``), and
+    it must keep holding in reverse so a partial reading never suppresses the
+    good one."""
+    from datetime import UTC, datetime
+
+    from client_agent.platform import PlatformClient
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        route = mock.post("/appliance/heartbeat").mock(
+            return_value=httpx.Response(200, json={"config": {"cameras": []}})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        client.heartbeat(
+            status={},
+            recording_cameras=["cam-1"],
+            buffer_depth={"cam-1": datetime(2026, 7, 21, 4, 52, 22, tzinfo=UTC)},
+        )
+
+    import json as _json
+
+    body = _json.loads(route.calls.last.request.read())
+    assert body["buffer_depth"] == {"cam-1": "2026-07-21T04:52:22+00:00"}
+    assert "buffer_newest" not in body
+
+
 def test_heartbeat_omits_telemetry_keys_when_unavailable() -> None:
     """Absent, not ``null`` (#91's ``actual_start`` convention).
 
@@ -1053,8 +1118,9 @@ def test_heartbeat_omits_telemetry_keys_when_unavailable() -> None:
     overwrites a previously-good stored value with nothing. A box that cannot
     read its disk must leave the last known figure standing, not erase it.
 
-    An *empty* ``buffer_depth`` is omitted for the same reason: it carries no
-    observation, only the fact that nothing is buffered yet."""
+    An *empty* ``buffer_depth`` / ``buffer_newest`` is omitted for the same
+    reason: it carries no observation, only the fact that nothing is buffered
+    yet."""
     from client_agent.platform import PlatformClient
 
     with respx.mock(base_url="https://platform.example") as mock:
@@ -1070,11 +1136,18 @@ def test_heartbeat_omits_telemetry_keys_when_unavailable() -> None:
             disk_free_bytes=None,
             disk_total_bytes=None,
             buffer_depth={},
+            buffer_newest={},
         )
 
     import json as _json
 
     body = _json.loads(route.calls.last.request.read())
     assert body == {"status": {}, "recording_cameras": []}
-    for key in ("agent_version", "disk_free_bytes", "disk_total_bytes", "buffer_depth"):
+    for key in (
+        "agent_version",
+        "disk_free_bytes",
+        "disk_total_bytes",
+        "buffer_depth",
+        "buffer_newest",
+    ):
         assert key not in body

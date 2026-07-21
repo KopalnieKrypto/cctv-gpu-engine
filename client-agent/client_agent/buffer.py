@@ -140,10 +140,18 @@ class RollingBuffer:
         Raw mtime, deliberately not the ``mtime - segment_seconds`` start that
         :meth:`chunks_in_range` infers. mtime ≈ *end* of the oldest window, so
         this under-claims depth by up to one segment; the platform's
-        ``cameraBufferDepth`` compares ``now - value`` against a half-window
-        floor, which absorbs that. Inferring the start would instead over-claim
-        whenever the oldest chunk is a respawn-truncated partial — and claiming
-        history the box cannot serve is the failure that actually hurts."""
+        ``cameraBufferDepth`` spans ``newest - oldest`` (gpu-exchange#158),
+        which is wide enough to absorb that. Inferring the start would instead
+        over-claim whenever the oldest chunk is a respawn-truncated partial —
+        and claiming history the box cannot serve is the failure that actually
+        hurts.
+
+        The depth derivation used to be ``now - oldest``, which moved without
+        any new chunk behind it: after a recorder died the number climbed
+        until it read a perfect full buffer. Spanning to
+        :meth:`newest_chunk_at` instead means depth cannot grow unless the box
+        is still writing — and the staleness of that newest value is what now
+        surfaces the dead recorder (#94)."""
         cam_dir = self._base_dir / camera_id
         if not cam_dir.exists():
             return None
@@ -151,6 +159,29 @@ class RollingBuffer:
         if not mtimes:
             return None
         return datetime.fromtimestamp(min(mtimes), tz=UTC)
+
+    def newest_chunk_at(self, camera_id: str) -> datetime | None:
+        """mtime of the newest chunk on disk, or ``None`` if there is none.
+
+        The liveness half of the pair (#94 / gpu-exchange#158):
+        :meth:`oldest_chunk_at` says how far back history reaches, this says
+        whether anything is still being written. Depth alone cannot tell a
+        recording camera from a stopped one — a dead camera genuinely holds a
+        deep buffer, it just holds old footage — and under the old ``now -
+        oldest`` derivation a stopped recorder's depth *grew* until it read
+        perfectly healthy. Only a value anchored to the latest write inverts
+        the right way when recording stops.
+
+        ``max`` lands on the *in-progress* chunk, whose mtime advances as
+        ffmpeg writes rather than jumping at segment close, so this tracks
+        liveness within seconds rather than lagging a full segment."""
+        cam_dir = self._base_dir / camera_id
+        if not cam_dir.exists():
+            return None
+        mtimes = [path.stat().st_mtime for path in cam_dir.glob("chunk_*.mp4")]
+        if not mtimes:
+            return None
+        return datetime.fromtimestamp(max(mtimes), tz=UTC)
 
     def buffer_depths(self) -> dict[str, datetime]:
         """Oldest-chunk mtime per camera across the whole buffer root.
@@ -175,6 +206,28 @@ class RollingBuffer:
             if oldest is not None:
                 depths[cam_dir.name] = oldest
         return depths
+
+    def buffer_newest(self) -> dict[str, datetime]:
+        """Newest-chunk mtime per camera across the whole buffer root.
+
+        Sibling of :meth:`buffer_depths` — same root walk, same ownership
+        split, same omission rule for chunkless cameras (a null fails the
+        platform's schema for the entire beat, not just that camera).
+
+        The two travel together on purpose: depth says how far back the box
+        can serve, this says whether the box is still recording. Neither
+        substitutes for the other, and depth read alone is actively
+        misleading once a recorder dies (#94)."""
+        if not self._base_dir.exists():
+            return {}
+        newest: dict[str, datetime] = {}
+        for cam_dir in self._base_dir.iterdir():
+            if not cam_dir.is_dir():
+                continue
+            at = self.newest_chunk_at(cam_dir.name)
+            if at is not None:
+                newest[cam_dir.name] = at
+        return newest
 
     def has_recorded(self, camera_id: str) -> bool:
         """``True`` iff the camera has at least one chunk on disk.

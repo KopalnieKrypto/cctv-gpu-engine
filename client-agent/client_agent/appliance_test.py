@@ -2416,8 +2416,85 @@ def test_run_platform_session_without_buffer_omits_health_fields() -> None:
     import json as _json
 
     body = _json.loads(heartbeat_route.calls.last.request.read())
-    for key in ("disk_free_bytes", "disk_total_bytes", "buffer_depth"):
+    for key in ("disk_free_bytes", "disk_total_bytes", "buffer_depth", "buffer_newest"):
         assert key not in body
+
+
+# ----- buffer liveness rides the heartbeat (#94) -----
+
+
+def test_run_platform_session_reports_buffer_newest_per_camera(tmp_path) -> None:
+    """Every beat carries the newest chunk mtime beside the oldest, so the
+    platform can distinguish a recording camera from a stopped one.
+
+    Without it every camera card read ``Nagrywanie: brak danych``, and the
+    depth metric it did have inverted under the exact fault it existed to
+    catch — a stopped recorder's depth climbed on its own until the warning
+    self-cleared (gpu-exchange#158).
+
+    Both cameras here hold history, so both appear in ``buffer_depth``; only
+    ``buffer_newest`` separates the live one from the one that stopped hours
+    ago."""
+    import os
+    from datetime import UTC, datetime, timedelta
+
+    import httpx
+    import respx
+
+    from client_agent.appliance import run_platform_session
+    from client_agent.buffer import RollingBuffer
+    from client_agent.platform import PlatformClient
+
+    base = tmp_path / "cctv-buffer"
+    now = datetime(2026, 7, 21, 10, 0, 0, tzinfo=UTC)
+
+    def _chunk(cam: str, name: str, at: datetime) -> None:
+        path = base / cam / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fake-mp4")
+        os.utime(path, (at.timestamp(), at.timestamp()))
+
+    # cam-live: still writing. cam-dead: same depth, last write 3 h ago.
+    _chunk("cam-live", "chunk_1.mp4", now - timedelta(hours=5))
+    _chunk("cam-live", "chunk_2.mp4", now - timedelta(seconds=12))
+    _chunk("cam-dead", "chunk_1.mp4", now - timedelta(hours=5))
+    _chunk("cam-dead", "chunk_2.mp4", now - timedelta(hours=3))
+
+    buffer = RollingBuffer(base_dir=base, buffer_hours=6, segment_seconds=3600)
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/register").mock(
+            return_value=httpx.Response(
+                200, json={"appliance_id": "app-1", "tenant_id": "tenant-1"}
+            )
+        )
+        mock.post("/appliance/cameras").mock(return_value=httpx.Response(204))
+        heartbeat_route = mock.post("/appliance/heartbeat").mock(
+            return_value=httpx.Response(200, json={"config": {"cameras": []}})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        run_platform_session(
+            platform_client=client,
+            discover_fn=lambda: [],
+            recorder_factory=lambda: MagicMock(),
+            environ={},
+            buffer=buffer,
+        )
+
+    import json as _json
+
+    body = _json.loads(heartbeat_route.calls.last.request.read())
+    assert body["buffer_newest"] == {
+        "cam-live": (now - timedelta(seconds=12)).isoformat(),
+        "cam-dead": (now - timedelta(hours=3)).isoformat(),
+    }
+    # Depth is identical for both — proof the new field is what carries the
+    # distinction, not a re-derivation of the old one.
+    assert body["buffer_depth"] == {
+        "cam-live": (now - timedelta(hours=5)).isoformat(),
+        "cam-dead": (now - timedelta(hours=5)).isoformat(),
+    }
 
 
 # ----- recording health rides the heartbeat (#93) -----
