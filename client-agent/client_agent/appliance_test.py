@@ -2497,6 +2497,92 @@ def test_run_platform_session_reports_buffer_newest_per_camera(tmp_path) -> None
     }
 
 
+# ----- buffer continuity rides the heartbeat (#95) -----
+
+
+def test_run_platform_session_reports_buffer_gaps_per_camera(tmp_path) -> None:
+    """Every beat carries the holes beside the two ends of the buffer.
+
+    The camera here is the one neither existing signal can catch: it flapped
+    for 30 min and recovered, so its depth spans the full window and its
+    newest mtime is seconds old. Depth and staleness both read green, and the
+    hole is real. Until this ships the platform renders ``Ciągłość: brak
+    danych`` for the whole fleet and its submit gate is inert
+    (gpu-exchange#159 landed and deployed, waiting on this half).
+
+    The intact camera asserting ``[]`` is the load-bearing half of the
+    assertion: the platform types unknown coverage separately from continuous
+    coverage, so omitting it here would leave it permanently unknown rather
+    than verified — the gate would never engage for a camera that has never
+    had a problem."""
+    import os
+    from datetime import UTC, datetime, timedelta
+
+    import httpx
+    import respx
+
+    from client_agent.appliance import run_platform_session
+    from client_agent.buffer import RollingBuffer
+    from client_agent.platform import PlatformClient
+
+    base = tmp_path / "cctv-buffer"
+    now = datetime(2026, 7, 21, 16, 28, 0, tzinfo=UTC)
+
+    def _chunk(cam: str, name: str, at: datetime) -> None:
+        path = base / cam / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fake-mp4")
+        os.utime(path, (at.timestamp(), at.timestamp()))
+
+    # test1: unbroken, back-to-back minutes.
+    for i in range(3):
+        _chunk("test1", f"chunk_{i}.mp4", now - timedelta(seconds=60 * (2 - i)))
+    # test2: the production canary — recorded to 15:56, unreachable ~30 min,
+    # recovered at 16:27 and back to back-to-back minutes since. Only the one
+    # outage is a hole; the post-recovery chunks must not add a second.
+    _chunk("test2", "chunk_0.mp4", datetime(2026, 7, 21, 15, 56, 0, tzinfo=UTC))
+    _chunk("test2", "chunk_1.mp4", now - timedelta(seconds=60))
+    _chunk("test2", "chunk_2.mp4", now)
+
+    buffer = RollingBuffer(base_dir=base, buffer_hours=6, segment_seconds=60)
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/register").mock(
+            return_value=httpx.Response(
+                200, json={"appliance_id": "app-1", "tenant_id": "tenant-1"}
+            )
+        )
+        mock.post("/appliance/cameras").mock(return_value=httpx.Response(204))
+        heartbeat_route = mock.post("/appliance/heartbeat").mock(
+            return_value=httpx.Response(200, json={"config": {"cameras": []}})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        run_platform_session(
+            platform_client=client,
+            discover_fn=lambda: [],
+            recorder_factory=lambda: MagicMock(),
+            environ={},
+            buffer=buffer,
+        )
+
+    import json as _json
+
+    body = _json.loads(heartbeat_route.calls.last.request.read())
+    assert body["buffer_gaps"] == {
+        "test1": [],
+        "test2": [
+            {
+                "from": "2026-07-21T15:56:00+00:00",
+                "to": "2026-07-21T16:26:00+00:00",
+            }
+        ],
+    }
+    # Both cameras still report a healthy span and a fresh write — which is
+    # precisely why the span alone was not enough.
+    assert body["buffer_newest"]["test2"] == now.isoformat()
+
+
 # ----- recording health rides the heartbeat (#93) -----
 
 

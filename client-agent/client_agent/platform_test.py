@@ -1109,6 +1109,92 @@ def test_heartbeat_sends_buffer_depth_alone_when_newest_absent() -> None:
     assert "buffer_newest" not in body
 
 
+def test_heartbeat_sends_buffer_gaps_as_iso_intervals() -> None:
+    """``buffer_gaps`` completes the trio: depth gives one end of the buffer,
+    newest the other, and this says whether the middle is actually there
+    (#95 / gpu-exchange#159).
+
+    Serialized as ``{"from", "to"}`` intervals rather than a chunk count.
+    The platform clips each gap to the requested analysis window before
+    warning, so a 1 h request whose tail runs 4 min into a 30 min hole is
+    reported 4 minutes short, not 30 — a count could only have yielded a
+    whole-buffer ratio, which cannot say whether *this* window is the holey
+    part.
+
+    Both edges carry the ``+00:00`` offset. The platform validates each with
+    ``z.string().datetime({ offset: true })``, so a naive or ``Z``-only value
+    fails the entire beat — every camera's readings, not just this one."""
+    from datetime import UTC, datetime
+
+    from client_agent.buffer import BufferGap
+    from client_agent.platform import PlatformClient
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        route = mock.post("/appliance/heartbeat").mock(
+            return_value=httpx.Response(200, json={"config": {"cameras": []}})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        client.heartbeat(
+            status={},
+            recording_cameras=["test1", "test2"],
+            buffer_depth={"test2": datetime(2026, 7, 21, 4, 52, 22, tzinfo=UTC)},
+            buffer_newest={"test2": datetime(2026, 7, 21, 9, 51, 3, tzinfo=UTC)},
+            buffer_gaps={
+                "test1": [],
+                "test2": [
+                    BufferGap(
+                        start=datetime(2026, 7, 21, 15, 56, 0, tzinfo=UTC),
+                        end=datetime(2026, 7, 21, 16, 26, 0, tzinfo=UTC),
+                    )
+                ],
+            },
+        )
+
+    import json as _json
+
+    body = _json.loads(route.calls.last.request.read())
+    assert body["buffer_gaps"] == {
+        "test1": [],
+        "test2": [{"from": "2026-07-21T15:56:00+00:00", "to": "2026-07-21T16:26:00+00:00"}],
+    }
+    # The other two maps are untouched — the platform tolerates any subset of
+    # the three, and a box that can read one but not another still reports it.
+    assert body["buffer_depth"] == {"test2": "2026-07-21T04:52:22+00:00"}
+    assert body["buffer_newest"] == {"test2": "2026-07-21T09:51:03+00:00"}
+
+
+def test_heartbeat_sends_an_all_healthy_gap_map_rather_than_dropping_it() -> None:
+    """The normal case for a working fleet: every camera continuous, so every
+    value is ``[]`` and the map looks empty at a glance without being empty.
+
+    The guard is on the map, not the per-camera lists, and that distinction
+    is the whole feature. ``{"cam": []}`` is a non-empty dict and must ship —
+    it is seven positive assertions that the buffers are unbroken. Filtering
+    the falsy values out first would send ``{}``, which is skipped entirely,
+    leaving a perfectly healthy fleet reading ``brak danych`` forever with
+    the submit gate permanently inert. That failure is invisible from the
+    box: the beat still succeeds, and nothing anywhere reports an error."""
+    from client_agent.platform import PlatformClient
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        route = mock.post("/appliance/heartbeat").mock(
+            return_value=httpx.Response(200, json={"config": {"cameras": []}})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        client.heartbeat(
+            status={},
+            recording_cameras=["test1", "test2"],
+            buffer_gaps={"test1": [], "test2": []},
+        )
+
+    import json as _json
+
+    body = _json.loads(route.calls.last.request.read())
+    assert body["buffer_gaps"] == {"test1": [], "test2": []}
+
+
 def test_heartbeat_omits_telemetry_keys_when_unavailable() -> None:
     """Absent, not ``null`` (#91's ``actual_start`` convention).
 
@@ -1118,9 +1204,12 @@ def test_heartbeat_omits_telemetry_keys_when_unavailable() -> None:
     overwrites a previously-good stored value with nothing. A box that cannot
     read its disk must leave the last known figure standing, not erase it.
 
-    An *empty* ``buffer_depth`` / ``buffer_newest`` is omitted for the same
-    reason: it carries no observation, only the fact that nothing is buffered
-    yet."""
+    An *empty* ``buffer_depth`` / ``buffer_newest`` / ``buffer_gaps`` is
+    omitted for the same reason: it carries no observation, only the fact
+    that nothing is buffered yet. For gaps note the distinction that
+    :func:`test_heartbeat_sends_an_all_healthy_gap_map_rather_than_dropping_it`
+    pins — an empty *map* is no observation, while a map of empty *lists* is
+    an assertion of continuity and ships."""
     from client_agent.platform import PlatformClient
 
     with respx.mock(base_url="https://platform.example") as mock:
@@ -1137,6 +1226,7 @@ def test_heartbeat_omits_telemetry_keys_when_unavailable() -> None:
             disk_total_bytes=None,
             buffer_depth={},
             buffer_newest={},
+            buffer_gaps={},
         )
 
     import json as _json
@@ -1149,5 +1239,6 @@ def test_heartbeat_omits_telemetry_keys_when_unavailable() -> None:
         "disk_total_bytes",
         "buffer_depth",
         "buffer_newest",
+        "buffer_gaps",
     ):
         assert key not in body

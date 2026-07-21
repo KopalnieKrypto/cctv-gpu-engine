@@ -462,6 +462,13 @@ def run_platform_session(
         # once a recorder dies — it keeps growing until it reads healthy — so
         # the newest mtime ships on every beat that carries a depth.
         buffer_newest=buffer.buffer_newest() if buffer is not None else None,
+        # Continuity (#95). Depth is the *span* between the buffer's two ends
+        # and says nothing about the middle; staleness only warns while a
+        # camera is down, so an intermittent one reads green at every working
+        # hour. Without this a task window falling inside a hole passes
+        # validation, bills full GPU-seconds and reports on a fraction of what
+        # was asked for.
+        buffer_gaps=buffer.buffer_gaps() if buffer is not None else None,
     )
     # Every heartbeat carries the current settings block; apply on-change so an
     # admin edit in the platform UI lands on the next beat without an appliance

@@ -414,3 +414,211 @@ def test_buffer_newest_empty_when_root_missing(tmp_path: Path) -> None:
     buffer = RollingBuffer(base_dir=tmp_path / "never-created", buffer_hours=6)
 
     assert buffer.buffer_newest() == {}
+
+
+# ----- 7. gaps_for: the holes between the two ends of the buffer (#95) -----
+
+
+def test_gaps_for_reports_hole_between_non_consecutive_chunks(tmp_path: Path) -> None:
+    """Depth is ``newest - oldest`` — the *span* between the buffer's ends,
+    which says nothing about whether the middle is there. A camera that stops
+    and later recovers reports a full healthy span with a hole in it, and
+    #94's staleness only warns *while* it is down: the moment it recovers,
+    every trace of the outage is gone. So a camera that dies nightly reads
+    green at every working hour, and a task window falling inside the hole
+    passes the platform's depth validation, bills full GPU-seconds and
+    returns a report over a fraction of what was asked for.
+
+    Bounds come from the *segment ends*, not the raw mtime pair. mtime is the
+    close time of a chunk, so chunk ``i`` covers up to ``mtime[i]`` while
+    chunk ``i+1`` covers from ``mtime[i+1] - segment_seconds``. The hole is
+    what lies between those two, which is strictly narrower than the mtime
+    delta by one segment — claiming the wider stretch would over-report every
+    gap by a full segment."""
+    from client_agent.buffer import BufferGap, RollingBuffer
+
+    base = tmp_path / "cctv-buffer"
+    cam = "test2"
+    # The production canary shape: recording up to 15:56, unreachable for
+    # ~30 min, first post-recovery chunk closes at 16:27.
+    before = datetime(2026, 7, 21, 15, 56, 0, tzinfo=UTC)
+    after = datetime(2026, 7, 21, 16, 27, 0, tzinfo=UTC)
+    _make_chunk(base / cam / f"chunk_{before:%H%M%S}.mp4", end=before)
+    _make_chunk(base / cam / f"chunk_{after:%H%M%S}.mp4", end=after)
+
+    buffer = RollingBuffer(base_dir=base, buffer_hours=6, segment_seconds=60)
+
+    assert buffer.gaps_for(cam) == [
+        BufferGap(start=before, end=after - timedelta(seconds=60)),
+    ]
+
+
+def test_gaps_for_reports_nothing_for_an_unbroken_buffer(tmp_path: Path) -> None:
+    """A healthy camera asserts continuity with ``[]``, and this is the case
+    that has to be exactly right — every camera in the fleet is in it almost
+    all of the time, so a false positive here is not a rare edge but the
+    steady state, and it would train operators to ignore the signal.
+
+    ffmpeg does not close segments on a perfect metronome; consecutive mtimes
+    land a second or two either side of ``segment_seconds``. Differencing
+    them directly would emit a ~60 s hole between every healthy pair, and
+    even the segment-end arithmetic leaves sub-second slivers. Both are
+    rotation jitter, not missing footage."""
+    from client_agent.buffer import RollingBuffer
+
+    base = tmp_path / "cctv-buffer"
+    cam = "cam-healthy"
+    start = datetime(2026, 7, 21, 12, 0, 0, tzinfo=UTC)
+    # Six back-to-back minutes, closes drifting either side of the nominal 60 s.
+    for i, drift in enumerate([0.0, 1.4, 0.2, 2.1, 0.7, 1.9]):
+        _make_chunk(
+            base / cam / f"chunk_{i}.mp4",
+            end=start + timedelta(seconds=60 * i + drift),
+        )
+
+    buffer = RollingBuffer(base_dir=base, buffer_hours=6, segment_seconds=60)
+
+    assert buffer.gaps_for(cam) == []
+
+
+def test_gaps_for_floor_is_one_whole_segment_of_missing_footage(tmp_path: Path) -> None:
+    """The floor sits at one ``segment_seconds``: at least one whole segment
+    of footage has to be genuinely absent before a hole is worth reporting.
+
+    A single dropped chunk leaves consecutive mtimes two segments apart, so
+    the computed hole is exactly one segment — the boundary, and deliberately
+    *not* reported. Two dropped chunks leave a two-segment hole, which is.
+    The platform sits one rung above this with a two-segment tolerance before
+    it reddens a card, so a single dropped chunk stays quiet at both rungs and
+    it takes sustained flapping to read as broken. Both rungs are tuned off
+    ``BUFFER_SEGMENT_SECONDS`` and have to move together if it ever changes —
+    the platform's lives in ``buffer-depth.ts`` and says so inline."""
+    from client_agent.buffer import BufferGap, RollingBuffer
+
+    base = tmp_path / "cctv-buffer"
+    start = datetime(2026, 7, 21, 12, 0, 0, tzinfo=UTC)
+
+    # One dropped chunk: closes at T and T+120 → a 60 s hole, exactly the floor.
+    _make_chunk(base / "cam-one-dropped" / "chunk_0.mp4", end=start)
+    _make_chunk(base / "cam-one-dropped" / "chunk_1.mp4", end=start + timedelta(seconds=120))
+    # Two dropped: closes at T and T+180 → a 120 s hole, over the floor.
+    _make_chunk(base / "cam-two-dropped" / "chunk_0.mp4", end=start)
+    _make_chunk(base / "cam-two-dropped" / "chunk_1.mp4", end=start + timedelta(seconds=180))
+
+    buffer = RollingBuffer(base_dir=base, buffer_hours=6, segment_seconds=60)
+
+    assert buffer.gaps_for("cam-one-dropped") == []
+    assert buffer.gaps_for("cam-two-dropped") == [
+        BufferGap(start=start, end=start + timedelta(seconds=120)),
+    ]
+
+
+def test_gaps_for_distinguishes_no_chunks_from_no_holes(tmp_path: Path) -> None:
+    """``None`` (nothing observed) and ``[]`` (observed, unbroken) are not
+    interchangeable, and this is the one thing #95 has to get right.
+
+    Every *other* map in the heartbeat omits a camera it has no value for.
+    Here that convention inverts: ``[]`` is a positive assertion that the
+    buffer is continuous, so a recording camera with no holes must produce it
+    rather than fall through the omission path. The platform types unknown
+    coverage as a state distinct from continuous coverage precisely so an
+    un-upgraded box can never read as "verified intact" — but the same
+    typing means a camera that gets omitted when it should have said ``[]``
+    stays permanently ``brak danych`` and the submit gate never engages for
+    it. Collapsing the two directions is silent in opposite ways: one claims
+    coverage nobody verified, the other discards coverage that was."""
+    from client_agent.buffer import RollingBuffer
+
+    base = tmp_path / "cctv-buffer"
+    now = datetime(2026, 7, 21, 12, 0, 0, tzinfo=UTC)
+    # Recording, unbroken → an assertion of continuity.
+    _make_chunk(base / "cam-recording" / "chunk_0.mp4", end=now - timedelta(seconds=60))
+    _make_chunk(base / "cam-recording" / "chunk_1.mp4", end=now)
+    # Dir exists because the recorder created it, but ffmpeg never wrote.
+    (base / "cam-spawned-never-wrote").mkdir(parents=True)
+
+    buffer = RollingBuffer(base_dir=base, buffer_hours=6, segment_seconds=60)
+
+    assert buffer.gaps_for("cam-recording") == []
+    assert buffer.gaps_for("cam-spawned-never-wrote") is None
+    assert buffer.gaps_for("cam-never-seen") is None
+
+
+def test_gaps_for_orders_multiple_holes_by_wallclock_not_glob_order(tmp_path: Path) -> None:
+    """The intermittent camera — the failure mode #94's staleness leaves
+    open — produces several holes, not one, and the platform intersects a
+    requested window against each. Pairing chunks in ``glob`` order would
+    difference unrelated mtimes and invent holes that were never real.
+
+    ``glob`` order is filesystem-dependent, and #90's timestamp names only
+    happen to sort chronologically as strings; nothing in this module parses
+    the name, which is exactly what let #90 change it. So the sort has to be
+    on mtime, and the names here are deliberately anti-correlated with time
+    to catch a regression that leans on the naming again."""
+    from client_agent.buffer import BufferGap, RollingBuffer
+
+    base = tmp_path / "cctv-buffer"
+    cam = "cam-flapping"
+    t0 = datetime(2026, 7, 21, 2, 0, 0, tzinfo=UTC)
+    # Names run backwards against time on purpose.
+    _make_chunk(base / cam / "chunk_z.mp4", end=t0)
+    _make_chunk(base / cam / "chunk_y.mp4", end=t0 + timedelta(minutes=10))
+    _make_chunk(base / cam / "chunk_x.mp4", end=t0 + timedelta(minutes=11))
+    _make_chunk(base / cam / "chunk_w.mp4", end=t0 + timedelta(minutes=45))
+
+    buffer = RollingBuffer(base_dir=base, buffer_hours=6, segment_seconds=60)
+
+    assert buffer.gaps_for(cam) == [
+        BufferGap(start=t0, end=t0 + timedelta(minutes=9)),
+        BufferGap(start=t0 + timedelta(minutes=11), end=t0 + timedelta(minutes=44)),
+    ]
+
+
+# ----- 7b. buffer_gaps: whole-root continuity map for the heartbeat (#95) -----
+
+
+def test_buffer_gaps_maps_healthy_cameras_to_empty_and_omits_chunkless_ones(
+    tmp_path: Path,
+) -> None:
+    """Sibling of :meth:`buffer_depths` / :meth:`buffer_newest` — same root
+    walk, same ownership split — but the omission rule inverts, and the walk
+    is where that inversion is easiest to get wrong.
+
+    The two sibling maps skip a camera with no value. Here a healthy camera
+    *has* a value and it is the empty list, so only a camera with no chunks
+    at all may be omitted. Reusing their ``if x:`` filter would drop every
+    continuous camera into the unknown state — a bug that is invisible on the
+    box, since the beat still sends a well-formed map, and shows up only as
+    the whole fleet reading ``brak danych`` forever."""
+    from client_agent.buffer import BufferGap, RollingBuffer
+
+    base = tmp_path / "cctv-buffer"
+    now = datetime(2026, 7, 21, 12, 0, 0, tzinfo=UTC)
+    # Unbroken.
+    _make_chunk(base / "cam-a" / "chunk_0.mp4", end=now - timedelta(seconds=60))
+    _make_chunk(base / "cam-a" / "chunk_1.mp4", end=now)
+    # Flapped: a 30 min hole, then recovered — reads perfectly healthy on
+    # depth and staleness alike, which is the bug #95 exists to close.
+    _make_chunk(base / "cam-b" / "chunk_0.mp4", end=now - timedelta(minutes=31))
+    _make_chunk(base / "cam-b" / "chunk_1.mp4", end=now)
+    # Dir created by a recorder that never got a frame out of ffmpeg.
+    (base / "cam-empty").mkdir(parents=True)
+    (base / "notes.txt").write_bytes(b"x")
+
+    buffer = RollingBuffer(base_dir=base, buffer_hours=6, segment_seconds=60)
+
+    assert buffer.buffer_gaps() == {
+        "cam-a": [],
+        "cam-b": [BufferGap(start=now - timedelta(minutes=31), end=now - timedelta(minutes=1))],
+    }
+
+
+def test_buffer_gaps_empty_when_root_missing(tmp_path: Path) -> None:
+    """Cold start: the boot beat fires before any recorder spawns. An empty
+    map is skipped wholesale by the heartbeat, which is right — nothing has
+    been observed, so nothing should be asserted about continuity."""
+    from client_agent.buffer import RollingBuffer
+
+    buffer = RollingBuffer(base_dir=tmp_path / "never-created", buffer_hours=6)
+
+    assert buffer.buffer_gaps() == {}

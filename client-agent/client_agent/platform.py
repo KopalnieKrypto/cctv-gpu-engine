@@ -29,6 +29,8 @@ from typing import Literal, cast
 
 import httpx
 
+from client_agent.buffer import BufferGap
+
 # Retry policy mirrors gpu-service/http_retry.py: 3 attempts total with
 # 1s, 2s sleeps between them (the "4s" from the prose would precede a
 # 4th attempt we never make). Suitable for a single appliance against a
@@ -252,6 +254,7 @@ class PlatformClient:
         disk_total_bytes: int | None = None,
         buffer_depth: dict[str, datetime] | None = None,
         buffer_newest: dict[str, datetime] | None = None,
+        buffer_gaps: dict[str, list[BufferGap]] | None = None,
     ) -> HeartbeatResponse:
         """POST ``/appliance/heartbeat`` — keepalive + config pull.
 
@@ -318,6 +321,16 @@ class PlatformClient:
             # of it on the wire, so a box that can read one map but not the
             # other still reports what it has.
             body["buffer_newest"] = {cam: at.isoformat() for cam, at in buffer_newest.items()}
+        if buffer_gaps:
+            # Same offset contract on both edges. Note the truthiness guard is
+            # on the *map*, which is right: ``{"cam": []}`` is a non-empty dict
+            # and passes, so a healthy camera's assertion of continuity still
+            # ships. Only a genuinely empty map — nothing buffered anywhere —
+            # is skipped.
+            body["buffer_gaps"] = {
+                cam: [{"from": gap.start.isoformat(), "to": gap.end.isoformat()} for gap in gaps]
+                for cam, gaps in buffer_gaps.items()
+            }
         response = self._post("/appliance/heartbeat", json=body)
         data = response.json()
         return HeartbeatResponse(config=data["config"])

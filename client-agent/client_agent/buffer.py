@@ -35,6 +35,14 @@ class BufferChunk:
     end: datetime
 
 
+@dataclass(frozen=True)
+class BufferGap:
+    """A stretch of wallclock the buffer holds no footage for."""
+
+    start: datetime
+    end: datetime
+
+
 class RollingBuffer:
     """Per-camera rolling buffer rooted at ``base_dir/{camera_id}/``."""
 
@@ -183,6 +191,40 @@ class RollingBuffer:
             return None
         return datetime.fromtimestamp(max(mtimes), tz=UTC)
 
+    def gaps_for(self, camera_id: str) -> list[BufferGap] | None:
+        """Stretches inside the buffer's span that hold no footage.
+
+        ``None`` when the camera has no chunk at all — see :meth:`buffer_gaps`
+        for why that is emphatically not the same as ``[]``.
+
+        Bounds come from the *segment ends*. mtime is a chunk's close time, so
+        chunk ``i`` covers up to ``mtime[i]`` and chunk ``i+1`` covers from
+        ``mtime[i+1] - segment_seconds``; the hole is between those two, one
+        segment narrower than the raw mtime delta. Differencing mtimes
+        directly would over-claim every gap by a full segment *and* report a
+        spurious one between every pair of healthy consecutive chunks, whose
+        mtimes are exactly one segment apart by construction."""
+        cam_dir = self._base_dir / camera_id
+        if not cam_dir.exists():
+            return None
+        mtimes = sorted(path.stat().st_mtime for path in cam_dir.glob("chunk_*.mp4"))
+        if not mtimes:
+            return None
+        gaps: list[BufferGap] = []
+        # ``strict=False``: a pairwise walk, so the offset slice is one shorter
+        # by construction — the length mismatch is the point, not a bug.
+        for earlier, later in zip(mtimes, mtimes[1:], strict=False):
+            hole_start = earlier
+            hole_end = later - self._segment_seconds
+            if hole_end - hole_start > self._segment_seconds:
+                gaps.append(
+                    BufferGap(
+                        start=datetime.fromtimestamp(hole_start, tz=UTC),
+                        end=datetime.fromtimestamp(hole_end, tz=UTC),
+                    )
+                )
+        return gaps
+
     def buffer_depths(self) -> dict[str, datetime]:
         """Oldest-chunk mtime per camera across the whole buffer root.
 
@@ -228,6 +270,45 @@ class RollingBuffer:
             if at is not None:
                 newest[cam_dir.name] = at
         return newest
+
+    def buffer_gaps(self) -> dict[str, list[BufferGap]]:
+        """Missing stretches per camera across the whole buffer root.
+
+        Third sibling of :meth:`buffer_depths` and :meth:`buffer_newest` —
+        same root walk, same ownership split — completing the set. Depth says
+        how far back the box can serve, newest says whether it is still
+        writing, and neither can see a hole in between: a camera that flaps
+        overnight and recovers by morning reports a full span and a fresh
+        write at every working hour (#95 / gpu-exchange#159).
+
+        **The omission rule inverts here**, and it is the one thing to get
+        right. The sibling maps skip a camera with no value; a camera with no
+        holes *has* a value — the empty list — and it is a positive assertion
+        that the buffer is unbroken. Only a camera with no chunks at all is
+        omitted, meaning nothing observed. The platform types those as
+        distinct states so an un-upgraded box can never read as verified
+        intact, which cuts both ways: omit a healthy camera and it stays
+        permanently unknown, and the submit gate never engages for it.
+
+        Intervals rather than a chunk count, deliberately. A count yields a
+        coverage *ratio*, which cannot answer the question that costs money —
+        does the window someone is about to pay to analyse overlap a hole? A
+        1 h request inside a 3 h buffer is a slice, and a ratio says nothing
+        about whether *that* slice is the holey part. Intervals subsume the
+        count and cost near-nothing on the wire, since a healthy camera sends
+        ``[]``."""
+        if not self._base_dir.exists():
+            return {}
+        gaps: dict[str, list[BufferGap]] = {}
+        for cam_dir in self._base_dir.iterdir():
+            if not cam_dir.is_dir():
+                continue
+            cam_gaps = self.gaps_for(cam_dir.name)
+            # ``is not None``, never a truthiness test — ``[]`` is the healthy
+            # reading and has to survive the walk.
+            if cam_gaps is not None:
+                gaps[cam_dir.name] = cam_gaps
+        return gaps
 
     def has_recorded(self, camera_id: str) -> bool:
         """``True`` iff the camera has at least one chunk on disk.
