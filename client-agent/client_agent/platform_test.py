@@ -947,3 +947,52 @@ def test_report_snapshot_status_posts_uploaded_and_failed_bodies() -> None:
         {"status": "uploaded"},
         {"status": "failed", "error": "rtsp grab failed"},
     ]
+
+
+# ----- 20. update_task_status: actual_start serialized on the uploaded call (#91) -----
+
+
+def test_update_task_status_serializes_actual_start_iso8601() -> None:
+    """The appliance reports where the delivered clip really begins so the
+    platform can stamp ``recording_start`` from the artifact rather than the
+    request (#91, gpu-exchange#154). Sent as an ISO-8601 string — a raw
+    ``datetime`` is not JSON-serializable and would raise at the httpx
+    boundary, not at the call site where it would be obvious.
+
+    The key is omitted entirely when absent so bodies for the statuses that
+    have no such notion (``recording`` / ``uploading`` / ``failed``) stay
+    exactly as they were — the platform's schema is a discriminated union
+    and every variant is validated separately."""
+    from client_agent.platform import PlatformClient
+
+    seen_bodies: list[dict] = []
+
+    def _capture(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        seen_bodies.append(_json.loads(request.read()))
+        return httpx.Response(204)
+
+    delivered = datetime(2026, 7, 18, 5, 13, 17, tzinfo=UTC)
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/tasks/task-abc/status").mock(side_effect=_capture)
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        client.update_task_status(
+            "task-abc",
+            status="uploaded",
+            chunk_r2_key="tenants/t/appliance-uploads/task-abc/chunk_0.mp4",
+            actual_start=delivered,
+        )
+        # No actual_start → the key must not appear at all (not ``null``).
+        client.update_task_status("task-abc", status="recording")
+
+    assert seen_bodies == [
+        {
+            "status": "uploaded",
+            "chunk_r2_key": "tenants/t/appliance-uploads/task-abc/chunk_0.mp4",
+            "actual_start": "2026-07-18T05:13:17+00:00",
+        },
+        {"status": "recording"},
+    ]

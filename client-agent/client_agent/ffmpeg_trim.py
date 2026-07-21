@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import tempfile
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -33,8 +33,15 @@ def trim_and_concat(
     end: datetime,
     output: Path,
     runner: Callable[..., Any],
-) -> None:
+) -> datetime:
     """Materialize a single MP4 covering ``[start, end]`` from ``chunks``.
+
+    Returns the wall-clock start of the clip actually produced. That is
+    the requested ``start`` whenever the buffer covers the window, and
+    the oldest chunk's start when the ``-ss`` clamp below kicked in. The
+    platform stamps ``recording_start`` from this and the engine anchors
+    ``timestamp_s == 0`` to it (SPEC.md:173), so a silently-clamped clip
+    used to mislabel every frame by the shortfall (#91).
 
     Raises :class:`ValueError` if ``chunks`` is empty — the caller (poller)
     should have caught "empty buffer" before getting here, but the guard
@@ -43,13 +50,28 @@ def trim_and_concat(
     if not chunks:
         raise ValueError("trim_and_concat called with no chunks")
 
+    # Both branches slice relative to the first chunk's start — for the
+    # single-chunk case that *is* the only chunk, for the concat case it is
+    # the head of the virtual stream — so the offsets are computed once here.
+    #
+    # Clamp to 0: when the task window starts before the chunk's
+    # (mtime-inferred) start, the raw offset is negative and ffmpeg
+    # rejects/misbehaves on a negative -ss. Start at the chunk head.
+    first = chunks[0]
+    ss = max(0, int((start - first.start).total_seconds()))
+    to = int((end - first.start).total_seconds())
+    # Where the delivered clip really begins. ``ss`` already absorbed the
+    # clamp, so this is the requested ``start`` on a fully-covered window and
+    # the buffer's oldest moment when coverage fell short (#91).
+    #
+    # Residual: input-position ``-ss`` snaps to the preceding keyframe, so the
+    # first decodable frame can sit ~2 s earlier than reported. That is the
+    # same tolerance the module already accepts for the trim itself, and it is
+    # dwarfed by the shortfall this value exists to expose (~19 min in the
+    # incident behind #91).
+    actual_start = first.start + timedelta(seconds=ss)
+
     if len(chunks) == 1:
-        chunk = chunks[0]
-        # Clamp to 0: when the task window starts before the chunk's
-        # (mtime-inferred) start, the raw offset is negative and ffmpeg
-        # rejects/misbehaves on a negative -ss. Start at the chunk head.
-        ss = max(0, int((start - chunk.start).total_seconds()))
-        to = int((end - chunk.start).total_seconds())
         cmd = [
             "ffmpeg",
             "-ss",
@@ -57,13 +79,13 @@ def trim_and_concat(
             "-to",
             str(to),
             "-i",
-            str(chunk.path),
+            str(first.path),
             "-c",
             "copy",
             str(output),
         ]
         _check(runner(cmd, capture_output=True, text=True))
-        return
+        return actual_start
 
     # Multi-chunk: write a concat-demuxer file list next to the output, then
     # invoke ffmpeg once with -f concat. Offsets are relative to the first
@@ -76,9 +98,7 @@ def trim_and_concat(
     # invisible at the report layer; a task spanning a multi-minute recorder
     # outage would need offsets derived from cumulative chunk durations
     # instead (deferred — no such footage in the current test corpus).
-    first = chunks[0]
-    ss = max(0, int((start - first.start).total_seconds()))
-    to = int((end - first.start).total_seconds())
+    #
     # ``delete=False`` so ffmpeg can reopen the list by name; we own the
     # cleanup ourselves in the ``finally`` below. Without it every multi-
     # chunk task leaks a ``*.concat.txt`` next to the output (issue #51).
@@ -113,6 +133,8 @@ def trim_and_concat(
     finally:
         list_file.close()
         Path(list_file.name).unlink(missing_ok=True)
+
+    return actual_start
 
 
 def _check(result: Any) -> None:

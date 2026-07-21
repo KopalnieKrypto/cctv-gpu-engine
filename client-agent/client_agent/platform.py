@@ -283,6 +283,7 @@ class PlatformClient:
         status: str,
         error: str | None = None,
         chunk_r2_key: str | None = None,
+        actual_start: datetime | None = None,
     ) -> None:
         """POST ``/appliance/tasks/{task_id}/status`` — status transition.
 
@@ -290,12 +291,29 @@ class PlatformClient:
         union: ``uploaded`` requires ``chunk_r2_key`` (the R2 key the
         appliance just PUT into), ``failed`` accepts an optional ``error``.
         Missing fields → 400 from the validator, hence the per-status
-        argument list rather than a single opaque dict."""
+        argument list rather than a single opaque dict.
+
+        ``actual_start`` accompanies ``uploaded``: the wall-clock start of
+        the clip the appliance actually delivered, which is later than the
+        task's ``start_time`` whenever the buffer did not reach back far
+        enough (#91). The platform stamps ``recording_start`` from it and the
+        engine anchors ``timestamp_s == 0`` there, so without it a
+        short-covered task mislabels every frame by the shortfall.
+
+        Safe to send at a platform that does not know the field yet: the
+        server-side Zod object is non-strict, so an unknown key is stripped
+        rather than 400'd, and the platform keeps its old ``start_time``
+        fallback (gpu-exchange#154). That is what lets this half deploy
+        first."""
         body: dict = {"status": status}
         if error is not None:
             body["error"] = error
         if chunk_r2_key is not None:
             body["chunk_r2_key"] = chunk_r2_key
+        if actual_start is not None:
+            # ISO-8601 with offset — ``json=`` cannot serialize a datetime
+            # and would raise inside httpx, far from this call site.
+            body["actual_start"] = actual_start.isoformat()
         self._post(f"/appliance/tasks/{task_id}/status", json=body)
 
     def get_upload_url(self, task_id: str, chunk_n: int) -> UploadUrl:

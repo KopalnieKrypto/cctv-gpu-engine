@@ -30,6 +30,7 @@ class FakePlatform:
 
     next_tasks: list[Task | None] = field(default_factory=list)
     status_calls: list[tuple[str, str, str | None]] = field(default_factory=list)
+    status_kwargs: list[dict] = field(default_factory=list)
 
     def fetch_next_task(self) -> Task | None:
         if not self.next_tasks:
@@ -43,8 +44,23 @@ class FakePlatform:
         status: str,
         error: str | None = None,
         chunk_r2_key: str | None = None,
+        actual_start: datetime | None = None,
     ) -> None:
         self.status_calls.append((task_id, status, error))
+        # Full kwarg capture alongside the legacy 3-tuple: the tuple form is
+        # what most tests assert transitions on, but fields the poller only
+        # sends on specific statuses (``chunk_r2_key``, ``actual_start``)
+        # were being silently dropped by this fake — a fake that accepts a
+        # field and discards it cannot catch a poller that never sends it.
+        self.status_kwargs.append(
+            {
+                "task_id": task_id,
+                "status": status,
+                "error": error,
+                "chunk_r2_key": chunk_r2_key,
+                "actual_start": actual_start,
+            }
+        )
 
 
 @dataclass
@@ -705,3 +721,63 @@ def test_set_poll_interval_s_changes_idle_sleep(tmp_path: Path) -> None:
         pass
 
     assert slept == [7]
+
+
+# ----- 14. the trim's actual start is reported to the platform (#91) -----
+
+
+def test_uploaded_status_reports_actual_start_from_trim(tmp_path: Path) -> None:
+    """``trim_and_concat`` clamps ``-ss`` when the buffer does not reach
+    back to the requested window start, so the delivered clip can begin
+    later than asked. The platform stamps ``recording_start`` from the
+    request and the engine anchors ``timestamp_s == 0`` to it, so the
+    shortfall silently mislabels every frame (#91, gpu-exchange#154).
+
+    The trim already knows the answer and now returns it; the poller has
+    to carry it to the platform on the ``uploaded`` transition — the only
+    call that describes the delivered artifact."""
+    from client_agent.poller import TaskPoller
+    from client_agent.uploader import UploadResult
+
+    t10 = datetime(2026, 5, 15, 10, 0, 0, tzinfo=UTC)
+    requested_start = t10 - timedelta(minutes=15)  # 09:45, before the buffer
+    delivered_start = t10  # what the clamped trim actually produced
+    chunk = BufferChunk(path=tmp_path / "chunk_001.mp4", start=t10, end=t10 + timedelta(hours=1))
+    platform = FakePlatform(
+        next_tasks=[
+            Task(
+                id="task-1",
+                camera_id="cam-1",
+                start_time=requested_start,
+                end_time=t10 + timedelta(minutes=45),
+            )
+        ]
+    )
+    buffer = FakeBuffer(chunks_by_camera={"cam-1": [chunk]})
+
+    def fake_trim(*, chunks, start, end, output, runner):
+        output.write_bytes(b"fake-trimmed")
+        return delivered_start
+
+    uploader = FakeUploader(
+        results_by_task={
+            "task-1": [UploadResult(chunk_n=0, success=True, key="tenants/t/x/task-1/chunk_0.mp4")]
+        }
+    )
+
+    poller = TaskPoller(
+        platform=platform,
+        buffer=buffer,
+        trim_fn=fake_trim,
+        output_dir=tmp_path / "out",
+        uploader=uploader,
+    )
+
+    assert poller.run_once() is True
+
+    uploaded = [c for c in platform.status_kwargs if c["status"] == "uploaded"]
+    assert len(uploaded) == 1
+    # The delivered start, not the requested one — that distinction is the
+    # whole point of the issue.
+    assert uploaded[0]["actual_start"] == delivered_start
+    assert uploaded[0]["actual_start"] != requested_start

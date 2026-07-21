@@ -46,7 +46,12 @@ class _PlatformLike(Protocol):
 
     def fetch_next_task(self) -> Task | None: ...
     def update_task_status(
-        self, task_id: str, *, status: str, error: str | None = None
+        self,
+        task_id: str,
+        *,
+        status: str,
+        error: str | None = None,
+        actual_start: datetime | None = None,
     ) -> None: ...
 
 
@@ -84,7 +89,7 @@ class TaskPoller:
         *,
         platform: _PlatformLike,
         buffer: _BufferLike,
-        trim_fn: Callable[..., None],
+        trim_fn: Callable[..., datetime | None],
         output_dir: Path,
         uploader: _UploaderLike,
         poll_interval_s: int = 5,
@@ -142,7 +147,11 @@ class TaskPoller:
         self._output_dir.mkdir(parents=True, exist_ok=True)
         output = self._output_dir / f"{task.id}-{uuid.uuid4().hex[:8]}.mp4"
         try:
-            self._trim_fn(
+            # The trim returns where the delivered clip *actually* starts.
+            # It equals ``task.start_time`` whenever the buffer covered the
+            # window, and the oldest chunk's start when the ``-ss`` clamp
+            # shortened it (#91).
+            actual_start = self._trim_fn(
                 chunks=chunks,
                 start=task.start_time,
                 end=task.end_time,
@@ -172,8 +181,20 @@ class TaskPoller:
             # whole task's payload. When upload_chunks is expanded to multi-
             # chunk batches the platform's schema also gains a multi-key shape;
             # for now `results[0].key` is the contract.
+            #
+            # ``actual_start`` rides along on the same call: it describes the
+            # artifact just uploaded, so the platform can stamp
+            # ``recording_start`` from what was delivered instead of what was
+            # requested (#91 / gpu-exchange#154). ``None`` (a trim_fn that
+            # predates the return value) simply omits the field, and the
+            # platform falls back to ``start_time`` as before.
             uploaded_key = getattr(results[0], "key", None) if results else None
-            self._platform.update_task_status(task.id, status="uploaded", chunk_r2_key=uploaded_key)
+            self._platform.update_task_status(
+                task.id,
+                status="uploaded",
+                chunk_r2_key=uploaded_key,
+                actual_start=actual_start,
+            )
             return True
         except Exception as exc:  # noqa: BLE001
             # Any exception between status=recording and a terminal status

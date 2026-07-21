@@ -332,3 +332,115 @@ def test_ss_clamped_to_zero_when_window_precedes_chunk(tmp_path: Path) -> None:
 
     cmd = calls[0]
     assert cmd[cmd.index("-ss") + 1] == "0"
+
+
+# ----- 8. covered window reports the requested start back to the caller -----
+
+
+def _ok_runner(output: Path, calls: list[list[str]] | None = None):
+    """A runner that fakes a successful ffmpeg: records argv and writes
+    a stand-in output file."""
+
+    def runner(cmd, **kwargs):
+        if calls is not None:
+            calls.append(cmd)
+
+        class _R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        output.write_bytes(b"fake-trimmed")
+        return _R()
+
+    return runner
+
+
+def test_trim_returns_requested_start_when_window_fully_covered(tmp_path: Path) -> None:
+    """The platform stamps ``recording_start`` from the *requested*
+    ``start_time`` and the engine anchors ``timestamp_s == 0`` to it
+    (SPEC.md:173), so the appliance has to say where the delivered clip
+    actually begins (#91). When the buffer covers the whole window there
+    is no shortfall and the answer is simply the requested start."""
+    from client_agent.ffmpeg_trim import trim_and_concat
+
+    t10 = datetime(2026, 5, 15, 10, 0, 0, tzinfo=UTC)
+    chunk_path = tmp_path / "chunk_001.mp4"
+    chunk_path.write_bytes(b"fake")
+    chunk = _chunk(chunk_path, end=t10 + timedelta(hours=1))  # covers 10:00 → 11:00
+    output = tmp_path / "out.mp4"
+    requested_start = t10 + timedelta(minutes=15)
+
+    actual_start = trim_and_concat(
+        chunks=[chunk],
+        start=requested_start,
+        end=t10 + timedelta(minutes=45),
+        output=output,
+        runner=_ok_runner(output),
+    )
+
+    assert actual_start == requested_start
+
+
+# ----- 9. clamped window reports the chunk's start, not the requested one -----
+
+
+def test_trim_reports_chunk_start_when_window_precedes_buffer(tmp_path: Path) -> None:
+    """The defect behind #91 / gpu-exchange#154. When the buffer does not
+    reach back to the requested start the ``-ss`` clamp silently produces a
+    clip that begins *later* than asked — but the platform had already
+    stamped ``recording_start`` from the request, so every frame's inferred
+    wall clock was wrong by the shortfall and shift gating discarded the
+    wrong footage. The produced clip starts at the chunk head; that is what
+    must be reported."""
+    from client_agent.ffmpeg_trim import trim_and_concat
+
+    t10 = datetime(2026, 5, 15, 10, 0, 0, tzinfo=UTC)
+    chunk_path = tmp_path / "chunk_001.mp4"
+    chunk_path.write_bytes(b"fake")
+    chunk = _chunk(chunk_path, end=t10 + timedelta(hours=1))  # chunk.start = 10:00
+    output = tmp_path / "out.mp4"
+
+    # Requested 09:55, but the buffer only reaches back to 10:00 — a 5 min
+    # shortfall that ffmpeg absorbs by clamping -ss to 0.
+    actual_start = trim_and_concat(
+        chunks=[chunk],
+        start=t10 - timedelta(minutes=5),
+        end=t10 + timedelta(minutes=45),
+        output=output,
+        runner=_ok_runner(output),
+    )
+
+    assert actual_start == t10
+
+
+# ----- 10. concat path reports the actual start too -----
+
+
+def test_trim_multi_chunk_reports_actual_start(tmp_path: Path) -> None:
+    """The concat branch carries its own copy of the ``-ss`` clamp, against
+    the *first* chunk's start. A window reaching back before the buffer is
+    exactly the multi-chunk shape a long request takes (#91), so the same
+    reporting contract has to hold here — otherwise the fix only covers
+    windows that happen to fit inside one chunk."""
+    from client_agent.ffmpeg_trim import trim_and_concat
+
+    t10 = datetime(2026, 5, 15, 10, 0, 0, tzinfo=UTC)
+    c1_path = tmp_path / "chunk_001.mp4"
+    c1_path.write_bytes(b"fake1")
+    c2_path = tmp_path / "chunk_002.mp4"
+    c2_path.write_bytes(b"fake2")
+    c1 = _chunk(c1_path, end=t10 + timedelta(hours=1))  # 10:00 → 11:00
+    c2 = _chunk(c2_path, end=t10 + timedelta(hours=2))  # 11:00 → 12:00
+    output = tmp_path / "out.mp4"
+
+    # Requested 09:45; the buffer's oldest chunk only starts at 10:00.
+    actual_start = trim_and_concat(
+        chunks=[c1, c2],
+        start=t10 - timedelta(minutes=15),
+        end=t10 + timedelta(minutes=90),
+        output=output,
+        runner=_ok_runner(output),
+    )
+
+    assert actual_start == t10
