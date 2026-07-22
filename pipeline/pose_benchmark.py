@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import IO, Any
 
 from pipeline.postprocessing import CONFIDENCE_THRESHOLD, NMS_IOU_THRESHOLD, Detection, _iou
+from pipeline.preprocessing import input_wh
 from pipeline.zones import Zone, ZoneConfig, foot_point
 
 MIN_RECALL = 0.90
@@ -297,6 +298,30 @@ class WinnerSelection:
 
 class BenchmarkConfigError(ValueError):
     """Fixture or run configuration cannot produce comparable evidence."""
+
+
+# The exact ``(width, height)`` each arm is measured at. An arm's identity is
+# its input shape, so this is declared rather than inferred: scoring a 640×384
+# export while the harness believes it ran 640×640 would put two different
+# experiments in the same row of the gate table. ``baseline_640x384`` (issue
+# #100) has the same *width* as ``baseline_640`` — for a 16:9 frame the width
+# ratio alone sets detection scale — so it tests compute, not resolution.
+ARM_INPUT_SIZES: dict[str, tuple[int, int]] = {
+    "baseline_640": (640, 640),
+    "baseline_640x384": (640, 384),
+    "full_frame_1280": (1280, 1280),
+    "focused_roi_640": (640, 640),
+}
+
+
+def expected_input_size_for_arm(arm: str) -> tuple[int, int]:
+    """Return the ``(width, height)`` an arm's model must declare."""
+    try:
+        return ARM_INPUT_SIZES[arm]
+    except KeyError:
+        raise BenchmarkConfigError(
+            f"unknown benchmark arm {arm!r}; known arms: {sorted(ARM_INPUT_SIZES)}"
+        ) from None
 
 
 @dataclass(frozen=True)
@@ -795,7 +820,7 @@ def _run_arm_command(args: argparse.Namespace) -> int:
         raise BenchmarkConfigError("zones config needs inference_roi for the focused arm")
     scoring_zone = next(zone for zone in zones.zones if zone.id == zones.inference_roi.zone_id)
     inference_zones = zones if args.arm == "focused_roi_640" else replace(zones, inference_roi=None)
-    expected_input_size = 1280 if args.arm == "full_frame_1280" else 640
+    expected_input_size = expected_input_size_for_arm(args.arm)
     fixture = load_benchmark_fixture(Path(args.fixture), zone=scoring_zone)
     film_fixtures = {
         "film_1": load_benchmark_fixture(
@@ -820,10 +845,10 @@ def _run_arm_command(args: argparse.Namespace) -> int:
 
     with PeakProcessVramMonitor() as vram:
         detector = load_pose_model(args.model, zones=inference_zones)
-        if detector.input_size != expected_input_size:
+        if input_wh(detector.input_size) != expected_input_size:
             raise BenchmarkConfigError(
                 f"arm {args.arm} requires a fixed {expected_input_size} model, "
-                f"but {args.model} declares {detector.input_size}"
+                f"but {args.model} declares {input_wh(detector.input_size)}"
             )
         detection_run = run_detection_arm(
             name=args.arm,
@@ -880,7 +905,8 @@ def _run_arm_command(args: argparse.Namespace) -> int:
             "model": {
                 "path": args.model,
                 "sha256": _sha256_file(Path(args.model)),
-                "input_size": expected_input_size,
+                # [w, h], matching result.json's diagnostics (issue #98/#100).
+                "input_size": list(expected_input_size),
             },
         }
     )
@@ -967,7 +993,7 @@ def build_cli_parser() -> argparse.ArgumentParser:
     run_arm.add_argument(
         "--arm",
         required=True,
-        choices=["baseline_640", "full_frame_1280", "focused_roi_640"],
+        choices=sorted(ARM_INPUT_SIZES),
     )
     run_arm.add_argument("--fixture", required=True)
     run_arm.add_argument("--zones", required=True)

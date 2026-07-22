@@ -21,7 +21,7 @@ import onnxruntime as ort
 
 from pipeline.activity_classifier import classify_activity
 from pipeline.postprocessing import Detection, postprocess
-from pipeline.preprocessing import IMG_SIZE, preprocess
+from pipeline.preprocessing import IMG_SIZE, InputSize, preprocess
 from pipeline.zones import ZoneConfig
 
 CUDA_PROVIDER = "CUDAExecutionProvider"
@@ -53,14 +53,20 @@ def file_sha256(path: str) -> str | None:
     return digest.hexdigest()
 
 
-def _validated_input_size(shape: object) -> int:
-    """Return ``S`` for a supported fixed ``[1, 3, S, S]`` model input."""
+def _validated_input_size(shape: object) -> tuple[int, int]:
+    """Return ``(width, height)`` for a supported fixed ``[1, 3, H, W]`` input.
+
+    Non-square exports are supported since issue #100 — a 16:9 frame into a
+    square input spends 43.75% of the tensor on constant grey for no gain in
+    detection scale. The dynamic-dimension rejection stays: a dynamic axis
+    makes onnxruntime re-optimise on every shape change.
+    """
 
     def invalid(reason: str) -> RuntimeError:
         return RuntimeError(
             f"Invalid pose model input shape {shape!r}: {reason}; expected a "
-            "fixed rank 4 [1, 3, S, S] tensor with a positive integer square "
-            "size. Dynamic and non-square inputs are unsupported."
+            "fixed rank 4 [1, 3, H, W] tensor with positive integer spatial "
+            "dimensions. Dynamic inputs are unsupported."
         )
 
     if not isinstance(shape, (list, tuple)) or len(shape) != 4:
@@ -72,11 +78,9 @@ def _validated_input_size(shape: object) -> int:
         raise invalid("input must have batch dimension 1")
     if channels != 3:
         raise invalid("input must have 3 channels")
-    if height != width:
-        raise invalid("height and width must be square")
-    if height <= 0:
-        raise invalid("square size must be positive")
-    return height
+    if height <= 0 or width <= 0:
+        raise invalid("width and height must be positive")
+    return width, height
 
 
 @dataclass
@@ -85,7 +89,10 @@ class PoseDetector:
 
     session: ort.InferenceSession
     input_name: str
-    input_size: int = IMG_SIZE
+    # The model's declared input, as a square side or an explicit ``(w, h)``
+    # since issue #100. :func:`load_pose_model` always stamps the pair; a bare
+    # int is still accepted so hand-built detectors keep working.
+    input_size: InputSize = IMG_SIZE
     # Optional ROI zones (issue #78). When set, each detection is stamped with
     # the zone its foot point falls in; when None, ``zone_id`` stays None.
     zones: ZoneConfig | None = None

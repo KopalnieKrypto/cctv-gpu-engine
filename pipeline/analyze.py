@@ -32,6 +32,7 @@ from pipeline.detections_dump import detection_to_dict
 from pipeline.frame_extractor import extract_frame_at
 from pipeline.pose_detector import load_pose_model
 from pipeline.postprocessing import CONFIDENCE_THRESHOLD, NMS_IOU_THRESHOLD
+from pipeline.preprocessing import input_wh
 from pipeline.reid import DEFAULT_REID_MODEL_PATH, load_reid_model
 from pipeline.report_json import render_report_json
 from pipeline.report_renderer import render_report
@@ -174,7 +175,7 @@ def _analyze_to_report_data(
         "activity_model": None,
         "model_path": detector.model_path,
         "model_sha256": detector.model_sha256,
-        "input_size": [detector.input_size, detector.input_size],
+        "input_size": list(input_wh(detector.input_size)),
         "conf_threshold": CONFIDENCE_THRESHOLD,
         "nms_threshold": NMS_IOU_THRESHOLD,
         "source_frame": None,

@@ -175,7 +175,8 @@ class TestLoadPoseModel:
             ([1, 3, 640], "rank 4"),
             ([2, 3, 640, 640], "batch dimension 1"),
             ([1, 1, 640, 640], "3 channels"),
-            ([1, 3, 640, 1280], "square"),
+            # [1, 3, 640, 1280] was rejected here until issue #100 — a
+            # non-square export is now a supported shape, not a malformed one.
             ([1, 3, 0, 0], "positive"),
         ],
     )
@@ -274,7 +275,8 @@ class TestLoadedModelIdentity:
 
         detector = load_pose_model(str(weights))
 
-        assert detector.input_size == 1280 != IMG_SIZE
+        assert detector.input_size == (1280, 1280)
+        assert IMG_SIZE == 640  # the default the value must not have come from
 
 
 class TestPoseDetectorDetect:
@@ -454,3 +456,59 @@ class TestPoseDetectorInferenceROI:
             abs=1e-3,
         )
         assert detection.zone_id == "bending-1"
+
+
+class TestNonSquareModelInput:
+    """Issue #100 — the loader accepts an explicit ``[1, 3, H, W]`` export.
+
+    A 16:9 frame into a square input spends 43.75% of every tensor on constant
+    grey. A non-square export at the same width has identical detection scale
+    for 0.60× the compute, so the loader must stop rejecting it — while keeping
+    the guard that actually matters (dynamic dimensions) and keeping square
+    exports loading exactly as before.
+    """
+
+    def test_non_square_export_loads_and_reports_its_width_and_height(self, mocker):
+        _mock_cuda_session(mocker, shape=[1, 3, 736, 1280])
+
+        detector = load_pose_model("models/yolo11s-pose-1280x736.onnx")
+
+        assert detector.input_size == (1280, 736)
+
+    def test_non_square_detector_feeds_the_session_that_exact_tensor(self, mocker):
+        session = _mock_cuda_session(mocker, shape=[1, 3, 736, 1280])
+        session.run.return_value = [np.zeros((1, 56, 0), dtype=np.float32)]
+
+        detector = load_pose_model("models/yolo11s-pose-1280x736.onnx")
+        detector.detect(np.zeros((2160, 3840, 3), dtype=np.uint8))
+
+        feed = session.run.call_args.args[1]
+        assert feed["images"].shape == (1, 3, 736, 1280)
+
+    def test_square_export_still_loads_and_reports_a_square_pair(self, mocker):
+        # Widening, not replacing — 640 and 1280 square exports are unaffected.
+        _mock_cuda_session(mocker, shape=[1, 3, 640, 640])
+
+        assert load_pose_model("models/yolo11s-pose.onnx").input_size == (640, 640)
+
+    def test_dynamic_dimensions_are_still_rejected(self, mocker):
+        # The guard that survives: a dynamic axis means the session would
+        # re-optimise on every shape change, which is a different failure.
+        _mock_cuda_session(mocker, shape=[1, 3, "height", "width"])
+
+        with pytest.raises(RuntimeError, match="fixed integer dimensions"):
+            load_pose_model("models/dynamic.onnx")
+
+    def test_non_square_bboxes_come_back_in_original_frame_coordinates(self, mocker):
+        # 3840×2160 into 1280×736: scale = 1/3, the image occupies 1280×720 of
+        # the input with 8 rows of padding top and bottom. A model-space box of
+        # [320, 128, 480, 488] is [960, 360, 1440, 1440] in the source frame.
+        session = _mock_cuda_session(mocker, shape=[1, 3, 736, 1280])
+        output = np.zeros((1, 56, 1), dtype=np.float32)
+        output[0, 0:5, 0] = [400.0, 308.0, 160.0, 360.0, 0.9]
+        session.run.return_value = [output]
+
+        detector = load_pose_model("models/yolo11s-pose-1280x736.onnx")
+        [detection] = detector.detect(np.zeros((2160, 3840, 3), dtype=np.uint8))
+
+        assert detection.bbox == pytest.approx([960.0, 360.0, 1440.0, 1440.0])

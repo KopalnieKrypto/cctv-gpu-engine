@@ -491,3 +491,60 @@ def test_regression_fixture_recall_aggregates_whole_frame_counts():
             return [_detection([0, 0, 10, 10], 0.9)] if self.calls == 1 else []
 
     assert measure_fixture_recall(Detector(), fixture) == pytest.approx(0.5)
+
+
+class TestArmInputSizes:
+    """Issue #100 — arms declare the exact tensor they were measured at.
+
+    An arm's identity is its input shape; scoring a 640×384 export while the
+    harness believes it ran 640×640 would silently compare two different
+    experiments. The mapping is explicit so a mismatched model fails at load
+    rather than producing a plausible, wrong row in the gate table.
+    """
+
+    def test_the_issue_86_arms_keep_their_square_sizes(self):
+        from pipeline.pose_benchmark import expected_input_size_for_arm
+
+        assert expected_input_size_for_arm("baseline_640") == (640, 640)
+        assert expected_input_size_for_arm("focused_roi_640") == (640, 640)
+        assert expected_input_size_for_arm("full_frame_1280") == (1280, 1280)
+
+    def test_the_non_square_arm_declares_640_by_384(self):
+        from pipeline.pose_benchmark import expected_input_size_for_arm
+
+        # Same width as baseline_640, so identical detection scale — the whole
+        # claim the arm exists to test — for 0.60x the tensor.
+        assert expected_input_size_for_arm("baseline_640x384") == (640, 384)
+
+    def test_unknown_arm_is_a_config_error_not_a_silent_640(self):
+        from pipeline.pose_benchmark import expected_input_size_for_arm
+
+        with pytest.raises(BenchmarkConfigError, match="unknown benchmark arm"):
+            expected_input_size_for_arm("baseline_512")
+
+    def test_run_arm_cli_accepts_the_non_square_arm(self):
+        from pipeline.pose_benchmark import build_cli_parser
+
+        args = build_cli_parser().parse_args(
+            [
+                "run-arm",
+                "--arm",
+                "baseline_640x384",
+                "--fixture",
+                "m.json",
+                "--zones",
+                "z.json",
+                "--model",
+                "m.onnx",
+                "--throughput-clip",
+                "c.mp4",
+                "--film-1-fixture",
+                "f1.json",
+                "--film-2-fixture",
+                "f2.json",
+                "--output",
+                "o.json",
+            ]
+        )
+
+        assert args.arm == "baseline_640x384"

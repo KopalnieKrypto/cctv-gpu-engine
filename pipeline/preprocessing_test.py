@@ -1,6 +1,7 @@
 """Tests for image preprocessing — produces YOLO-pose ready tensor."""
 
 import numpy as np
+import pytest
 
 from pipeline.preprocessing import IMG_SIZE, PAD_VALUE, letterbox_params, preprocess
 
@@ -71,3 +72,63 @@ class TestLetterbox:
         assert scale == 640 / 1920  # limited by the wider side
         assert pad_x == 0
         assert pad_y == (640 - 360) // 2
+
+
+class TestNonSquareInput:
+    """Issue #100 — 44% of every 640×640 tensor is grey padding.
+
+    Pixels-on-target for a 16:9 frame is set by the *width* ratio alone (width
+    is the binding side into a square), so a 640×384 export sees the frame at
+    exactly the same scale as 640×640 for 0.60× the compute. This widens the
+    contract — square stays first-class, it just stops being the only shape.
+    """
+
+    def test_letterbox_scale_is_unchanged_when_only_the_padding_is_removed(self):
+        # 16:9 into 640×640 and into 640×384 must place the image identically:
+        # same scale, same x offset. Only the wasted grey band differs.
+        square = letterbox_params(1920, 1080, 640)
+        wide = letterbox_params(1920, 1080, (640, 384))
+
+        assert square[0] == wide[0] == 640 / 1920
+        assert square[1] == wide[1] == 0
+        assert square[2] == (640 - 360) // 2
+        assert wide[2] == (384 - 360) // 2
+
+    def test_padding_is_computed_per_axis(self):
+        # A frame taller than the input's aspect is bound by height instead.
+        scale, pad_x, pad_y = letterbox_params(1000, 1000, (1280, 736))
+
+        assert scale == 736 / 1000
+        assert pad_x == (1280 - 736) // 2
+        assert pad_y == 0
+
+    def test_preprocess_emits_the_models_own_tensor_shape(self):
+        img_bgr = np.full((720, 1280, 3), 255, dtype=np.uint8)
+
+        tensor, orig_w, orig_h = preprocess(img_bgr, input_size=(1280, 736))
+
+        assert tensor.shape == (1, 3, 736, 1280)
+        assert (orig_w, orig_h) == (1280, 720)
+
+    def test_non_square_input_wastes_far_less_of_the_tensor_on_padding(self):
+        img_bgr = np.full((2160, 3840, 3), 255, dtype=np.uint8)
+
+        square, _, _ = preprocess(img_bgr, input_size=640)
+        wide, _, _ = preprocess(img_bgr, input_size=(640, 384))
+
+        pad = np.float32(PAD_VALUE / 255.0)
+        square_waste = float((square == pad).mean())
+        wide_waste = float((wide == pad).mean())
+        # 3840×2160 into 640×640 leaves 640×360 of picture: 43.75% grey.
+        assert square_waste == pytest.approx(0.4375, abs=0.005)
+        assert wide_waste < 0.07
+        assert wide.size / square.size == pytest.approx(0.6, abs=0.005)
+
+    def test_square_input_size_still_accepted_as_a_bare_int(self):
+        # Widening, not replacing: every existing caller passes an int.
+        img_bgr = np.full((720, 1280, 3), 255, dtype=np.uint8)
+
+        from_int, _, _ = preprocess(img_bgr, input_size=640)
+        from_pair, _, _ = preprocess(img_bgr, input_size=(640, 640))
+
+        assert np.array_equal(from_int, from_pair)

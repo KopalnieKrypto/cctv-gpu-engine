@@ -1248,6 +1248,15 @@ class TestDetectionDiagnostics:
         assert diagnostics["input_size"] == [1280, 1280]
         assert IMG_SIZE == 640  # the default the value must not have come from
 
+    def test_non_square_input_is_reported_as_width_by_height(self, mocker, tmp_path):
+        # Issue #100 — the [w, h] shape #98 chose in anticipation now carries
+        # a genuinely non-square value, and in the order a reader expects.
+        weights = self._weights(tmp_path, b"a 1280x736 export")
+
+        diagnostics = self._run(mocker, tmp_path, weights, shape=[1, 3, 736, 1280])
+
+        assert diagnostics["input_size"] == [1280, 736]
+
     def test_bind_mounted_weights_are_reported_not_the_baked_default(self, mocker, tmp_path):
         # The case the field exists for: same path, different bytes behind it.
         # A sha derived from the path or from a build constant would call these
