@@ -1069,6 +1069,40 @@ class TestZonesIntegration:
         assert sum(payload["person_minutes"].values()) > 0  # person still counted globally
         assert sum(payload["zones"][0]["person_minutes"].values()) == pytest.approx(0.0)
 
+    def test_restrict_to_zones_scopes_the_headline_totals_to_the_polygons(self, mocker, tmp_path):
+        # Issue #96 — the platform's opt-in (gpu-exchange#162) rides in the same
+        # zones.json. The lone worker's foot point (320, 620) is outside the
+        # upper-band zone, so with the flag on the headline totals see nobody.
+        frame = np.full((640, 640, 3), 128, dtype=np.uint8)
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            return_value=iter([(float(t), frame) for t in range(5)]),
+        )
+        self._real_detector_factory(mocker)
+        zones_path = tmp_path / "zones.json"
+        zones_path.write_text(
+            json.dumps(
+                {
+                    "restrict_to_zones": True,
+                    "zones": [
+                        {
+                            "id": "bending-1",
+                            "name": "Giętarka 1",
+                            "polygon": [[0, 0], [640, 0], [640, 300], [0, 300]],
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        out_path = tmp_path / "result.json"
+        assert main(["video.mp4", "--output", str(out_path), "--zones", str(zones_path)]) == 0
+
+        payload = json.loads(out_path.read_text(encoding="utf-8"))
+        assert sum(payload["person_minutes"].values()) == pytest.approx(0.0)
+        assert payload["peak_persons"] == 0
+
     def test_no_zones_flag_leaves_zones_section_empty(self, mocker, tmp_path):
         frame = np.full((640, 640, 3), 128, dtype=np.uint8)
         mocker.patch(

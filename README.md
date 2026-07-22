@@ -132,6 +132,7 @@ Pass a JSON configuration with `--zones zones.json`. Detections are assigned by 
     "windows": [["07:00", "15:00"]],
     "breaks": [["11:00", "11:20"]]
   },
+  "restrict_to_zones": false,
   "zones": [
     {
       "id": "bending-1",
@@ -149,6 +150,8 @@ Pass a JSON configuration with `--zones zones.json`. Detections are assigned by 
 ```
 
 The `bending` ruleset emits zone posture totals, anchored-worker presence/absence/work intervals, and conversation intervals. `inference_roi` is optional and exists for measured camera experiments; issue #86 did not justify promoting it as the production default.
+
+`restrict_to_zones` (default `false`) decides whether zones only *annotate* or actually *mask* the analysis. Left off, the headline totals (`peak_persons`, `avg_persons`, `person_minutes`, `timeline`, `dominant_activity`) count everyone in the frame and zones just add a per-zone breakdown. Turned on with at least one polygon, those totals count only people standing inside a zone. With an empty `zones` list the flag is ignored — masking to nothing would zero the report.
 
 In platform REST mode, the service loads `ZONES_CONFIG_PATH`, defaulting to `/config/zones.json`, when that file is mounted. Absence of the file means an ungated whole-frame run.
 

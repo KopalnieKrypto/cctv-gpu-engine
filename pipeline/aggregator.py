@@ -128,6 +128,7 @@ class Aggregator:
         keyframe_min_spacing_s: float = 30.0,
         zones: list[Zone] | None = None,
         shift: ShiftSchedule | None = None,
+        restrict_to_zones: bool = False,
     ) -> None:
         self.fps = fps
         self.keyframe_count = keyframe_count
@@ -150,6 +151,11 @@ class Aggregator:
         self._zone_person_frames: dict[str, dict[str, int]] = {
             zone.id: dict.fromkeys(ACTIVITIES, 0) for zone in self._zones
         }
+        # ROI masking (issue #96), the platform's ``restrict_to_zones`` opt-in.
+        # Requires at least one zone: restricting to no polygons would mask the
+        # entire frame and report zero activity, which is never what an author
+        # means — so an empty zone list falls back to whole-frame counting.
+        self._restrict_to_zones = restrict_to_zones and bool(self._zones)
         # Per-zone rule dispatch (issue #82). Each zone's rules.type selects a
         # ruleset that owns its mode analyzers (bending: presence #80 +
         # conversation #81). It's fed the in-zone {track_id: foot_point} of every
@@ -186,6 +192,12 @@ class Aggregator:
         if self._shift is not None and not self._shift.is_active(timestamp_s):
             self._excluded_frames += 1
             return
+        # ROI masking (issue #96): with the opt-in on, a detection whose foot
+        # point fell outside every polygon is not part of the analysis at all —
+        # it is dropped here, upstream of every counter, so peak/average,
+        # person-minutes and the timeline all speak about the same population.
+        if self._restrict_to_zones:
+            detections = [det for det in detections if det.zone_id is not None]
         self._total_frames += 1
         person_count = len(detections)
         self._person_count_sum += person_count

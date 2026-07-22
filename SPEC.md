@@ -144,6 +144,7 @@ Zones are configuration, never hardcoded geometry.
     "windows": [["07:00", "15:00"]],
     "breaks": [["11:00", "11:20"]]
   },
+  "restrict_to_zones": false,
   "inference_roi": {
     "zone_id": "bending-1",
     "margin_px": 160
@@ -168,14 +169,24 @@ Zones are configuration, never hardcoded geometry.
 
 The midpoint of a detection's bounding-box bottom edge is its foot point. The detection belongs to the first polygon containing that point; boundary points count as inside. A detection outside all zones has `zone_id: null`.
 
-### 4.2 Shift gating
+### 4.2 Restricting the analysis to zones
+
+`restrict_to_zones` (boolean, default `false`) is the opt-in to masking the analysis to the polygons.
+
+- `false` or absent: zones only ADD a per-zone breakdown. The headline tallies — `peak_persons`, `avg_persons`, `person_minutes`, `timeline`, `dominant_activity` — count every detection in the frame.
+- `true` with at least one zone: those headline tallies count only detections whose foot point falls in a zone. Keyframe selection follows the same population, so the report's evidence matches its numbers.
+- `true` with an empty `zones` list: no restriction. Masking to no polygon would zero the whole report, which no author means.
+
+The per-zone breakdown is membership-gated either way and does not change with the flag.
+
+### 4.3 Shift gating
 
 - `recording_start` anchors `timestamp_s=0` to wall clock.
 - `shift.windows` and `shift.breaks` are recurring half-open `[start,end)` intervals.
 - Frames outside all windows or inside a break are excluded from aggregation.
 - An IANA `shift.timezone` makes elapsed-time mapping DST-safe. Without it, the offset in `recording_start` is used.
 
-### 4.3 Bending ruleset
+### 4.4 Bending ruleset
 
 `rules.type` defaults to `bending`; unsupported types fail at config load.
 
@@ -187,7 +198,7 @@ The midpoint of a detection's bounding-box bottom edge is its foot point. The de
 
 These values are configurable pixel/time thresholds, not universal semantic truth. The bending pilot remains unverified on a viable station-framed stream.
 
-### 4.4 Inference ROI
+### 4.5 Inference ROI
 
 `inference_roi` crops the single pose call to the selected zone's bounding rectangle plus an explicit margin, then translates detections back into full-frame coordinates.
 

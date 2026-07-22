@@ -200,6 +200,12 @@ class ZoneConfig:
     recording_start: str | None = None
     shift: dict[str, Any] | None = None
     inference_roi: InferenceROI | None = None
+    # Mask the headline tallies to the polygons (#96). The platform's opt-in
+    # (gpu-exchange#162): off (or absent), zones only ADD a per-zone breakdown
+    # and the whole-frame totals still count everyone; on, only in-zone
+    # detections reach the global counters. Absent means off, so every pre-#96
+    # config keeps its whole-frame numbers.
+    restrict_to_zones: bool = False
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ZoneConfig:
@@ -222,6 +228,7 @@ class ZoneConfig:
             recording_start=data.get("recording_start"),
             shift=data.get("shift"),
             inference_roi=inference_roi,
+            restrict_to_zones=data.get("restrict_to_zones") is True,
         )
         # Build the shift schedule once so a malformed shift block fails at
         # load time, not deep inside aggregation (issue #79).

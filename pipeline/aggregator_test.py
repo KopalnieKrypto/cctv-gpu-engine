@@ -384,6 +384,124 @@ class TestAggregatorPerZone:
         assert by_id["welding-1"].person_minutes["walking"] == pytest.approx(0.0)
 
 
+class TestAggregatorRestrictToZones:
+    """Issue #96 — ``restrict_to_zones`` masks the headline tallies to the ROIs.
+
+    Off (the default), zones only ADD a per-zone breakdown: a person outside
+    every polygon still counts into the whole-frame totals. On, the global
+    counters see only detections whose foot point landed in a zone — so drawing
+    a zone can deliberately scope the report instead of merely annotating it.
+    """
+
+    def _zones(self) -> list[Zone]:
+        tri = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)]
+        return [Zone(id="bending-1", name="Giętarka 1", polygon=tri, rules={})]
+
+    def test_out_of_zone_detection_does_not_reach_global_person_minutes(self):
+        agg = Aggregator(fps=1, zones=self._zones(), restrict_to_zones=True)
+        for t in range(60):
+            agg.add_frame(
+                float(t),
+                _frame(),
+                [_zoned_det("walking", "bending-1"), _zoned_det("sitting", None)],
+            )
+
+        report = agg.build_report_data()
+
+        assert report.person_minutes["walking"] == pytest.approx(1.0)
+        assert report.person_minutes["sitting"] == pytest.approx(0.0)
+
+    def test_out_of_zone_crowd_does_not_inflate_peak_or_average(self):
+        agg = Aggregator(fps=1, zones=self._zones(), restrict_to_zones=True)
+        # One worker at the station; nine passers-by crossing the frame outside it.
+        agg.add_frame(
+            0.0,
+            _frame(),
+            [_zoned_det("standing", "bending-1")] + [_zoned_det("walking", None)] * 9,
+        )
+
+        report = agg.build_report_data()
+
+        assert report.peak_persons == 1
+        assert report.avg_persons == pytest.approx(1.0)
+
+    def test_timeline_bins_and_dominant_activity_see_only_in_zone_detections(self):
+        agg = Aggregator(fps=1, zones=self._zones(), restrict_to_zones=True)
+        # A lone worker sits at the station while a stream of people walks past
+        # outside it: "walking" dominates the frame but not the zone.
+        for t in range(60):
+            agg.add_frame(
+                float(t),
+                _frame(),
+                [_zoned_det("sitting", "bending-1")] + [_zoned_det("walking", None)] * 3,
+            )
+
+        report = agg.build_report_data()
+
+        assert report.dominant_activity == "sitting"
+        assert [(b.minute, b.sitting, b.walking) for b in report.timeline] == [(0, 60, 0)]
+
+    def test_flag_off_leaves_the_whole_frame_totals_untouched(self):
+        agg = Aggregator(fps=1, zones=self._zones(), restrict_to_zones=False)
+        for t in range(60):
+            agg.add_frame(
+                float(t),
+                _frame(),
+                [_zoned_det("walking", "bending-1"), _zoned_det("sitting", None)],
+            )
+
+        report = agg.build_report_data()
+
+        assert report.person_minutes["walking"] == pytest.approx(1.0)
+        assert report.person_minutes["sitting"] == pytest.approx(1.0)  # still counted
+        assert report.peak_persons == 2
+
+    def test_restriction_without_zones_never_zeroes_the_report(self):
+        # A config that opts in but defines no polygon must analyse the whole
+        # frame — masking to nothing would silently report an empty shift.
+        agg = Aggregator(fps=1, zones=[], restrict_to_zones=True)
+        for t in range(60):
+            agg.add_frame(float(t), _frame(), [_zoned_det("walking", None)])
+
+        report = agg.build_report_data()
+
+        assert report.person_minutes["walking"] == pytest.approx(1.0)
+        assert report.peak_persons == 1
+        assert report.dominant_activity == "walking"
+
+    def test_per_zone_breakdown_is_identical_with_and_without_the_flag(self):
+        # The per-zone rows were always membership-gated, so masking the globals
+        # must not move them (AC #5).
+        def _run(restrict: bool):
+            agg = Aggregator(fps=1, zones=self._zones(), restrict_to_zones=restrict)
+            for t in range(60):
+                agg.add_frame(
+                    float(t),
+                    _frame(),
+                    [_zoned_det("sitting", "bending-1"), _zoned_det("walking", None)],
+                )
+            return agg.build_report_data().zones
+
+        assert _run(restrict=True) == _run(restrict=False)
+
+    def test_a_frame_with_nobody_in_a_zone_is_not_a_keyframe(self):
+        # Masked analysis, masked evidence: a frame whose only people stood
+        # outside every polygon shows nothing the report is talking about.
+        agg = Aggregator(
+            fps=1,
+            keyframe_count=8,
+            keyframe_min_spacing_s=0.0,
+            zones=self._zones(),
+            restrict_to_zones=True,
+        )
+        agg.add_frame(0.0, _frame(), [_zoned_det("walking", None)] * 5)  # all outside
+        agg.add_frame(10.0, _frame(), [_zoned_det("sitting", "bending-1")])
+
+        keyframes = agg.build_report_data().keyframes
+
+        assert [kf.timestamp_s for kf in keyframes] == pytest.approx([10.0])
+
+
 class TestAggregatorShiftGating:
     """Issue #79 — only frames inside an active shift window are analysed.
 

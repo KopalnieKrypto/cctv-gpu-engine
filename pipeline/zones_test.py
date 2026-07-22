@@ -195,6 +195,65 @@ class TestConfigValidation:
             )
 
 
+class TestRestrictToZones:
+    """Issue #96 — the platform's opt-in to masking the analysis to the polygons.
+
+    ``serializeZonesConfig`` (gpu-exchange#162) always writes a concrete boolean,
+    but a hand-written config may omit it entirely — absent must mean "off", so
+    every pre-#96 config keeps its whole-frame totals.
+    """
+
+    def test_flag_defaults_to_false_when_the_key_is_absent(self):
+        assert _square_config().restrict_to_zones is False
+
+    def test_flag_is_read_from_the_config(self):
+        config = ZoneConfig.from_dict(
+            {
+                "restrict_to_zones": True,
+                "zones": [
+                    {"id": "z", "name": "Z", "polygon": [[0, 0], [100, 0], [100, 100], [0, 100]]}
+                ],
+            }
+        )
+
+        assert config.restrict_to_zones is True
+
+    def test_parses_the_bytes_the_platform_actually_emits(self, tmp_path):
+        """Contract pin against the deployed platform (gpu-exchange#162).
+
+        Verbatim output of ``serializeZonesConfig`` for a camera with the opt-in
+        on — captured from the shipped platform code, not hand-written — so a
+        change on either side of the boundary breaks a test rather than a
+        production report.
+        """
+        emitted = (
+            '{"recording_start":"2026-07-16T06:00:00+02:00","shift":{"timezone":"Europe/Warsaw",'
+            '"windows":[["07:00","15:00"]],"breaks":[["11:00","11:20"]]},'
+            '"zones":[{"id":"bending-1","name":"Giętarka 1",'
+            '"polygon":[[1200,500],[2600,500],[2600,1900],[1200,1900]]}],'
+            '"restrict_to_zones":true}'
+        )
+        path = tmp_path / "zones.json"
+        path.write_text(emitted, encoding="utf-8")
+
+        config = ZoneConfig.load(path)
+
+        assert config.restrict_to_zones is True
+        assert [z.id for z in config.zones] == ["bending-1"]
+        assert config.shift_schedule is not None
+
+    def test_platform_never_restricts_to_an_empty_zone_list(self, tmp_path):
+        # The platform forces the flag false with no polygons; the engine ignores
+        # it in that case anyway (belt and braces — see the aggregator tests).
+        path = tmp_path / "zones.json"
+        path.write_text('{"zones":[],"restrict_to_zones":false}', encoding="utf-8")
+
+        config = ZoneConfig.load(path)
+
+        assert config.restrict_to_zones is False
+        assert config.zones == []
+
+
 class TestConfigLoading:
     def test_load_reads_and_parses_a_json_file(self, tmp_path):
         path = tmp_path / "zones.json"

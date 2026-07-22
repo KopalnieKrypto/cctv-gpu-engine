@@ -130,6 +130,7 @@ def _analyze_to_report_data(
         fps=fps,
         zones=zones.zones if zones is not None else None,
         shift=zones.shift_schedule if zones is not None else None,
+        restrict_to_zones=zones.restrict_to_zones if zones is not None else False,
     )
 
     # Identity first, then the min-track-length gate: the tracker decides *who*
