@@ -32,6 +32,22 @@ def _detection(
     return det
 
 
+def _fake_detector() -> MagicMock:
+    """A mocked detector that still answers what a real ``PoseDetector`` does.
+
+    ``load_pose_model`` stamps the weights it opened and the input size the
+    ONNX declares onto every detector, and those values land in ``result.json``
+    under ``diagnostics`` (issue #98). A bare ``MagicMock`` answers them with
+    unserializable mocks, so fakes carry plausible values instead — the
+    contract a fake stands in for is the one the real object exposes.
+    """
+    detector = MagicMock()
+    detector.model_path = "models/yolo11s-pose.onnx"
+    detector.model_sha256 = "0" * 64
+    detector.input_size = 640
+    return detector
+
+
 class _FakeEmbedder:
     """Stands in for the OSNet model — a GPU boundary, like the pose model.
 
@@ -70,7 +86,7 @@ class TestAnalyzeCLI:
         )
 
         # Mock detector loader → returns a fake detector that yields one person
-        fake_detector = MagicMock()
+        fake_detector = _fake_detector()
         fake_detector.detect.return_value = [
             _detection(activity="walking", confidence=0.87),
         ]
@@ -118,7 +134,7 @@ class TestAnalyzeCLI:
             "pipeline.analyze.extract_frame_at",
             return_value=np.zeros((480, 640, 3), dtype=np.uint8),
         )
-        fake_detector = MagicMock()
+        fake_detector = _fake_detector()
         fake_detector.detect.return_value = []
         mocker.patch(
             "pipeline.analyze.load_pose_model",
@@ -176,7 +192,7 @@ class TestAnalyzeFullVideoMode:
             "pipeline.analyze.iter_frames",
             return_value=iter([(0.0, fake_frame), (1.0, fake_frame)]),
         )
-        fake_detector = MagicMock()
+        fake_detector = _fake_detector()
         fake_detector.detect.return_value = [_detection(activity="walking")]
         mocker.patch("pipeline.analyze.load_pose_model", return_value=fake_detector)
 
@@ -203,7 +219,7 @@ class TestAnalyzeFullVideoMode:
             ),
         )
 
-        fake_detector = MagicMock()
+        fake_detector = _fake_detector()
         fake_detector.detect.side_effect = [
             [_detection(activity="walking"), _detection(activity="walking")],
             [_detection(activity="standing")],
@@ -242,7 +258,7 @@ class TestAnalyzeFullVideoMode:
             return_value=iter([(0.0, fake_frame), (1.0, fake_frame)]),
         )
 
-        fake_detector = MagicMock()
+        fake_detector = _fake_detector()
         fake_detector.detect.return_value = []  # never any persons
         mocker.patch(
             "pipeline.analyze.load_pose_model",
@@ -282,7 +298,7 @@ class TestRunFullVideoToHtml:
             "pipeline.analyze.iter_frames",
             return_value=iter([(0.0, fake_frame), (1.0, fake_frame)]),
         )
-        fake_detector = MagicMock()
+        fake_detector = _fake_detector()
         fake_detector.detect.return_value = [_detection(activity="walking")]
         mocker.patch(
             "pipeline.analyze.load_pose_model",
@@ -311,7 +327,7 @@ class TestRunFullVideoToHtml:
             "pipeline.analyze.iter_frames",
             side_effect=[iter(chunk_a_frames), iter(chunk_b_frames)],
         )
-        fake_detector = MagicMock()
+        fake_detector = _fake_detector()
         fake_detector.detect.return_value = [_detection(activity="walking")]
         mocker.patch(
             "pipeline.analyze.load_pose_model",
@@ -337,7 +353,7 @@ class TestRunFullVideoToHtml:
                 iter([(0.0, fake_frame), (1.0, fake_frame)]),
             ],
         )
-        fake_detector = MagicMock()
+        fake_detector = _fake_detector()
         fake_detector.detect.return_value = []
         mocker.patch(
             "pipeline.analyze.load_pose_model",
@@ -377,7 +393,7 @@ class TestRunFullVideoToHtml:
             "pipeline.analyze.iter_frames",
             side_effect=[iter(chunk_frames)],
         )
-        fake_detector = MagicMock()
+        fake_detector = _fake_detector()
         fake_detector.detect.return_value = []
         mocker.patch(
             "pipeline.analyze.load_pose_model",
@@ -466,7 +482,7 @@ class TestVlmPerPersonDisplacement:
         p1_f1 = _person_at(200, 400)
         p2_f1 = _person_at(1100, 400)
 
-        fake_detector = MagicMock()
+        fake_detector = _fake_detector()
         fake_detector.detect.side_effect = [[p1_f0, p2_f0], [p2_f1, p1_f1]]
         mocker.patch("pipeline.analyze.load_pose_model", return_value=fake_detector)
 
@@ -518,7 +534,7 @@ class TestVlmPerPersonDisplacement:
         )
         still_f0 = _person_at(500, 400)
         still_f1 = _person_at(500, 400)
-        det_still = MagicMock()
+        det_still = _fake_detector()
         det_still.detect.side_effect = [[still_f0], [still_f1]]
         mocker.patch("pipeline.analyze.load_pose_model", return_value=det_still)
         fake_vlm = MagicMock()
@@ -535,7 +551,7 @@ class TestVlmPerPersonDisplacement:
         )
         move_f0 = _person_at(500, 400)
         move_f1 = _person_at(700, 400)  # 200px >> 20px threshold
-        det_move = MagicMock()
+        det_move = _fake_detector()
         det_move.detect.side_effect = [[move_f0], [move_f1]]
         mocker.patch("pipeline.analyze.load_pose_model", return_value=det_move)
 
@@ -562,7 +578,7 @@ class TestDumpDetections:
             "pipeline.analyze.iter_frames",
             return_value=iter([(0.0, fake_frame), (1.0, fake_frame), (2.0, fake_frame)]),
         )
-        fake_detector = MagicMock()
+        fake_detector = _fake_detector()
         fake_detector.detect.return_value = [_detection(activity="walking", confidence=0.87)]
         mocker.patch("pipeline.analyze.load_pose_model", return_value=fake_detector)
 
@@ -593,7 +609,7 @@ class TestDumpDetections:
             "pipeline.analyze.iter_frames",
             return_value=iter([(0.0, fake_frame), (1.0, fake_frame)]),
         )
-        fake_detector = MagicMock()
+        fake_detector = _fake_detector()
         fake_detector.detect.return_value = [_detection(activity="walking")]
         mocker.patch("pipeline.analyze.load_pose_model", return_value=fake_detector)
 
@@ -610,7 +626,7 @@ class TestDumpDetections:
             "pipeline.analyze.iter_frames",
             return_value=iter([(0.0, fake_frame), (1.0, fake_frame)]),
         )
-        fake_detector = MagicMock()
+        fake_detector = _fake_detector()
         fake_detector.detect.return_value = [_detection(activity="walking")]
         mocker.patch("pipeline.analyze.load_pose_model", return_value=fake_detector)
 
@@ -651,7 +667,7 @@ class TestDumpDetections:
         )
         # Frame 0: lone person, no prior center → stationary → VLM label.
         # Frame 1: same person moved far → walking.
-        det = MagicMock()
+        det = _fake_detector()
         det.detect.side_effect = [[_person_at(500, 400)], [_person_at(700, 400)]]
         mocker.patch("pipeline.analyze.load_pose_model", return_value=det)
         fake_vlm = MagicMock()
@@ -709,7 +725,7 @@ class TestDumpDetectionsIntegration:
 
         # Real ffmpeg extraction; only the pose model is stubbed to yield one
         # person per frame so the dump has content to serialize.
-        fake_detector = MagicMock()
+        fake_detector = _fake_detector()
         fake_detector.detect.return_value = [_detection(activity="standing")]
         mocker.patch("pipeline.analyze.load_pose_model", return_value=fake_detector)
 
@@ -753,7 +769,7 @@ class TestRunFullVideoToJson:
             "pipeline.analyze.iter_frames",
             return_value=iter([(float(t), fake_frame) for t in range(3)]),
         )
-        fake_detector = MagicMock()
+        fake_detector = _fake_detector()
         fake_detector.detect.return_value = [_detection(activity="walking")]
         mocker.patch(
             "pipeline.analyze.load_pose_model",
@@ -783,7 +799,7 @@ class TestRunFullVideoToJson:
             "pipeline.analyze.iter_frames",
             side_effect=[iter([(0.0, fake_frame), (1.0, fake_frame)])],
         )
-        fake_detector = MagicMock()
+        fake_detector = _fake_detector()
         fake_detector.detect.return_value = []
         mocker.patch(
             "pipeline.analyze.load_pose_model",
@@ -825,7 +841,7 @@ class TestTrackingIntegration:
         def bench():
             return _detection(activity="sitting", bbox=(10.0, 10.0, 30.0, 40.0))
 
-        fake_detector = MagicMock()
+        fake_detector = _fake_detector()
         fake_detector.detect.side_effect = [
             [person()],
             [person()],
@@ -852,7 +868,7 @@ class TestTrackingIntegration:
             "pipeline.analyze.iter_frames",
             return_value=iter([(float(t), fake_frame) for t in range(4)]),
         )
-        fake_detector = MagicMock()
+        fake_detector = _fake_detector()
         fake_detector.detect.return_value = [_detection(activity="sitting")]
         mocker.patch("pipeline.analyze.load_pose_model", return_value=fake_detector)
 
@@ -872,7 +888,7 @@ class TestTrackingIntegration:
             "pipeline.analyze.iter_frames",
             return_value=iter([(float(t), fake_frame) for t in range(3)]),
         )
-        fake_detector = MagicMock()
+        fake_detector = _fake_detector()
         fake_detector.detect.return_value = [_detection(activity="walking")]
         mocker.patch("pipeline.analyze.load_pose_model", return_value=fake_detector)
 
@@ -901,7 +917,7 @@ class TestTrackingIntegration:
             "pipeline.analyze.iter_frames",
             return_value=iter([(float(t), fake_frame) for t in range(5)]),
         )
-        fake_detector = MagicMock()
+        fake_detector = _fake_detector()
         fake_detector.detect.return_value = [
             _detection(activity="sitting", bbox=(100.0, 200.0, 300.0, 600.0)),
             _detection(activity="sitting", bbox=(10.0, 10.0, 30.0, 40.0)),
@@ -936,7 +952,7 @@ class TestMlpClassifierIntegration:
                 _detection(bbox=(700.0, 100.0, 800.0, 400.0)),
             ]
 
-        detector = MagicMock()
+        detector = _fake_detector()
         detector.detect.side_effect = [two_people(), two_people(), two_people()]
         mocker.patch("pipeline.analyze.load_pose_model", return_value=detector)
 
@@ -974,13 +990,13 @@ class TestMlpClassifierIntegration:
         result = json.loads(result_bytes)
         assert result["person_minutes"]["sitting"] == pytest.approx(3 / 60)
         assert result["person_minutes"]["walking"] == pytest.approx(3 / 60)
-        assert result["diagnostics"] == {
-            "classifier": "mlp",
-            "activity_model": {
-                "version": "activity-mlp-v1.0.0",
-                "sha256": "4835d97e",
-                "feature_schema_version": "activity-mlp-features-v1",
-            },
+        # The activity-model half of diagnostics (issue #34). The detection
+        # half that sits alongside it is covered by TestDetectionDiagnostics.
+        assert result["diagnostics"]["classifier"] == "mlp"
+        assert result["diagnostics"]["activity_model"] == {
+            "version": "activity-mlp-v1.0.0",
+            "sha256": "4835d97e",
+            "feature_schema_version": "activity-mlp-features-v1",
         }
 
 
@@ -1170,3 +1186,84 @@ class TestZonesIntegration:
 
         assert exit_code == 1
         assert "error:" in capsys.readouterr().err
+
+
+class TestDetectionDiagnostics:
+    """Issue #98 — result.json must name the configuration that produced it.
+
+    Every artifact downstream of #97 is only interpretable against the detection
+    config that made it, and today none of that is recorded: ``docker-compose``
+    bind-mounts ``./models`` over the baked weights, so neither the Dockerfile
+    ARG nor ``MODEL_PATH`` proves what actually ran. These tests drive the real
+    ``load_pose_model`` (only the CUDA boundary and the frame iterator are
+    faked) so the values in ``diagnostics`` are the ones the session was built
+    from, not ones the test handed in.
+    """
+
+    def _weights(self, tmp_path, content: bytes, name: str = "yolo11s-pose.onnx"):
+        path = tmp_path / name
+        path.write_bytes(content)
+        return path
+
+    def _run(self, mocker, tmp_path, weights, shape=None, frame_shape=(720, 1280, 3)):
+        from pathlib import Path
+
+        from pipeline.analyze import run_full_video_to_json
+        from pipeline.pose_detector_test import _mock_cuda_session
+
+        session = _mock_cuda_session(mocker, shape=shape)
+        session.run.return_value = [np.zeros((1, 56, 0), dtype=np.float32)]
+        frame = np.zeros(frame_shape, dtype=np.uint8)
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            return_value=iter([(0.0, frame), (1.0, frame)]),
+        )
+        payload = run_full_video_to_json([Path("v.mp4")], model_path=str(weights))
+        return json.loads(payload)["diagnostics"]
+
+    def test_records_the_resolved_detection_config(self, mocker, tmp_path):
+        import hashlib
+
+        weights = self._weights(tmp_path, b"pretend onnx bytes")
+
+        diagnostics = self._run(mocker, tmp_path, weights)
+
+        assert diagnostics["model_path"] == str(weights)
+        assert diagnostics["model_sha256"] == hashlib.sha256(b"pretend onnx bytes").hexdigest()
+        assert diagnostics["input_size"] == [640, 640]
+        assert diagnostics["conf_threshold"] == pytest.approx(0.25)
+        assert diagnostics["nms_threshold"] == pytest.approx(0.45)
+        assert diagnostics["source_frame"] == [1280, 720]
+        # Additive — the pre-existing keys keep their meaning (issue #34).
+        assert diagnostics["classifier"] == "heuristic"
+        assert diagnostics["activity_model"] is None
+
+    def test_input_size_is_read_from_the_model_not_from_img_size(self, mocker, tmp_path):
+        from pipeline.preprocessing import IMG_SIZE
+
+        weights = self._weights(tmp_path, b"a 1280 export")
+
+        diagnostics = self._run(mocker, tmp_path, weights, shape=[1, 3, 1280, 1280])
+
+        assert diagnostics["input_size"] == [1280, 1280]
+        assert IMG_SIZE == 640  # the default the value must not have come from
+
+    def test_bind_mounted_weights_are_reported_not_the_baked_default(self, mocker, tmp_path):
+        # The case the field exists for: same path, different bytes behind it.
+        # A sha derived from the path or from a build constant would call these
+        # two runs the same configuration.
+        weights = self._weights(tmp_path, b"baked into the image")
+        baked = self._run(mocker, tmp_path, weights)
+
+        weights.write_bytes(b"bind-mounted over it")
+        mounted = self._run(mocker, tmp_path, weights)
+
+        assert baked["model_path"] == mounted["model_path"] == str(weights)
+        assert baked["model_sha256"] != mounted["model_sha256"]
+
+    def test_source_frame_is_the_analysed_video_resolution(self, mocker, tmp_path):
+        weights = self._weights(tmp_path, b"pretend onnx bytes")
+
+        diagnostics = self._run(mocker, tmp_path, weights, frame_shape=(2160, 3840, 3))
+
+        assert diagnostics["source_frame"] == [3840, 2160]

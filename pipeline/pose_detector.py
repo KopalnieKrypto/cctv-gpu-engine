@@ -13,6 +13,7 @@ guard against.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 
 import numpy as np
@@ -24,6 +25,32 @@ from pipeline.preprocessing import IMG_SIZE, preprocess
 from pipeline.zones import ZoneConfig
 
 CUDA_PROVIDER = "CUDAExecutionProvider"
+
+# Hash the weights a megabyte at a time — a pose model is tens of MB and this
+# runs once per job, but there is no reason to hold a second copy in RAM.
+_SHA256_BLOCK_BYTES = 1024 * 1024
+
+
+def file_sha256(path: str) -> str | None:
+    """SHA-256 of the file at ``path``, or ``None`` when it cannot be read.
+
+    Read from the bytes on disk, never from a constant or a build ARG:
+    ``docker-compose.yml`` bind-mounts ``./models`` over the image's baked
+    weights, so a box provisioned earlier — or hand-patched since — can serve
+    different weights with nothing in the output saying so (issue #98).
+
+    Unreadable weights return ``None`` rather than raising: this feeds
+    diagnostics, and diagnostics must never be the reason a job dies. In
+    production ORT has already opened the same file by the time we hash it.
+    """
+    digest = hashlib.sha256()
+    try:
+        with open(path, "rb") as handle:
+            for block in iter(lambda: handle.read(_SHA256_BLOCK_BYTES), b""):
+                digest.update(block)
+    except OSError:
+        return None
+    return digest.hexdigest()
 
 
 def _validated_input_size(shape: object) -> int:
@@ -62,6 +89,11 @@ class PoseDetector:
     # Optional ROI zones (issue #78). When set, each detection is stamped with
     # the zone its foot point falls in; when None, ``zone_id`` stays None.
     zones: ZoneConfig | None = None
+    # Identity of the weights this session was created from (issue #98), so a
+    # result.json can be attributed to the detector that produced it. Stamped
+    # by :func:`load_pose_model`; ``None`` for hand-built detectors in tests.
+    model_path: str | None = None
+    model_sha256: str | None = None
 
     def detect(self, img_bgr: np.ndarray) -> list[Detection]:
         """Run pose inference on a single BGR frame."""
@@ -145,4 +177,6 @@ def load_pose_model(model_path: str, zones: ZoneConfig | None = None) -> PoseDet
         input_name=input_name,
         input_size=input_size,
         zones=zones,
+        model_path=model_path,
+        model_sha256=file_sha256(model_path),
     )

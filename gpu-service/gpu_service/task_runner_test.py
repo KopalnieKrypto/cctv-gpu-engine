@@ -329,6 +329,12 @@ class TestRunTaskZonesIntegration:
         )
 
         class FakeDetector:
+            # The three config fields load_pose_model stamps on every real
+            # detector and result.json reports back under diagnostics (#98).
+            model_path = "models/yolo11s-pose.onnx"
+            model_sha256 = "0" * 64
+            input_size = 640
+
             def __init__(self, zones):
                 self.zones = zones
 

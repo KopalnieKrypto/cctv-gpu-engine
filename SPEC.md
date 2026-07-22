@@ -230,12 +230,20 @@ It is not the production default. Issue #86 measured fixed-640, fixed-1280, and 
   "shift": null,
   "diagnostics": {
     "classifier": "vlm",
-    "activity_model": null
+    "activity_model": null,
+    "model_path": "models/yolo11s-pose.onnx",
+    "model_sha256": "e3b0c442…",
+    "input_size": [640, 640],
+    "conf_threshold": 0.25,
+    "nms_threshold": 0.45,
+    "source_frame": [3840, 2160]
   }
 }
 ```
 
 Each zone contains posture person-minutes plus `presence` and `conversation` blocks. MLP runs populate version/checksum/feature-schema diagnostics.
+
+The detection half of `diagnostics` records the configuration that produced the result, so any artifact can be attributed to it (issue #98). Every value is read back from what actually ran: `model_path` and `model_sha256` come from the weights file the session was created from — never from `MODEL_PATH`'s default or the Dockerfile ARG, because `docker-compose.yml` bind-mounts `./models` over the baked weights — and `input_size` is the ONNX's own declared `[w, h]`, not `IMG_SIZE`. `source_frame` is the `[w, h]` of the first analysed frame. `model_sha256` is `null` only when the weights file cannot be read; diagnostics never fail a job.
 
 Presentation, branding, localization, and interactive layout belong to the platform. The CLI's `--format html` output is a retained local debugging artifact, not the worker/platform contract.
 

@@ -7,12 +7,30 @@ under the ``gpu`` marker and is skipped by default.
 
 from __future__ import annotations
 
+import hashlib
 from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 
 from pipeline.pose_detector import PoseDetector, load_pose_model
+
+
+def _mock_cuda_session(mocker, shape: list | None = None) -> MagicMock:
+    """Patch ``ort`` so the real loader runs on a machine with no CUDA."""
+    mocker.patch(
+        "pipeline.pose_detector.ort.get_available_providers",
+        return_value=["CUDAExecutionProvider", "CPUExecutionProvider"],
+    )
+    mocker.patch("pipeline.pose_detector.ort.preload_dlls")
+    fake_session = MagicMock()
+    fake_session.get_providers.return_value = ["CUDAExecutionProvider"]
+    fake_input = MagicMock()
+    fake_input.name = "images"
+    fake_input.shape = shape or [1, 3, 640, 640]
+    fake_session.get_inputs.return_value = [fake_input]
+    mocker.patch("pipeline.pose_detector.ort.InferenceSession", return_value=fake_session)
+    return fake_session
 
 
 class TestLoadPoseModel:
@@ -198,6 +216,65 @@ class TestLoadPoseModel:
 
         with pytest.raises(RuntimeError, match="exactly one image input"):
             load_pose_model("models/wrong-input-count.onnx")
+
+
+class TestLoadedModelIdentity:
+    """Issue #98 — a detector must be able to name the weights it loaded.
+
+    ``docker-compose.yml`` bind-mounts ``./models`` over the image's baked
+    weights, so neither the Dockerfile ARG nor the env default proves anything
+    about what actually ran. The only provable answer is the sha256 of the
+    bytes on disk at the moment the session was created.
+    """
+
+    def test_stamps_the_resolved_path_and_the_sha256_of_the_loaded_file(self, mocker, tmp_path):
+        weights = tmp_path / "yolo11s-pose.onnx"
+        weights.write_bytes(b"pretend onnx bytes")
+        _mock_cuda_session(mocker)
+
+        detector = load_pose_model(str(weights))
+
+        assert detector.model_path == str(weights)
+        assert detector.model_sha256 == hashlib.sha256(b"pretend onnx bytes").hexdigest()
+
+    def test_same_path_with_different_bytes_reports_a_different_sha256(self, mocker, tmp_path):
+        # The bind-mount case: the path an operator sees is identical, the
+        # weights behind it are not. A sha taken from a constant or from the
+        # path would report these two runs as the same configuration.
+        weights = tmp_path / "yolo11s-pose.onnx"
+        _mock_cuda_session(mocker)
+
+        weights.write_bytes(b"baked into the image")
+        baked = load_pose_model(str(weights)).model_sha256
+        weights.write_bytes(b"bind-mounted over it")
+        mounted = load_pose_model(str(weights)).model_sha256
+
+        assert baked == hashlib.sha256(b"baked into the image").hexdigest()
+        assert mounted == hashlib.sha256(b"bind-mounted over it").hexdigest()
+        assert baked != mounted
+
+    def test_sha256_is_none_when_the_file_cannot_be_read(self, mocker):
+        # Best-effort: diagnostics must never be the reason a job dies. In
+        # production ORT has already opened this file by the time we hash it.
+        _mock_cuda_session(mocker)
+
+        detector = load_pose_model("dummy/path/to/model.onnx")
+
+        assert detector.model_path == "dummy/path/to/model.onnx"
+        assert detector.model_sha256 is None
+
+    def test_input_size_comes_from_the_model_not_from_the_preprocessing_default(
+        self, mocker, tmp_path
+    ):
+        from pipeline.preprocessing import IMG_SIZE
+
+        weights = tmp_path / "yolo11s-pose-1280.onnx"
+        weights.write_bytes(b"a 1280 export")
+        _mock_cuda_session(mocker, shape=[1, 3, 1280, 1280])
+
+        detector = load_pose_model(str(weights))
+
+        assert detector.input_size == 1280 != IMG_SIZE
 
 
 class TestPoseDetectorDetect:

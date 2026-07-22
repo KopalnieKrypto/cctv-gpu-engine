@@ -31,6 +31,7 @@ from pipeline.aggregator import Aggregator, ReportData
 from pipeline.detections_dump import detection_to_dict
 from pipeline.frame_extractor import extract_frame_at
 from pipeline.pose_detector import load_pose_model
+from pipeline.postprocessing import CONFIDENCE_THRESHOLD, NMS_IOU_THRESHOLD
 from pipeline.reid import DEFAULT_REID_MODEL_PATH, load_reid_model
 from pipeline.report_json import render_report_json
 from pipeline.report_renderer import render_report
@@ -49,6 +50,23 @@ DEFAULT_ACTIVITY_MODEL_METADATA_PATH = "models/activity-mlp-v1.0.0.json"
 # and we burn R2 PUTs writing status.json. 3 frames at 1 fps → ~1 sample/3s,
 # ~100 samples on a 5-min job — the sweet spot user asked for.
 PROGRESS_FRAME_INTERVAL = 3
+
+
+def _frames_recording_source_size(chunk: Path, fps: int, diagnostics: dict):
+    """Yield ``(timestamp_s, frame)`` and stamp the source resolution once.
+
+    ``diagnostics["source_frame"]`` is ``[w, h]`` of the analysed video (issue
+    #98) — a result is only interpretable against the frame it was measured on,
+    and the pixel height of a mid-field person is exactly what a resolution
+    experiment turns on. Recorded from the first frame that reaches the
+    pipeline rather than probed separately, so it can only ever describe the
+    footage actually processed.
+    """
+    for timestamp_s, frame in iter_frames(str(chunk), fps=fps):
+        if diagnostics.get("source_frame") is None:
+            height, width = frame.shape[:2]
+            diagnostics["source_frame"] = [int(width), int(height)]
+        yield timestamp_s, frame
 
 
 def _aggregate(
@@ -146,7 +164,21 @@ def _analyze_to_report_data(
         else None
     )
     track_filter = MinTrackLengthFilter() if track_persons else None
-    diagnostics: dict = {"classifier": classifier, "activity_model": None}
+    # Resolved detection configuration (issue #98). Every value is read back
+    # from what actually ran — the detector reports the weights it opened and
+    # the input size the ONNX declares, so a bind-mount over ./models or a
+    # non-default MODEL_PATH shows up here instead of silently changing
+    # results. ``source_frame`` is filled in by the frame iterator below.
+    diagnostics: dict = {
+        "classifier": classifier,
+        "activity_model": None,
+        "model_path": detector.model_path,
+        "model_sha256": detector.model_sha256,
+        "input_size": [detector.input_size, detector.input_size],
+        "conf_threshold": CONFIDENCE_THRESHOLD,
+        "nms_threshold": NMS_IOU_THRESHOLD,
+        "source_frame": None,
+    }
 
     with DetectionsDumpWriter(dump_detections) as dump:
         # --- Per-person MLP path -------------------------------------------
@@ -168,7 +200,7 @@ def _analyze_to_report_data(
             for chunk_index, chunk in enumerate(chunks):
                 chunk_start_pct = int(chunk_index / len(chunks) * 100)
                 last_ts = time_offset
-                for timestamp_s, frame in iter_frames(str(chunk), fps=fps):
+                for timestamp_s, frame in _frames_recording_source_size(chunk, fps, diagnostics):
                     shifted = timestamp_s + time_offset
                     detections = detector.detect(frame)
                     if person_tracker is not None:
@@ -200,7 +232,7 @@ def _analyze_to_report_data(
             for chunk_index, chunk in enumerate(chunks):
                 chunk_start_pct = int(chunk_index / len(chunks) * 100)
                 last_ts = time_offset
-                for timestamp_s, frame in iter_frames(str(chunk), fps=fps):
+                for timestamp_s, frame in _frames_recording_source_size(chunk, fps, diagnostics):
                     shifted = timestamp_s + time_offset
                     detections = detector.detect(frame)
                     if person_tracker is not None:
@@ -263,7 +295,7 @@ def _analyze_to_report_data(
             for chunk_index, chunk in enumerate(chunks):
                 chunk_start_pct = int(chunk_index / len(chunks) * 100)
                 last_ts = time_offset
-                for timestamp_s, frame in iter_frames(str(chunk), fps=fps):
+                for timestamp_s, frame in _frames_recording_source_size(chunk, fps, diagnostics):
                     shifted = timestamp_s + time_offset
                     detections = detector.detect(frame)
                     if person_tracker is not None:
