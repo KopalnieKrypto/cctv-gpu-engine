@@ -310,6 +310,9 @@ ARM_INPUT_SIZES: dict[str, tuple[int, int]] = {
     "baseline_640": (640, 640),
     "baseline_640x384": (640, 384),
     "full_frame_1280": (1280, 1280),
+    # Issue #101: double baseline_640's width — so double the detection scale —
+    # at 2.24x its measured cost rather than full_frame_1280's 3.87x.
+    "full_frame_1280x736": (1280, 736),
     "focused_roi_640": (640, 640),
 }
 

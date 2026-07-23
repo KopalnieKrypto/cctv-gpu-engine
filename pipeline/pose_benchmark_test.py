@@ -516,6 +516,13 @@ class TestArmInputSizes:
         # claim the arm exists to test — for 0.60x the tensor.
         assert expected_input_size_for_arm("baseline_640x384") == (640, 384)
 
+    def test_the_resolution_arm_declares_1280_by_736(self):
+        from pipeline.pose_benchmark import expected_input_size_for_arm
+
+        # Issue #101's arm: double baseline_640's width — so double the
+        # detection scale — without full_frame_1280's square padding waste.
+        assert expected_input_size_for_arm("full_frame_1280x736") == (1280, 736)
+
     def test_unknown_arm_is_a_config_error_not_a_silent_640(self):
         from pipeline.pose_benchmark import expected_input_size_for_arm
 
