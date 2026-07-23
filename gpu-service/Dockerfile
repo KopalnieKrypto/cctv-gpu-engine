@@ -48,6 +48,16 @@ RUN mkdir -p /app/models \
     && curl -fL "${YOLO_MODEL_URL}" -o /app/models/yolo11s-pose.onnx \
     && echo "${YOLO_MODEL_SHA256}  /app/models/yolo11s-pose.onnx" | sha256sum -c -
 
+# Non-square 1280x736 pose export (#100/#101). NOT the default — MODEL_PATH
+# below still points at the square 640 weights. This is baked so a camera can
+# opt into it per-task: the gpu-agent sets MODEL_PATH to this path for a camera
+# whose config requests 1280x736 (2x detection scale on a 16:9 4K frame, 2.24x
+# cost, measured #101). Same weights as yolo11s-pose, different export shape.
+ARG YOLO_MODEL_1280X736_URL=https://github.com/KopalnieKrypto/cctv-gpu-engine/releases/download/yolo11s-pose-1280x736-v1.0/yolo11s-pose-1280x736.onnx
+ARG YOLO_MODEL_1280X736_SHA256=7ee0fcd86efdf953678a92649a682b4369ee5372ebf2623876602286c37731e9
+RUN curl -fL "${YOLO_MODEL_1280X736_URL}" -o /app/models/yolo11s-pose-1280x736.onnx \
+    && echo "${YOLO_MODEL_1280X736_SHA256}  /app/models/yolo11s-pose-1280x736.onnx" | sha256sum -c -
+
 # OSNet Re-ID weights (issue #32). Person tracking is on by default, so this
 # is as load-bearing as the pose model: without it every job dies on boot in
 # load_reid_model(). 0.7 MB, so it costs the image nothing.

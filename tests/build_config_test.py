@@ -312,6 +312,42 @@ class TestGpuServiceDockerfileBundlesModel:
             f"together when releasing a new yolo11s-pose-vN.0 tag."
         )
 
+    def test_1280x736_pose_pin_matches_setup_models_script(self):
+        """The opt-in non-square pose model (#100/#101) is baked so a camera
+        can select it per-task via MODEL_PATH. Its Dockerfile ARG and the
+        setup-models.sh default must pin the SAME sha256, for the same reason
+        as the default model — the image and a local install must not diverge.
+        It is additive: the default MODEL_PATH still points at the 640 weights."""
+        dockerfile = self._dockerfile_text()
+        script = SETUP_MODELS_SCRIPT.read_text()
+
+        docker_pin = re.search(
+            r"ARG\s+YOLO_MODEL_1280X736_SHA256\s*=\s*([0-9a-fA-F]{64})", dockerfile
+        )
+        assert docker_pin, (
+            "gpu-service/Dockerfile has no `ARG YOLO_MODEL_1280X736_SHA256=<hex>` — "
+            "the 1280x736 pose model (#101) must be baked with a pinned, verified sha."
+        )
+        script_pin = re.search(
+            r'POSE_1280_SHA256="\$\{POSE_1280_SHA256:-([0-9a-fA-F]{64})\}"', script
+        )
+        assert script_pin, "setup-models.sh has no parseable `POSE_1280_SHA256:-<hex>` default."
+        assert docker_pin.group(1).lower() == script_pin.group(1).lower(), (
+            f"sha256 drift for the 1280x736 pose model:\n"
+            f"  Dockerfile ARG:  {docker_pin.group(1)}\n"
+            f"  setup-models.sh: {script_pin.group(1)}"
+        )
+
+    def test_dockerfile_bakes_the_1280x736_pose_model(self):
+        """The image must materialize the non-square model so MODEL_PATH can
+        point at it — production uses baked models, not a bind mount."""
+        text = self._dockerfile_text()
+        assert re.search(r"RUN[^\n]*(?:\\\n[^\n]*)*yolo11s-pose-1280x736\.onnx", text), (
+            "gpu-service/Dockerfile does not materialize "
+            "/app/models/yolo11s-pose-1280x736.onnx — a camera set to 1280x736 "
+            "would boot with NoSuchFile."
+        )
+
     def test_dockerfile_verifies_sha256_during_build(self):
         """The model-fetch RUN step must verify a sha256 checksum, so a
         compromised / accidentally re-uploaded GH release asset fails the

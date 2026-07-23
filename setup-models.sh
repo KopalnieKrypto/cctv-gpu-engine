@@ -38,6 +38,16 @@ MODEL_FILE="${MODEL_FILE:-yolo11s-pose.onnx}"
 MODEL_SHA256="${MODEL_SHA256:-469beac503fdc788ea3980331bc4bfbd2bd00de3772eb0984f4c53032740583f}"
 MODEL_URL="${MODEL_URL:-https://github.com/KopalnieKrypto/cctv-gpu-engine/releases/download/${MODEL_TAG}/${MODEL_FILE}}"
 
+# Non-square 1280x736 pose export (#100/#101). Same weights as the default,
+# exported at imgsz=(736,1280) so a 16:9 4K frame keeps 2x the detection scale
+# at 2.24x the cost. NOT the default model — it is baked and fetched so a camera
+# can opt into it per-task via MODEL_PATH. Kept in sync with the Dockerfile
+# ARG YOLO_MODEL_1280X736_SHA256; build_config_test enforces equality.
+POSE_1280_TAG="${POSE_1280_TAG:-yolo11s-pose-1280x736-v1.0}"
+POSE_1280_FILE="${POSE_1280_FILE:-yolo11s-pose-1280x736.onnx}"
+POSE_1280_SHA256="${POSE_1280_SHA256:-7ee0fcd86efdf953678a92649a682b4369ee5372ebf2623876602286c37731e9}"
+POSE_1280_URL="${POSE_1280_URL:-https://github.com/KopalnieKrypto/cctv-gpu-engine/releases/download/${POSE_1280_TAG}/${POSE_1280_FILE}}"
+
 # OSNet Re-ID (issue #32). Exported from the OSNet author's MSMT17 weights
 # (huggingface.co/kaiyangzhou/osnet, MIT) at opset 18 with a dynamic batch
 # axis — the embedder sends one crop per person per frame, so batch varies.
@@ -117,6 +127,7 @@ fetch_model() {
 }
 
 fetch_model "${MODEL_URL}" "${MODEL_FILE}" "${MODEL_SHA256}" "MODEL_SHA256"
+fetch_model "${POSE_1280_URL}" "${POSE_1280_FILE}" "${POSE_1280_SHA256}" "POSE_1280_SHA256"
 fetch_model "${OSNET_URL}" "${OSNET_FILE}" "${OSNET_SHA256}" "OSNET_SHA256"
 fetch_model "${ACTIVITY_MLP_URL}" "${ACTIVITY_MLP_FILE}" "${ACTIVITY_MLP_SHA256}" "ACTIVITY_MLP_SHA256"
 fetch_model "${ACTIVITY_MLP_METADATA_URL}" "${ACTIVITY_MLP_METADATA_FILE}" "${ACTIVITY_MLP_METADATA_SHA256}" "ACTIVITY_MLP_METADATA_SHA256"
