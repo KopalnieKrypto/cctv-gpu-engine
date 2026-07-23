@@ -1,9 +1,8 @@
 # Magazyn hall v1 annotation methodology
 
-> **STATUS: UNANNOTATED.** Every `persons` array in `manifest.json` is empty.
-> The frames, clips, hashes and manifest are prepared; the annotation pass
-> described below has **not** been performed. The fixture cannot score anything
-> until it has been. See "Annotation pass — still to do".
+> **STATUS: ANNOTATED AND HUMAN-CONFIRMED (2026-07-23).** 296 people across 60
+> frames, every frame reviewed by eye and every count confirmed. See
+> "Annotation pass — as performed".
 
 ## Why this fixture exists
 
@@ -81,44 +80,89 @@ whole-frame zone makes "in zone" mean "in frame", which is the question this
 fixture asks. On-boundary points count as inside (`Zone.contains`), so a person
 cut off at the frame edge is still valid.
 
-## Annotation pass — still to do
+## Annotation pass — as performed
 
-**Rules**
+**Annotator:** Claude Opus 4.8, systematic 12-tile pass.
+**Reviewer:** Tomasz Kowalczyk — full visual review of all 60 frames.
+**Date:** 2026-07-23.
 
-- Boxes are full-frame `xyxy` in native 3840×2160 pixels.
-- Box **every visible person in the frame** — there is no semantic sub-region
-  here, unlike `bending-pilot-v1`. The people the current detector misses are the
-  entire point of this fixture; omitting them would measure nothing.
-- Occluded people: box the visible extent plus the directly inferable continuous
-  extent behind thin rebar/rack occlusion. Fully hidden people are not annotated.
-- An empty `persons` array is a legitimate annotation, but it must be the result
-  of looking and finding nobody — record which frames those were.
+### Why tiles, and why every tile
 
-**The one rule that cannot be relaxed**
+An earlier ad-hoc pass cropped only the regions where people had appeared in a
+previous frame. It missed a welder at `[925, 62, 974, 142]` in
+`window-1-frame-002` entirely, because that region was never magnified — the
+crop had been chosen from `frame-001`'s occupancy, which is a selection bias on
+the very population the fixture measures.
 
-Do **not** prelabel with any candidate arm (shipped 640, 640×384, 1280×736, or
-square 1280). Doing so makes the arm its own ground truth and the measurement
-becomes circular — the failure `bending-pilot-v1` guarded against with its
-contact-sheet review pass.
+The replacement protocol is exhaustive and identical for every frame: a 4x3 grid
+of 960x720 tiles, each upscaled 2x to 1920x1440 (`review/tiles/`), and **every
+tile opened for every frame** — including tiles that look like empty floor. At
+2x a 31 px far-field worker renders at 62 px, which is what makes them findable.
+One agent per frame, each reporting full-frame coordinates via
+`frame_x = 960*C + tx/2`, `frame_y = 720*R + ty/2`.
 
-If a drawing aid is needed, it must be a configuration that is **not** a
-candidate — e.g. a tiled or heavily-cropped pass used for annotation only — and
-every aided frame must still be reviewed by eye at full resolution. Record any
-aid used and any manual correction made, as `bending-pilot-v1`'s methodology does.
+No detector, pose model, or YOLO was run at any point. That prohibition was
+stated in every agent prompt with its reason: this fixture measures those
+detectors, so using one would make a detector its own ground truth.
 
-**Expected effort**
+### Human review
 
-60 frames at 4K, whole-frame, with deliberate attention to small mid- and
-far-field figures. `bending-pilot-v1` produced 74 boxes over 60 frames within a
-narrow rectangle; this fixture covers roughly six times the area, so expect
-substantially more boxes per frame and a correspondingly longer pass.
+The annotation pass produced 343 candidate boxes. Every frame was then reviewed
+by eye at full resolution, frame by frame, with a per-frame count and per-box
+adjudication. The review:
 
-**On completion**
+- **removed 48 boxes** — overwhelmingly the two recurring non-person objects below
+- **added 1 box** the pass missed entirely — the bench worker in
+  `window-1-frame-011` at `~[2690,1335,2850,1540]`, corroborated by his presence
+  in `frame-010` and `frame-012`
+- **corrected 2 counts** the reviewer initially mis-stated and revised on
+  re-inspection (`frame-005`, `frame-008`)
 
-Fill `persons` in `manifest.json`, record the annotator, date, per-window box
-counts and any corrections in this file, then flip the STATUS banner at the top.
-The benchmark loader independently verifies hashes, image bounds, unique IDs,
-window count, frame count, and in-zone foot points before CUDA loads.
+Final: **296 people**, mean 4.93/frame — window-1 114, window-2 105, window-3 77.
+
+Every box in `manifest.json` is human-confirmed. Agent confidence ratings were an
+input to that judgement and are deliberately **not** carried into the manifest:
+retaining them would imply the fixture is unsure about boxes a human confirmed.
+
+### Recurring shapes, and what the review settled
+
+Three shapes recur across many frames and account for most of the disagreement.
+Recording them because they will resurface in any future annotation of this
+camera:
+
+| Shape | Location | Frames | Verdict |
+|---|---|---:|---|
+| A | `~[825,0,860,78]`, top edge | 20 | **A person exactly when the pass rated it `high`.** Rejected in w2 f001–f012 (rated `medium`/`low`), confirmed in f013–f019 (rated `high`). Someone moves into that spot mid-window; before that the shape there is not a person. |
+| B | `~[506,250,530,308]`, tall thin turquoise | 19 | **Never a person.** Zero confirmations across all appearances. Equipment. |
+| C | `~[595,64,633,165]`, far field | 5 | **Always a person.** Confirmed in w3 f001–f005 regardless of whether the pass rated it `low` or `medium` — a genuine far-field worker the pass consistently under-rated. |
+
+B and C are mirror images and together are the clearest statement of what this
+fixture is for: at far-field scale the annotation pass both over-reported
+equipment and under-rated real workers, and only human review separated them.
+
+A bright arc-weld flare is **not** a person unless a body is visible beside it
+(`window-1-frame-008`, `[1410,145,1465,235]` rejected). The confirmed welder in
+`window-1-frame-002` has a discernible dark silhouette next to the flare; that is
+the distinction.
+
+### Rules applied
+
+- Boxes are full-frame `xyxy` in native 3840x2160 pixels.
+- Every visible person is boxed, anywhere in the frame. **No minimum size** — the
+  far-field figures are the entire point, and a size floor would delete the
+  finding the fixture exists to measure.
+- Occlusion: visible extent plus the directly inferable continuous body behind
+  thin rebar/rack occlusion. Fully hidden people are not annotated.
+- Frame edge: the visible portion is boxed; on-boundary points count as in-zone.
+- Two boxes were dropped in validation for failing person-plausible geometry
+  (18x16 and 22x18 px — too small to be a person even at far-field scale).
+
+### Known limit
+
+Box precision on the smallest far-field figures is approximately +/-3 native
+pixels. At the benchmark's IoU 0.5 threshold this is not material for figures of
+~31x84 px, but it is the reason a future arm should not read fine-grained
+localisation differences on that population as signal.
 
 ## Distribution
 

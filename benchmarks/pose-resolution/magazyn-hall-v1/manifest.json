@@ -40,7 +40,62 @@
       "timestamp_s": 0,
       "path": "frames/window-1-frame-001.jpg",
       "sha256": "83896233378dec717a89823307c5416021eafe416e254537e25ca41e8c456072",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            607,
+            389,
+            736,
+            626
+          ],
+          "note": "Near-camera worker, red polo + dark cap + dark trousers, both hands on the timber/rebar stack at the green EVG machine. Legs occluded below by machinery, box ends at last visible trouser pixel. Arms extend left to the workpiece and are included."
+        },
+        {
+          "bbox": [
+            449,
+            169,
+            495,
+            304
+          ],
+          "note": "Mid-field worker in dark shirt and dark trousers standing beside the blue/teal machine, facing camera-left, arms down. Full standing figure visible."
+        },
+        {
+          "bbox": [
+            509,
+            124,
+            545,
+            215
+          ],
+          "note": "Far-field worker in green plaid/checked shirt standing by the vertical rebar rack near the open bay door. Lower legs partly occluded by a diagonal rebar bundle; box covers visible extent plus the directly inferable body behind the thin rebar."
+        },
+        {
+          "bbox": [
+            649,
+            115,
+            681,
+            201
+          ],
+          "note": "Far-field figure in all-dark clothing walking on the apron near the open roller door, right of the rebar rack. Roughly 32x86 px - the small far-field scale this fixture targets."
+        },
+        {
+          "bbox": [
+            2216,
+            302,
+            2318,
+            548
+          ],
+          "note": "Worker in blue long-sleeve shirt, patterned cap, blue jeans, standing at the rebar bench and reaching up-left with a long-handled tool. Feet occluded by the steel table in front; box stops at the last visible jeans pixel. Raised arm and hand included."
+        },
+        {
+          "bbox": [
+            2880,
+            1344,
+            2998,
+            1570
+          ],
+          "note": "Bald man in navy shirt with light sleeve striping, bending over the bench. STRADDLES the r1c3/r2c3 boundary - head and shoulders are in r1c3 bottom-left, torso and bare forearm continue into r2c3 top-left. Reported as ONE box in frame coords. Left edge is clipped at x=2880 only because that is where the body starts; nothing of him appears in r1c2/r2c2. The light striped bundle to his right at approx x 2975-3050 is lifting slings lying on the bench, deliberately excluded."
+        }
+      ]
     },
     {
       "id": "window-1-frame-002",
@@ -48,7 +103,71 @@
       "timestamp_s": 3,
       "path": "frames/window-1-frame-002.jpg",
       "sha256": "63eac65a7a2f46f8be29f7e23d26a9329b2576fcf977f7caab1111dcd29d3598",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            2840,
+            1350,
+            3002,
+            1610
+          ],
+          "note": "Near-camera bald worker in navy T-shirt, bent forward tying wire; STRADDLES the y=1440 tile boundary - head/torso in r1c3, forearms+jeans in r2c3. One box for the whole person. Left arm partly behind yellow mesh (included as inferable). Right edge stops at his sleeve - the blue/white striped garment lying on the rebar pile to his right is clothing, not part of him."
+        },
+        {
+          "bbox": [
+            2221,
+            306,
+            2322,
+            552
+          ],
+          "note": "Worker in bright blue long-sleeve + dark cap, back to camera, left arm raised holding a red-handled tool. Lower legs partly occluded by the steel rack beam; box covers visible extent down through the visible jeans."
+        },
+        {
+          "bbox": [
+            610,
+            383,
+            735,
+            587
+          ],
+          "note": "Worker in red polo + dark cap operating the EVG bending machine. Legs disappear behind the green machine housing below y~587."
+        },
+        {
+          "bbox": [
+            656,
+            84,
+            690,
+            202
+          ],
+          "note": "Worker in all-dark clothing walking on the open floor mid-ground. Head falls inside the burned-in timestamp overlay (visible through the hole of the '0' glyph); both legs and shoes clearly visible on the light floor, so the identification is not ambiguous. Top edge includes the overlay-obscured head."
+        },
+        {
+          "bbox": [
+            463,
+            170,
+            490,
+            262
+          ],
+          "note": "Far-field worker in dark green/grey work jacket at the machine, side-on, with a light yellow patch at the head/hands (glove or collar). ~27x92 px - the small-scale case this fixture exists to measure."
+        },
+        {
+          "bbox": [
+            528,
+            121,
+            551,
+            228
+          ],
+          "note": "Far-field worker, dark hair + green/teal top, standing beside the vertical rebar bundle. Lower body is behind the thin rebar column; box extends to inferred foot level consistent with the depth of the neighbouring figures."
+        },
+        {
+          "bbox": [
+            925,
+            79,
+            963,
+            143
+          ],
+          "note": "WELDER - dark/blue-plaid silhouette crouched immediately left of a blown-out white arc flare, dark trousers and bent knee below. This is the figure a manual pass would miss: local exposure is destroyed by the arc and the flare itself sits across the r0c0/r0c1 seam (arc glow spills to ~x=1020 in r0c1), but the person's body is entirely inside r0c0. Medium rather than high because the arc bloom eats the head/shoulder contour."
+        }
+      ]
     },
     {
       "id": "window-1-frame-003",
@@ -56,7 +175,62 @@
       "timestamp_s": 6,
       "path": "frames/window-1-frame-003.jpg",
       "sha256": "40c290f16950c7be9a7e783880e9cee6e8f681e521d0e38f2ae0523b6c19f14d",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            588,
+            395,
+            733,
+            650
+          ],
+          "note": "Near-camera worker, red t-shirt + dark cap + beard, dark trousers, feeding/steadying a large plywood sheet at the green EVG machine. Right arm extends down-left to the gripping hand. Legs cut off below ~y650 by the machine/rebar in front. ~145x255 px, matches the fixture's expected near-camera scale."
+        },
+        {
+          "bbox": [
+            440,
+            178,
+            479,
+            263
+          ],
+          "note": "Mid/far-field worker in dark navy clothing standing at the dark machine panel, facing right. Pale face patch clearly visible at the top; low contrast against the near-black panel behind. Body occluded below ~y263 by the round tank. ~39x85 px."
+        },
+        {
+          "bbox": [
+            616,
+            125,
+            651,
+            229
+          ],
+          "note": "Far-field worker in teal/green striped shirt with dark trousers, walking left-to-right across the bright doorway area. Full standing figure, feet visible. ~35x104 px."
+        },
+        {
+          "bbox": [
+            649,
+            115,
+            681,
+            203
+          ],
+          "note": "Far-field figure in all-dark clothing immediately right of the teal-shirt worker, bent forward handling long bar stock. Reads as a dark silhouette against the blown-out open-door daylight, so limb separation is not resolvable; head and legs are distinguishable and the posture is human. ~32x88 px."
+        },
+        {
+          "bbox": [
+            2217,
+            308,
+            2339,
+            570
+          ],
+          "note": "Worker in blue long-sleeve shirt and jeans, light helmet/face-shield pushed up on head, standing at the steel bench with a red-handled tool in the right hand. Legs occluded below ~y570 by the bench beam. ~122x262 px."
+        },
+        {
+          "bbox": [
+            2878,
+            1341,
+            3016,
+            1587
+          ],
+          "note": "Straddles the r1c3/r2c3 boundary - reported once. Bald/shaved head + blue t-shirt, bare forearm reaching forward over the blue stillage of bent rebar; jeans visible below. Head and shoulders sit in r1c3 bottom-left, torso/arm/jeans continue into r2c3 top-left. Legs occluded below ~y1587 by the wooden rack. ~138x246 px."
+        }
+      ]
     },
     {
       "id": "window-1-frame-004",
@@ -64,7 +238,44 @@
       "timestamp_s": 9,
       "path": "frames/window-1-frame-004.jpg",
       "sha256": "7b4257dde142926ef3d6c354a5c5378d926b7cb7a29a2811526c13e26a9a02f2",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            2878,
+            1338,
+            3040,
+            1580
+          ],
+          "note": "Near-camera worker, bald/short-haired light head, dark-blue t-shirt, bare forearms, light jeans. Straddles the r1c3/r2c3 boundary at y=1440 - head+shoulders in r1c3 bottom-left, torso/arms/jeans in r2c3 top-left. Left edge clipped at ~x=2880 by the tile seam; nothing of him is visible in r2c2, so 2878 is the true left extent. Lower body occluded by the rebar bench and yellow mesh below y~1580. Largest person in frame (~162x242)."
+        },
+        {
+          "bbox": [
+            644,
+            393,
+            743,
+            627
+          ],
+          "note": "Worker in bright red polo + dark cap + beard, dark trousers, standing at the green EVG bending machine, both hands down on the workpiece. Legs disappear behind the machine/rebar at y~627 - box is visible extent."
+        },
+        {
+          "bbox": [
+            2206,
+            302,
+            2320,
+            555
+          ],
+          "note": "Worker in royal-blue sweater + dark cap + blue jeans, back to camera, facing the wall bench, right arm extended holding a dark hand tool (possible welder/grinder - no arc is struck in this frame, so no exposure blowout). Feet cut off by the foreground rebar rack at y~555."
+        },
+        {
+          "bbox": [
+            641,
+            96,
+            712,
+            229
+          ],
+          "note": "Worker walking in the open bay near the roller door, dark hair, teal/green checked shirt, dark trousers, right arm extended toward the rebar stack. Full body visible, ~71x133 - mid-field scale."
+        }
+      ]
     },
     {
       "id": "window-1-frame-005",
@@ -72,7 +283,53 @@
       "timestamp_s": 12,
       "path": "frames/window-1-frame-005.jpg",
       "sha256": "91868c14c9ab715791920abc8595072fcc7ebc1c47f9bd0d5585e1d9c03666fa",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            622,
+            381,
+            734,
+            608
+          ],
+          "note": "Mid-field worker in red polo + dark cap, dark trousers, red/orange gloves, handling a large plywood/board sheet at the green EVG machine. Left arm extends down-left to the gloved hand at ~(628,500); box includes that arm."
+        },
+        {
+          "bbox": [
+            2192,
+            305,
+            2317,
+            553
+          ],
+          "note": "WELDER. Blue polo, welding mask/shield flipped up on the head (dark visor visible above the face), blue jeans, standing at the rebar bench facing the wall. This is the figure most likely missed by a previous pass - the dark mask reads as background against the bright wall. No arc flare in this frame, exposure is normal."
+        },
+        {
+          "bbox": [
+            674,
+            90,
+            722,
+            211
+          ],
+          "note": "Far-field worker at the open roller door, green/teal plaid shirt, dark trousers, standing right of the dark-hoodie person and reaching right toward stacked rebar. Box includes the extended right arm. ~48x121 px."
+        },
+        {
+          "bbox": [
+            632,
+            113,
+            666,
+            224
+          ],
+          "note": "Far-field worker at the open roller door, dark navy hooded top with a light logo on the back, dark trousers, facing away from camera. ~34x111 px - the small-scale case this fixture exists to measure."
+        },
+        {
+          "bbox": [
+            2828,
+            1334,
+            3048,
+            1592
+          ],
+          "note": "Near-camera person straddling THREE tiles - head (short/bald hair, ear and skin tone clearly visible) in the bottom-right corner of r1c2, light-blue shirt/shoulder continuing into the bottom-left of r1c3, and blue jeans leg continuing into the top-left of r2c3. Reported as ONE box. Extent is approximate: the torso is partly behind the yellow diamond mesh fence and the wooden rebar crate, and no tile shows the full silhouette at once. Head presence is unambiguous; the outer box edges are the uncertain part."
+        }
+      ]
     },
     {
       "id": "window-1-frame-006",
@@ -80,7 +337,62 @@
       "timestamp_s": 15,
       "path": "frames/window-1-frame-006.jpg",
       "sha256": "0f84161a0eaa0d72ee19a255be346791f8e781a22aeae3f1ce56de437c238690",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            596,
+            394,
+            728,
+            601
+          ],
+          "note": "Near-camera worker in red polo + dark cap, standing at the green EVG wire-bending machine, hands on a red-handled tool. Legs occluded below ~y=600 by the machine and rebar, so the box ends at the visible extent."
+        },
+        {
+          "bbox": [
+            2165,
+            276,
+            2307,
+            542
+          ],
+          "note": "WELDER. Blue polo, welding helmet worn flipped up on the head (dark visor + light shell clearly visible above the face), dark glove on right hand, blue jeans. Standing at the rebar bench against the far wall. Legs cut at ~y=542 by the foreground rail. No arc is struck in this frame so no exposure blowout, but the helmet identifies him."
+        },
+        {
+          "bbox": [
+            2710,
+            1180,
+            2900,
+            1510
+          ],
+          "note": "Near-camera worker in blue T-shirt, face clearly visible, standing behind the yellow diamond-mesh fence at the bottom-right. Straddles three tiles: head/torso in r1c2, body continues below the r1c2/r2c2 boundary into r2c2 top-right, and a sliver of shirt just crosses x=2880 into the r1c3 left edge. One box reported for the whole person; lower bound is approximate because the mesh + motion blur make the waistline hard to localise."
+        },
+        {
+          "bbox": [
+            719,
+            95,
+            764,
+            210
+          ],
+          "note": "Far-field worker in green/teal plaid shirt, dark trousers, light shoes, standing by the rebar rack near the open roller door. ~45x115 px."
+        },
+        {
+          "bbox": [
+            632,
+            103,
+            663,
+            221
+          ],
+          "note": "Far-field worker in dark clothing with a white logo/print on the chest, standing on the open floor near the roller door. Head partly overlapped by the burned-in timestamp overlay band (the overlay itself is not annotated). ~31x118 px."
+        },
+        {
+          "bbox": [
+            433,
+            178,
+            468,
+            288
+          ],
+          "note": "Mid-field worker in dark blue/teal workwear standing among the vertical rebar racks, left of the tall triangular jig. Light face + dark hair and shoulder line resolve at 8x zoom; torso reads as continuous dark-blue fabric. Legs vanish into shadow behind the rack so the box ends at ~y=288. Medium (not high) because it is dim, low-contrast and partly behind rack uprights - could conceivably be a jacket hung on the rack, but the face/head shape and body taper argue for a person."
+        }
+      ]
     },
     {
       "id": "window-1-frame-007",
@@ -88,7 +400,62 @@
       "timestamp_s": 18,
       "path": "frames/window-1-frame-007.jpg",
       "sha256": "c89239efd6b561e3be734286a079b04f6f26030cacf08a66321db37154dcc924",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            622,
+            395,
+            735,
+            618
+          ],
+          "note": "Near-camera worker in red polo, dark cap/beard, standing at the green EVG machine handling a wooden board. Legs occluded below ~y=618 by the machine housing; box is visible extent plus arms reaching left."
+        },
+        {
+          "bbox": [
+            636,
+            125,
+            680,
+            218
+          ],
+          "note": "Far-field worker in all-dark clothing walking left-to-right across the bright open gate bay, mid-stride. ~44x93 px."
+        },
+        {
+          "bbox": [
+            742,
+            93,
+            773,
+            195
+          ],
+          "note": "Far-field worker in teal/green plaid shirt with dark trousers, standing/bending over rebar near the far wall. ~31x102 px - the smallest confident figure in the frame."
+        },
+        {
+          "bbox": [
+            438,
+            183,
+            468,
+            265
+          ],
+          "note": "Far-field figure standing behind the dark blue machine cabinet: light/white head or hard hat over a dark navy torso, against the vertical rebar cages. Reads as a person by scale and head-over-torso structure, but at ~30x82 px with heavy rebar clutter behind, could conceivably be a hung jacket on the rack."
+        },
+        {
+          "bbox": [
+            2135,
+            273,
+            2220,
+            520
+          ],
+          "note": "Worker in blue polo and dark cap at the rebar assembly bench, right arm reaching left holding a red-handled tool. A white hard hat hangs on the wall directly behind/above his head - the box top is set at the top of his own head, not the hanging hat."
+        },
+        {
+          "bbox": [
+            2260,
+            917,
+            2457,
+            1375
+          ],
+          "note": "Worker in dark navy t-shirt and blue jeans, short blond hair, walking along the rebar rack behind the yellow mesh fence, holding a red-handled tool in the left hand. Seen through thin mesh - box covers the continuous body behind the mesh, not just the gaps."
+        }
+      ]
     },
     {
       "id": "window-1-frame-008",
@@ -96,7 +463,53 @@
       "timestamp_s": 21,
       "path": "frames/window-1-frame-008.jpg",
       "sha256": "749fd68465734f8d49ab34d01603929a054b5bc5e04ae8717eac2e9d0b7779b7",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            600,
+            381,
+            733,
+            640
+          ],
+          "note": "Near-camera worker: dark cap, beard, bright red polo, red work glove on left hand, dark trousers. Handling a large plank/sheet at the green EVG bending machine. Legs occluded below ~y=625 by the machine and rebar."
+        },
+        {
+          "bbox": [
+            2127,
+            262,
+            2208,
+            518
+          ],
+          "note": "WELDER - dark welding helmet with visor down, blue/teal shirt, standing at the rebar table against the white wall. This is the figure a size/exposure-biased pass is most likely to drop. Lower legs partly occluded by the steel table frame."
+        },
+        {
+          "bbox": [
+            1742,
+            605,
+            1855,
+            890
+          ],
+          "note": "Straddles the r0c1/r1c1 boundary - reported as ONE box. Pale bald head + shoulder visible at the bottom edge of r0c1; dark navy torso, bare forearm and a red/pink work glove continue into the top-right of r1c1. Standing behind the yellow mesh fence panel, which crosses the body, so the box covers visible extent plus the directly inferable torso behind the mesh."
+        },
+        {
+          "bbox": [
+            695,
+            92,
+            723,
+            203
+          ],
+          "note": "Far-field worker at the open roller-door bay, standing upright, all-dark clothing. ~28x111 px - the small-target case this fixture exists to measure."
+        },
+        {
+          "bbox": [
+            747,
+            85,
+            788,
+            195
+          ],
+          "note": "Far-field worker beside the previous one, teal/green plaid shirt, bent forward over material on the floor. ~41x110 px."
+        }
+      ]
     },
     {
       "id": "window-1-frame-009",
@@ -104,7 +517,62 @@
       "timestamp_s": 24,
       "path": "frames/window-1-frame-009.jpg",
       "sha256": "cdfe0bfb362c9629ae12aca087818f9bf3d1c1e3b6c2cff0f3d3e6c02935e244",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            590,
+            391,
+            738,
+            590
+          ],
+          "note": "Near-camera worker, dark cap + beard, red T-shirt, holding a dark tool/rebar with a red glove on the left hand. Legs below the knee are occluded by the green EVG machine, so the box is the visible extent only (~148x199 rather than a full standing figure)."
+        },
+        {
+          "bbox": [
+            445,
+            170,
+            488,
+            300
+          ],
+          "note": "Mid-field worker in dark jacket standing beside the dark blue machine/conveyor, facing away. Lower legs partially hidden behind the teal cart/frame at his feet."
+        },
+        {
+          "bbox": [
+            692,
+            92,
+            725,
+            205
+          ],
+          "note": "Far-field worker standing upright on the pale floor strip, dark jacket and dark trousers. ~33x113 px - close to the stated far-wall reference size."
+        },
+        {
+          "bbox": [
+            745,
+            87,
+            792,
+            195
+          ],
+          "note": "Far-field worker bent forward over material on the floor, teal/green plaid check shirt, dark trousers. Distinct from the dark-jacket figure immediately to his left."
+        },
+        {
+          "bbox": [
+            1770,
+            630,
+            1920,
+            790
+          ],
+          "note": "Straddles the r0c1/r1c1 boundary - ONE box. Light/blond hair, face and raised hand clearly visible in r0c1 bottom-right; dark navy torso continues into the r1c1 top-right corner where a further skin patch (hand/forearm) is visible. Body below the chest is occluded by the yellow mesh fence and rack, so this is visible extent only."
+        },
+        {
+          "bbox": [
+            2130,
+            280,
+            2212,
+            530
+          ],
+          "note": "Worker leaning over the rebar bench against the far wall: dark head covering that reads as a welding mask/helmet, bright blue jacket, blue jeans, boot visible at the bottom. This is most likely the welder a previous pass could miss - the dark helmet merges with the shadowed wall fixture behind him."
+        }
+      ]
     },
     {
       "id": "window-1-frame-010",
@@ -112,7 +580,62 @@
       "timestamp_s": 27,
       "path": "frames/window-1-frame-010.jpg",
       "sha256": "15f6472508f80cda076cad114081016edaab9e748279a4f7ff22ae6bd349c8c6",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            597,
+            394,
+            733,
+            625
+          ],
+          "note": "Near-camera worker, red T-shirt, dark cap, red gloves, handling a large flat mesh/board over the green EVG machine. Legs occluded below ~y625 by the machine housing; box is visible extent."
+        },
+        {
+          "bbox": [
+            445,
+            177,
+            488,
+            273
+          ],
+          "note": "Mid-field worker in dark jacket/trousers standing beside the dark machine panel, facing away from camera. Lower legs cut off by machinery in front."
+        },
+        {
+          "bbox": [
+            743,
+            90,
+            790,
+            198
+          ],
+          "note": "Far-field worker in teal/green plaid shirt and dark trousers, standing on the open floor near the roller door."
+        },
+        {
+          "bbox": [
+            693,
+            94,
+            721,
+            203
+          ],
+          "note": "Far-field slim figure in all-dark clothing standing on the bright floor, ~2 m left of the plaid worker. Clearly humanoid (head/torso/legs) but low contrast against the blown-out doorway light; narrow silhouette."
+        },
+        {
+          "bbox": [
+            2135,
+            277,
+            2240,
+            518
+          ],
+          "note": "Worker in blue long-sleeve top and dark jeans walking along the rebar rack by the far wall. A grey rounded object sits at right shoulder/head height - most likely a welding shield or helmet carried/flipped up, not a second head (no body under it); see notes."
+        },
+        {
+          "bbox": [
+            2408,
+            1028,
+            2575,
+            1370
+          ],
+          "note": "Worker in navy T-shirt, short blond hair, holding a red item (gloves/tool), seen through the yellow mesh guard. Legs visible through mesh down to ~y1370, occluded below by rack; box covers directly inferable continuous body behind the thin mesh."
+        }
+      ]
     },
     {
       "id": "window-1-frame-011",
@@ -120,7 +643,62 @@
       "timestamp_s": 30,
       "path": "frames/window-1-frame-011.jpg",
       "sha256": "e7631250130f4bab474ec84073d28e37b5b0f90bfc2f9b53fcbd34f38a60a34b",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            605,
+            384,
+            733,
+            600
+          ],
+          "note": "Near-camera worker: dark cap, beard, red short-sleeve shirt, dark trousers, red/black glove on the left hand, feeding a plank/rebar into the green EVG bending machine. Head top y=384; legs disappear behind the green machine and the wire coils at about y=600, so the box is the visible extent only. Widest point is the outstretched gloved forearm at x=605."
+        },
+        {
+          "bbox": [
+            435,
+            177,
+            469,
+            285
+          ],
+          "note": "Standing worker in dark cap and dark teal/grey work shirt, mid-field, immediately left of the tall lattice rebar mast and above the grey drum. Facing left. Lower legs merge into the dark machinery below y~285, so bottom edge is visible-extent, not feet."
+        },
+        {
+          "bbox": [
+            693,
+            96,
+            726,
+            212
+          ],
+          "note": "Far-field worker by the open roller door, dark navy overall/jacket with a light vertical stripe down the sleeve, pale hand visible at hip. Standing, facing away/right. Full body visible including feet (~33x116 px) - this is one of the small far-field figures the fixture exists to measure."
+        },
+        {
+          "bbox": [
+            749,
+            82,
+            788,
+            202
+          ],
+          "note": "Far-field worker in a teal/green checked (plaid) shirt and dark trousers, standing beside person at [693,96,726,212], head bowed looking down at material on the floor. Full body incl. feet (~39x120 px). Distinct from the white A-frame stepladder to his right, which is not a person."
+        },
+        {
+          "bbox": [
+            2135,
+            274,
+            2237,
+            512
+          ],
+          "note": "Welder in a bright blue hoodie with a welding helmet flipped up on top of his head (dark visor visible above the face) and red welding gloves, working at the rebar-cage bench against the far wall. Torso and arms fully visible; dark trousers visible down to the horizontal steel beam at y~512, which occludes the feet."
+        },
+        {
+          "bbox": [
+            2690,
+            1335,
+            2850,
+            1540
+          ],
+          "note": "Added in human review: bench worker present in f010/f012, missed by the annotation pass. Extent read from the native frame."
+        }
+      ]
     },
     {
       "id": "window-1-frame-012",
@@ -128,7 +706,62 @@
       "timestamp_s": 33,
       "path": "frames/window-1-frame-012.jpg",
       "sha256": "f84c04d83f791e0ec2d838302600407addf0d5b3ac353e7dc53541ed4555a502",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            606,
+            390,
+            736,
+            626
+          ],
+          "note": "Near-camera worker, red t-shirt + dark cap, gray work trousers, handling long wooden planks at the green EVG machine. Left arm/red glove extends to x~607. Legs cut off below by machinery at y~626."
+        },
+        {
+          "bbox": [
+            2145,
+            277,
+            2260,
+            520
+          ],
+          "note": "WELDER - blue long-sleeve shirt, welding helmet worn on head with visor flipped up (dark shell above a lighter face), gloved hands on rebar at the bench. This is the figure previous passes are likely to miss; helmet silhouette reads as machinery at low res. No arc flare in this particular frame."
+        },
+        {
+          "bbox": [
+            2700,
+            1298,
+            2880,
+            1618
+          ],
+          "note": "Near-camera worker at the right frame edge, STRADDLES r1c2 (head, light/short hair seen from above; blue-dark garment) and r2c2 (bare forearm angling down-left to a red glove/tool). Reported as ONE box. Cut by the tile-column-3 boundary; checked r1c3 and r2c3 left edges - body does not continue past x=2880, so this is the visible extent."
+        },
+        {
+          "bbox": [
+            692,
+            92,
+            726,
+            208
+          ],
+          "note": "Far-field worker by the open roller door, all-dark clothing, standing facing away toward the rebar pile. ~34x116 px - the small-figure case this fixture exists to measure."
+        },
+        {
+          "bbox": [
+            769,
+            81,
+            801,
+            197
+          ],
+          "note": "Far-field worker in green plaid/checked shirt and dark trousers, standing beside the tripod/stand near the far wall. ~32x116 px."
+        },
+        {
+          "bbox": [
+            422,
+            186,
+            470,
+            240
+          ],
+          "note": "Mid-distance worker bent over the dark blue bending machine, visible from roughly the waist up only: dark head, dark torso, one lighter (yellow/tan) sleeve or glove. Torso and legs fully occluded by the machine and the vertical rebar cages, so only the visible extent is boxed. Medium because the head/shoulder separation is soft against the dark machine behind."
+        }
+      ]
     },
     {
       "id": "window-1-frame-013",
@@ -136,7 +769,62 @@
       "timestamp_s": 36,
       "path": "frames/window-1-frame-013.jpg",
       "sha256": "9d3a514a25e17c25629d354b1aa1fbe47a28df7554cebdb431636aff5e47d99f",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            3094,
+            1456,
+            3300,
+            1830
+          ],
+          "note": "Near-camera worker, blue T-shirt, short blond hair, red gloves, holding a tool over a bench. Largest person in frame. Legs cut/occluded by the yellow mesh fence at the bottom, so box ends where trousers stop being visible."
+        },
+        {
+          "bbox": [
+            625,
+            394,
+            728,
+            578
+          ],
+          "note": "Mid-ground worker in red polo + dark cap, beard, working at the green EVG machine. Box includes both arms reaching left onto the plank/tool; lower legs occluded by the machine and stacked planks."
+        },
+        {
+          "bbox": [
+            2120,
+            274,
+            2196,
+            465
+          ],
+          "note": "WELDER: blue sweater, dark welding mask/visor flipped over the face, gloves, standing at the rebar bench against the wall. Legs continue into the lower part of the tile behind the steel beam."
+        },
+        {
+          "bbox": [
+            708,
+            96,
+            742,
+            207
+          ],
+          "note": "Far-field worker in dark clothing with a light reflective stripe, standing near the open roller door, facing away. ~34x111 px."
+        },
+        {
+          "bbox": [
+            795,
+            62,
+            827,
+            179
+          ],
+          "note": "Far-field worker in green/black plaid shirt and dark trousers, walking left-to-right past the rebar rack. ~32x117 px."
+        },
+        {
+          "bbox": [
+            431,
+            188,
+            463,
+            252
+          ],
+          "note": "Figure bending over the machine beside the vertical rebar racks: light head/cap, denim-blue shoulders and back, tan forearm/hand reaching down. Lower body fully hidden by the machine, so box is upper-body only."
+        }
+      ]
     },
     {
       "id": "window-1-frame-014",
@@ -144,7 +832,53 @@
       "timestamp_s": 39,
       "path": "frames/window-1-frame-014.jpg",
       "sha256": "2408b1778e8a4e10c4ba059bfb94cc9a63dfded3b20449665ffc017c896285ce",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            620,
+            385,
+            739,
+            638
+          ],
+          "note": "Near-camera worker: black cap, red T-shirt, dark trousers, both hands on a long timber plank he is feeding/lifting at the green EVG machine. Largest person in frame (~119x253). Legs cut off at bottom by the machine housing, box ends at the last visible trouser pixel."
+        },
+        {
+          "bbox": [
+            2128,
+            255,
+            2196,
+            465
+          ],
+          "note": "WELDER — dark flipped-down welding helmet/face shield, royal-blue shirt, gloved hands out over the rebar bench. Torso clearly visible to ~frame y400 where a horizontal rebar rack crosses; dark trouser column continues behind the rack to ~y465, included as directly inferable continuous body. This is the figure a manual pass is most likely to drop (helmet reads as machinery)."
+        },
+        {
+          "bbox": [
+            427,
+            177,
+            468,
+            300
+          ],
+          "note": "Mid-field worker standing at the rebar rack behind the tall grey machine: dark hair, dark navy shirt, one bare forearm visible reaching right. Lower body hidden by the machine cabinet, so box stops at the occlusion line."
+        },
+        {
+          "bbox": [
+            741,
+            81,
+            768,
+            195
+          ],
+          "note": "Far-field worker by the bright open doorway, standing upright, dark clothing with a light/white graphic on the chest. ~27x114 px — the small-target case this fixture exists to measure. Full body incl. feet visible on the pale floor."
+        },
+        {
+          "bbox": [
+            765,
+            82,
+            811,
+            139
+          ],
+          "note": "Second far-field worker immediately right of the previous one, bent forward at the waist over the floor stock, green/teal check shirt with dark trousers. Short box (~46x57) because of the stooped pose, not because of cropping."
+        }
+      ]
     },
     {
       "id": "window-1-frame-015",
@@ -152,7 +886,53 @@
       "timestamp_s": 42,
       "path": "frames/window-1-frame-015.jpg",
       "sha256": "d81c027c2ed883584de774b65f3cd3a7b112b95e8a05e4d022cb215d4f84cbc6",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            622,
+            379,
+            735,
+            593
+          ],
+          "note": "Near-field worker in red t-shirt and dark cap, standing right of the green EVG machine, both arms forward guiding a large plank/sheet; red glove on the left hand at approx frame (625,515). Lower legs occluded by the machine and rebar bundles, so the box ends where the body is last continuously visible."
+        },
+        {
+          "bbox": [
+            452,
+            180,
+            502,
+            300
+          ],
+          "note": "Mid-field worker in dark patterned/camo top and dark trousers, standing behind the blue conveyor next to the rebar cage tower. Facing away from camera; torso and legs visible down to approx y=300 where machinery occludes."
+        },
+        {
+          "bbox": [
+            740,
+            85,
+            765,
+            200
+          ],
+          "note": "Far-field worker in all-dark clothing, standing on the bright floor near the open roller door. Small (25x115) but clearly an upright human silhouette with separated legs, casting a shadow to the right."
+        },
+        {
+          "bbox": [
+            776,
+            61,
+            810,
+            165
+          ],
+          "note": "Far-field worker in green/teal plaid shirt and dark trousers, standing just beyond and to the right of the dark-clothed figure, near the door opening. Distinct plaid torso, arms at sides."
+        },
+        {
+          "bbox": [
+            2120,
+            258,
+            2195,
+            468
+          ],
+          "note": "Worker in blue shirt at the far-wall bench, leaning over rebar with arms down at work. Head shows dark hair plus a dark shape over the face consistent with a raised/flipped welding mask. Legs partially occluded by the bench frame below y~430."
+        }
+      ]
     },
     {
       "id": "window-1-frame-016",
@@ -160,7 +940,62 @@
       "timestamp_s": 45,
       "path": "frames/window-1-frame-016.jpg",
       "sha256": "9b3037bb2837e9b88980d1e02a822190afa49755f825321f011a45bc5bf7db6c",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            3060,
+            1485,
+            3302,
+            1900
+          ],
+          "note": "Near-camera worker, blue t-shirt, light grey trousers, white sneaker. Motion-blurred bare forearm reaching upper-left to a red-handled tool/glove; box includes that arm. Largest person in frame (~242x415)."
+        },
+        {
+          "bbox": [
+            586,
+            395,
+            732,
+            606
+          ],
+          "note": "Red polo, dark cap, beard, red work glove on left hand; feeding a mesh sheet into the green EVG machine. Legs cut off below ~y=606 by the machine body."
+        },
+        {
+          "bbox": [
+            2120,
+            256,
+            2191,
+            459
+          ],
+          "note": "WELDER at the rebar bench against the far wall - dark welding helmet worn down over the face (reads as a black rectangle), blue jacket, hands at the bar. No arc flare in this frame, so he is identifiable only by the helmet silhouette; this is the figure a manual pass would most likely miss. Lower body inferred behind the rebar rack."
+        },
+        {
+          "bbox": [
+            778,
+            64,
+            812,
+            176
+          ],
+          "note": "Far field, standing in the open roller-gate bay. Green/teal plaid shirt, dark trousers, dark shoes; left arm reaching down toward a red object on the rebar pile. ~34x112 px."
+        },
+        {
+          "bbox": [
+            818,
+            73,
+            850,
+            183
+          ],
+          "note": "Far field, immediately right of the plaid-shirt worker. Dark hoodie/tracksuit with a large white logo on the back, white side-stripe on the trouser leg. ~32x110 px. Partially overlaps the neighbouring person; separate box."
+        },
+        {
+          "bbox": [
+            455,
+            198,
+            483,
+            294
+          ],
+          "note": "GENUINELY TORN. Narrow denim-blue vertical column tapering into a darker grey lower half, standing in the aisle between the grey tank and the tall rebar cage. Proportions and colouring (blue top / dark trousers, ~28x96 px) match a person seen from behind at that depth, but no head, arms or feet are separable at any zoom - the top blends into the machinery above it, so it could equally be a hanging tarp or a painted machine panel. Reported per the 'when torn, still report' rule."
+        }
+      ]
     },
     {
       "id": "window-1-frame-017",
@@ -168,7 +1003,53 @@
       "timestamp_s": 48,
       "path": "frames/window-1-frame-017.jpg",
       "sha256": "794304907815a4bda39e8ecfe139e7f519f5d6c6d460810f3742db5066896654",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            632,
+            395,
+            740,
+            650
+          ],
+          "note": "Near-camera worker in red polo shirt with dark cap, red gloves, dark trousers, standing at the green EVG machine and handling a large steel plate/mesh panel. Fully unambiguous. Legs disappear behind the machine housing at the box bottom."
+        },
+        {
+          "bbox": [
+            785,
+            59,
+            820,
+            173
+          ],
+          "note": "Far-field figure at the open roller door, green/teal upper garment, dark head and dark legs. Standing next to person 3. Small (35x114) so limb boundaries are estimated, but the head-torso-legs silhouette is clear."
+        },
+        {
+          "bbox": [
+            806,
+            62,
+            840,
+            180
+          ],
+          "note": "Second far-field figure immediately right of / overlapping person 2, all-dark clothing, standing by the rebar pile and stepladder. Partly occludes and is occluded by person 2, so the shared edge is approximate."
+        },
+        {
+          "bbox": [
+            2122,
+            252,
+            2200,
+            488
+          ],
+          "note": "WELDER - dark flipped-down welding helmet/visor, bright blue shirt, dark sleeves and lower body, holding something red (glove/torch handle) at chest height, standing behind the rebar cage rack. Legs occluded by the rack below the box bottom. This is very likely the welder a previous manual pass missed."
+        },
+        {
+          "bbox": [
+            2712,
+            1296,
+            2842,
+            1450
+          ],
+          "note": "Worker leaning forward over the yellow beam at the rebar storage rack; pale/bald head clearly visible, dark blue shirt, viewed through the yellow mesh fence. Straddles the r1c2/r2c2 boundary - the visible torso is cut at frame y=1440 and the lower body continues into r2c2 behind the mesh in a blown-out region where it cannot be resolved cleanly, so the box bottom is a conservative estimate."
+        }
+      ]
     },
     {
       "id": "window-1-frame-018",
@@ -176,7 +1057,62 @@
       "timestamp_s": 51,
       "path": "frames/window-1-frame-018.jpg",
       "sha256": "c8a7967cd74d99bcb4a047ce0ca5d1805f66007d5e7137d5fe7902305a16f97d",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            615,
+            380,
+            740,
+            655
+          ],
+          "note": "Near-camera worker in red polo + cap, dark trousers, handling a large plank/sheet at the EVG machine. Red glove on extended left arm sets the left edge; lower legs occluded by green machine so bottom is the visible extent."
+        },
+        {
+          "bbox": [
+            462,
+            175,
+            508,
+            300
+          ],
+          "note": "Mid-field worker in dark top/trousers standing at the blue partition beside a step-ladder, handling a red item. Fully visible standing figure, ~46x125 px."
+        },
+        {
+          "bbox": [
+            755,
+            70,
+            798,
+            130
+          ],
+          "note": "Far-field worker in teal/green checked shirt, bent forward over rebar stock near the open roller door. Small (~43x60 px) and bent, so extent is approximate."
+        },
+        {
+          "bbox": [
+            795,
+            57,
+            833,
+            180
+          ],
+          "note": "Far-field worker in dark jacket + dark trousers standing beside the previous figure near the open door. ~38x123 px; head/feet edges are soft at this scale."
+        },
+        {
+          "bbox": [
+            2197,
+            280,
+            2295,
+            495
+          ],
+          "note": "WELDER - blue jacket, welding helmet flipped up on the head (white shell, dark visor), red welding gloves, jeans, standing at the rebar bench against the far wall. This is the figure a manual pass is likely to miss; no arc is struck in this frame so there is no blowout, just the helmet silhouette."
+        },
+        {
+          "bbox": [
+            2800,
+            1358,
+            3055,
+            1600
+          ],
+          "note": "Worker at bottom edge leaning forward over the timber bin behind the yellow mesh fence: bare head/face, bare arm, blue-and-white striped garment. Straddles three tiles - crown of head and shoulder appear at the bottom of r1c3, the face/arm continue into the top-left of r2c3. Left edge is uncertain: a dark navy blob plus a skin-tone patch in the bottom-right corner of r1c2 (frame x ~2765-2880, y ~1370-1440) reads as this person's shoulder/back, so the box is extended to cover it - if that blob is actually stacked material, the true left edge is ~2870."
+        }
+      ]
     },
     {
       "id": "window-1-frame-019",
@@ -184,7 +1120,62 @@
       "timestamp_s": 54,
       "path": "frames/window-1-frame-019.jpg",
       "sha256": "c43ac75398f4e4c3f5e1d68696dffcc630d122d8047a1bf7e8c26c49a338c06a",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            589,
+            396,
+            730,
+            638
+          ],
+          "note": "Near-camera worker in red t-shirt and dark cap, both arms out lifting/steering a large rebar mesh panel. Legs in dark trousers occluded below ~y=638 by the green EVG machine and rebar bundle. ~141x242 px, matches the stated near-camera scale."
+        },
+        {
+          "bbox": [
+            780,
+            61,
+            816,
+            174
+          ],
+          "note": "Far-field worker by the open roller door, green/teal plaid shirt, dark trousers, standing. ~36x113 px."
+        },
+        {
+          "bbox": [
+            805,
+            67,
+            840,
+            175
+          ],
+          "note": "Second far-field worker immediately right of the plaid-shirt one, all-dark clothing, facing away. Boxes overlap slightly because they stand shoulder to shoulder. ~35x108 px."
+        },
+        {
+          "bbox": [
+            1383,
+            116,
+            1431,
+            176
+          ],
+          "note": "WELDER at the far rebar table against the back wall. Dark, near-silhouetted head/torso directly beside a blown-out orange arc flare with a second glow patch below (sparks/reflection). Bent over the work, so the box is squat (~48x60) rather than tall. This is the kind of figure the previous manual pass missed."
+        },
+        {
+          "bbox": [
+            2182,
+            279,
+            2296,
+            512
+          ],
+          "note": "Welder in blue jacket wearing a flipped-up dark welding helmet, red gloves on the rebar cage, dark jeans, shoe visible at bottom left of the figure. No arc lit in this frame. ~114x233 px."
+        },
+        {
+          "bbox": [
+            2560,
+            1278,
+            2818,
+            1440
+          ],
+          "note": "Torn. Bottom-right corner of r1c2, behind/beside the yellow mesh guard: a dark navy rounded mass that reads as a head over shoulders, a warm tan curved band left of it that could be a bare forearm, and a red patch (glove or sleeve?). Reported because the composition is strongly person-like at near-camera scale. Reason for LOW: the region directly below it in r2c2 shows blown-out background behind a diamond-mesh guard rather than a continuing torso, which a near-camera person should produce. Could equally be machine parts (yellow post + dark housing + wooden plank + red handle)."
+        }
+      ]
     },
     {
       "id": "window-1-frame-020",
@@ -192,7 +1183,62 @@
       "timestamp_s": 57,
       "path": "frames/window-1-frame-020.jpg",
       "sha256": "b435f6935a121fa4fb9805b5602f5bce981a0a56f275a10e98077716b0aeff24",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            645,
+            398,
+            749,
+            592
+          ],
+          "note": "Mid-field worker, dark cap + glasses + beard, red polo, dark trousers, hands on rebar at a bench. Legs occluded below ~y592 by the green rebar/tarp pile; box is visible extent."
+        },
+        {
+          "bbox": [
+            776,
+            60,
+            810,
+            167
+          ],
+          "note": "Far-field figure at the far end of the hall, green/teal patterned jacket, dark trousers, facing away. ~34x107 px - one of the small far-field targets this fixture exists to measure."
+        },
+        {
+          "bbox": [
+            808,
+            58,
+            848,
+            178
+          ],
+          "note": "Far-field figure standing beside the green-jacket one, black jacket with light graphic on the back, one arm raised to head height. ~40x120 px."
+        },
+        {
+          "bbox": [
+            467,
+            218,
+            493,
+            295
+          ],
+          "note": "SUSPECTED WELDER. Dark silhouette immediately right/below the blue-white arc flare (flare centre ~x437-468, y194-222) which blows out local exposure. At 13x zoom with brightness lift it reads as head-over-dark-body with a lighter greenish region at the feet, but it is also consistent with a dark machine cabinet at the welding bench. Genuinely torn - reported per instruction, marked low."
+        },
+        {
+          "bbox": [
+            2185,
+            277,
+            2280,
+            488
+          ],
+          "note": "Welder at the wall bench: black welding helmet flipped up over a light cap, blue work jacket, dark trousers, glove on rebar. Legs occluded below ~y488 by the storage rack. Red item at his right hip is the torch/tool, excluded from the box."
+        },
+        {
+          "bbox": [
+            2528,
+            1222,
+            2780,
+            1520
+          ],
+          "note": "Person leaning/bent forward over the rebar rack, seen near-vertically from above through the yellow mesh guard and past a yellow guard post: foreshortened dark head at top, dark navy top and dark shorts, two bare limbs, one clearly red trainer at [2528-2562, 1378-1428] and a second partly visible foot near [2670-2705, 1470-1520]. Straddles the r1c2/r2c2 boundary - feet fall in r2c2 (y>1440); reported as ONE box per instruction. Wide box (252x285) because limbs are spread; alternative reading is two adjacent workers, but the dark garment region is continuous across the post so I annotated one."
+        }
+      ]
     },
     {
       "id": "window-2-frame-001",
@@ -200,7 +1246,53 @@
       "timestamp_s": 0,
       "path": "frames/window-2-frame-001.jpg",
       "sha256": "f7e4874ea6f9e00603c444360aa93806fa24edfc145da81ff03cb2133bcd8045",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            780,
+            448,
+            897,
+            720
+          ],
+          "note": "Near-camera worker, red t-shirt, dark cap, dark trousers, standing at the rebar/coil area facing away. Right arm reaching down-left toward the coil. Legs run to the tile's bottom edge (frame y=720); r1c0 below shows only foreground wire coils/barrels, so the lower legs are occluded there - box is the visible extent."
+        },
+        {
+          "bbox": [
+            1242,
+            42,
+            1316,
+            112
+          ],
+          "note": "Worker in dark green/navy shirt bent forward over the long assembly bench, arms extended down-left onto the rebar. Clearly distinct from the hanging jackets on the wall hooks to his left (those have no head/legs and float above the bench)."
+        },
+        {
+          "bbox": [
+            2880,
+            1325,
+            3050,
+            1570
+          ],
+          "note": "SINGLE person straddling the r1c3/r2c3 boundary - reported once in frame coords. Bald/short-haired head and shoulders visible in r1c3 bottom-left, blue t-shirt torso and bare forearm continue into r2c3 top-left. Working at the blue rebar bin under the hoist chain. Left edge sits at the r2c3 tile edge (x=2880); r2c2's right edge shows only mesh/machinery, so 2880 is the true left bound."
+        },
+        {
+          "bbox": [
+            1866,
+            185,
+            1920,
+            275
+          ],
+          "note": "Worker in bright blue shirt, head/face clearly visible, standing behind the rebar cage stacks at the right edge of the tile. Body is cut by the tile boundary at x=1920; r0c2's left edge at the same y shows only bare wall, so he does not extend meaningfully past 1920."
+        },
+        {
+          "bbox": [
+            437,
+            182,
+            487,
+            312
+          ],
+          "note": "WELDER - this is the one an earlier manual pass is likely to miss. Dark silhouette standing immediately right of a blown-out white/magenta arc flare at approx frame (450,225), with blue arc spill splashed across the machine to his left. Head/helmet at the top, body extends down behind the tank. Exposure is destroyed locally so the box edges are approximate; the person is definitely there (the flare has a body attached to it)."
+        }
+      ]
     },
     {
       "id": "window-2-frame-002",
@@ -208,7 +1300,53 @@
       "timestamp_s": 3,
       "path": "frames/window-2-frame-002.jpg",
       "sha256": "8fa5b8a1634dfa2f467bd3dde295ddba0a476ba140fffc173bf2fdfc9954910f",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            673,
+            503,
+            851,
+            722
+          ],
+          "note": "Near-camera worker in red T-shirt, dark cap, dark trousers, bent over the green EVG machine feeding rebar; left arm extended down-left toward the green tool. Lower legs occluded by the machine at the r0c0/r1c0 boundary - r1c0 shows only coils there, so no continuation was boxed."
+        },
+        {
+          "bbox": [
+            440,
+            177,
+            485,
+            255
+          ],
+          "note": "Mid-field worker in dark top and dark cap standing behind the blue/grey machine, facing right. A small blown-out white patch sits immediately to his right at approx frame (478-508, 192-235) - consistent with a work light or an arc flare, so this may be the welder; the box covers the dark silhouette only."
+        },
+        {
+          "bbox": [
+            1260,
+            38,
+            1322,
+            120
+          ],
+          "note": "Worker in dark green/olive shirt, bent forward over the long bench at the top wall, arms reaching left onto the workpiece."
+        },
+        {
+          "bbox": [
+            1850,
+            184,
+            1912,
+            272
+          ],
+          "note": "Worker in bright blue shirt standing at the rebar table on the right, facing left toward the camera. Right side of the body sits within ~8 px of the r0c1/r0c2 tile seam; r0c2's left edge showed no continuation, so the box is the full visible extent."
+        },
+        {
+          "bbox": [
+            2880,
+            1318,
+            3050,
+            1562
+          ],
+          "note": "Bald worker in blue shirt with bare forearms, standing at the rebar rack holding a red crane sling below the chain hoist. Straddles the r1c3/r2c3 seam (head+torso in r1c3, shoulder+arm in r2c3) - ONE box reported for the whole person. He is also cut at the tile-column seam x=2880 in both tiles; neither r1c2 nor r2c2 showed a visible sliver, so x1 is set at the seam and he may extend a few px further left."
+        }
+      ]
     },
     {
       "id": "window-2-frame-003",
@@ -216,7 +1354,53 @@
       "timestamp_s": 6,
       "path": "frames/window-2-frame-003.jpg",
       "sha256": "54c6676969389cceb9f1b11b70c3303a21d621807e67d045b31426117916a5b2",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            815,
+            391,
+            905,
+            685
+          ],
+          "note": "Near-camera worker, red T-shirt, grey trousers, walking right-to-left past the yellow post. Head at ~(850,395), left arm extended down-left holding a red tool/glove, right side of torso partially cut by the yellow vertical post. ~90x294 px - matches the stated near-camera scale."
+        },
+        {
+          "bbox": [
+            447,
+            176,
+            503,
+            300
+          ],
+          "note": "WELDER. Dark silhouette standing at the blue-lit bench; the arc flare (bright blue-white bloom, roughly frame x 415-505 / y 140-200) is immediately above-left of him and blows out local exposure. Dark helmet/head at ~(475,180), dark jacket torso, legs down to ~y 298. This is the figure a size/contrast-only pass would drop."
+        },
+        {
+          "bbox": [
+            1280,
+            38,
+            1340,
+            105
+          ],
+          "note": "Worker in dark green/black overalls standing behind the long workbench, facing camera. Only head + torso visible; lower body occluded by the bench, so the box is the visible extent (~60x67)."
+        },
+        {
+          "bbox": [
+            1805,
+            169,
+            1862,
+            272
+          ],
+          "note": "Worker in bright blue polo shirt at the right-hand bench, leaning over the work surface. Head at ~(1832,175), torso to ~y 270; legs hidden behind the rebar stacks."
+        },
+        {
+          "bbox": [
+            2855,
+            1360,
+            3047,
+            1512
+          ],
+          "note": "Straddles three tiles: skin-toned head/scalp in the r1c2 bottom-right corner and r1c3 bottom-left corner (~frame 2855-2920 / 1365-1440), light-blue work shirt across r1c3 bottom-left (~2955-3047 / 1362-1440) continuing into r2c3 top-left (~2895-2952 / 1440-1507). Reported as ONE box for the whole person. Strong top-down foreshortening - reads as someone bent forward over the rebar rack. Medium not high because every part is edge-cut and the blue could conceivably be draped fabric; the rounded skin-toned blob adjacent to it is what tips it to person."
+        }
+      ]
     },
     {
       "id": "window-2-frame-004",
@@ -224,7 +1408,53 @@
       "timestamp_s": 9,
       "path": "frames/window-2-frame-004.jpg",
       "sha256": "b316d3671e8f875121797c58018469dbbe3caf8d0b498b76bda0c3c5d745e31c",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            747,
+            467,
+            897,
+            657
+          ],
+          "note": "Near-mid-field worker in red/orange t-shirt with dark cap, bent forward over coiled wire, dark trousers, both arms down. Fully contained in r0c0; ~150x190 px."
+        },
+        {
+          "bbox": [
+            462,
+            192,
+            512,
+            308
+          ],
+          "note": "Standing worker beside the tall lattice mast, dark hair, pale grey-blue upper body, dark trousers, feet on floor. ~50x116 px."
+        },
+        {
+          "bbox": [
+            2880,
+            1344,
+            3062,
+            1612
+          ],
+          "note": "Largest/nearest person. Head with light hair first appears in r1c3 bottom-left (frame y~1345); blue t-shirt torso and bare forearm continue into r2c3. ONE box spanning the r1c3/r2c3 boundary. Left edge clipped at the r2c3 tile edge (frame x 2880) by the bent arm; body below hips occluded by the wooden crate / yellow mesh fence."
+        },
+        {
+          "bbox": [
+            1395,
+            64,
+            1455,
+            153
+          ],
+          "note": "Worker in dark green bib overalls standing at the far bench, facing camera, arms slightly out. Legs cut off by the rebar table at the bottom of the visible extent. ~60x89 px."
+        },
+        {
+          "bbox": [
+            1787,
+            165,
+            1855,
+            260
+          ],
+          "note": "Worker in bright blue shirt at the rebar assembly table, leaning over work with gloved hands; lower body hidden behind the rebar cages. ~68x95 px."
+        }
+      ]
     },
     {
       "id": "window-2-frame-005",
@@ -232,7 +1462,53 @@
       "timestamp_s": 12,
       "path": "frames/window-2-frame-005.jpg",
       "sha256": "05fa6197ba1195b13c8b640d7a1ea7741dbb791f86cbe3c099b27daafc7cb6e6",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            2895,
+            1365,
+            3050,
+            1660
+          ],
+          "note": "Near-camera worker, navy/blue short-sleeve t-shirt, light/bald head. Straddles the r1c3/r2c3 boundary: head + shoulder visible at bottom-left of r1c3, torso + reaching arm (holding something red) in top-left of r2c3. Reported as ONE box. ~155x295 px, matches the fixture's near-camera scale. Lower body occluded by the yellow mesh fence / cut by frame edge."
+        },
+        {
+          "bbox": [
+            745,
+            448,
+            888,
+            655
+          ],
+          "note": "Worker bending forward over rebar coils, red/orange t-shirt, dark cap, dark grey work trousers. Right arm extended to the right holding a bar. Fully visible, ~143x207 px."
+        },
+        {
+          "bbox": [
+            468,
+            175,
+            518,
+            295
+          ],
+          "note": "Standing worker in dark clothing at the machine / bar-straightener beside the open roller door. Mid-field scale (~50x120 px). Torso and legs clearly separable, head visible above the dark machine panel."
+        },
+        {
+          "bbox": [
+            1780,
+            162,
+            1862,
+            256
+          ],
+          "note": "Worker in bright blue long-sleeve shirt, dark hair, standing at the far bench working on a rebar cage. Arms reach left over the mesh. ~82x94 px, torso-up only (bench + rebar occlude below the waist)."
+        },
+        {
+          "bbox": [
+            1585,
+            70,
+            1672,
+            210
+          ],
+          "note": "Worker leaning over the rebar-hanging rack, bare/skin-toned upper arm and forearm clearly visible reaching down-right; head is behind the orange-and-white machine or rack item. Boxed the visible upper body plus the directly inferable torso behind the rack. Medium (not high) because the head is not resolvable and the orange item next to it could be a hi-vis garment on the rack rather than part of the person."
+        }
+      ]
     },
     {
       "id": "window-2-frame-006",
@@ -240,7 +1516,44 @@
       "timestamp_s": 15,
       "path": "frames/window-2-frame-006.jpg",
       "sha256": "2583fec540743caf7c90e62700fa2fbee557c71000ca4f31b6a64a44a01353d3",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            655,
+            376,
+            752,
+            651
+          ],
+          "note": "Near-camera worker, red polo + dark cap + dark trousers, standing in profile at the green EVG machine, facing left. Box spans cap top (y376) to dark shoe (y651); left edge is his hand at x655, right edge the trouser/shoe line. ~97x275 px."
+        },
+        {
+          "bbox": [
+            1492,
+            82,
+            1568,
+            130
+          ],
+          "note": "Worker in dark green tee with hi-vis suspenders, at the bench behind the hanging rebar curtain. Bare right arm extends right to ~x1568. Body below y~130 is fully hidden behind the opaque hanging rebar bundle, so the box is visible-extent only."
+        },
+        {
+          "bbox": [
+            1748,
+            167,
+            1828,
+            266
+          ],
+          "note": "Worker in bright blue long-sleeve, bent forward over a rebar cage, hands/gloves reaching down-left to ~x1748. Legs/jeans visible to y~266 where the rebar pile occludes."
+        },
+        {
+          "bbox": [
+            2852,
+            1341,
+            3058,
+            1640
+          ],
+          "note": "Straddles the r1c3/r2c3 tile boundary (y=1440) - head and shoulders in r1c3, torso/arms/jeans in r2c3; reported as ONE box. Navy/teal tee, light hair, both arms forward at a workstation; his right forearm reaches left to ~x2852 behind the yellow expanded-metal mesh (mesh is thin occlusion, arm is continuous behind it). Bottom set at the last unambiguous denim at y~1640; the dark shape continuing to y~1700 could be his leg or a floor object, so it is excluded."
+        }
+      ]
     },
     {
       "id": "window-2-frame-007",
@@ -248,7 +1561,53 @@
       "timestamp_s": 18,
       "path": "frames/window-2-frame-007.jpg",
       "sha256": "046799ad4398c750ee12874f6c4f9a80c83c34c06ee932aed8dbfd05ad0f70fe",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            596,
+            389,
+            729,
+            648
+          ],
+          "note": "Near-camera worker in red polo + dark cap, standing at the green EVG machine handling sheet stock. Box includes his left forearm/red glove reaching left to x~596 and dark trousers down to y~648 where the legs go behind the green machine and rebar pile."
+        },
+        {
+          "bbox": [
+            832,
+            1,
+            863,
+            75
+          ],
+          "note": "Far-wall worker at the bench beside the open bay door, top edge of frame. Dark clothing, standing; head touches y~1, feet at y~75. ~31x74 px - the far-field size class this fixture exists to measure."
+        },
+        {
+          "bbox": [
+            1530,
+            83,
+            1601,
+            132
+          ],
+          "note": "Worker in dark-green shirt with hi-vis shoulder stripes at the wall workbench, right arm raised to his face. Only head + torso visible; lower body is fully hidden behind the dense hanging rebar cart in front of him, so the box is the visible extent only."
+        },
+        {
+          "bbox": [
+            1760,
+            169,
+            1829,
+            252
+          ],
+          "note": "Short-haired worker in bright blue shirt, bent forward over the rebar mesh on the assembly table. Legs occluded below y~252 by the mesh stack."
+        },
+        {
+          "bbox": [
+            2907,
+            1347,
+            3073,
+            1662
+          ],
+          "note": "Straddles the r1c3/r2c3 tile boundary - reported as ONE box. Near-camera worker, light hair, navy t-shirt, seen top-down behind the yellow expanded-metal fence. Right hand raised at upper left, left arm reaching down-left to a rag at y~1660. Legs not separable: the dark green mass below the shirt hem is a hanging tarp/curtain (confirmed by zooming frame y 1700-2000), not trousers, so the box stops at the lowest confidently-attributable body part."
+        }
+      ]
     },
     {
       "id": "window-2-frame-008",
@@ -256,7 +1615,53 @@
       "timestamp_s": 21,
       "path": "frames/window-2-frame-008.jpg",
       "sha256": "3000ad02f821cc7cb32f2a575764a1ef3f9c8d948bf2b15ed5d9ed81da71f200",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            622,
+            380,
+            740,
+            648
+          ],
+          "note": "Near-camera worker at the EVG machine: dark cap, beard, red polo, dark trousers, red gloves on both hands reaching left onto the wire. Lower legs cut off by the green machine body, so y2 is the last visible body pixel."
+        },
+        {
+          "bbox": [
+            472,
+            182,
+            520,
+            296
+          ],
+          "note": "WELDER. Dark standing silhouette immediately right of the blown-out orange/white arc flare at the rear bench. Head + torso readable; the teal patch at the bottom of the box is the lower body/legs. Exposure blowout makes the exact silhouette edges soft, hence medium not high - but this is a person, not machinery."
+        },
+        {
+          "bbox": [
+            1520,
+            77,
+            1568,
+            136
+          ],
+          "note": "Far-wall worker, short/bald hair, dark green top with hi-vis stripe, facing right toward the second figure. Body below chest is hidden by the opaque black bar bundle on the rack, so only visible extent is boxed."
+        },
+        {
+          "bbox": [
+            1592,
+            144,
+            1702,
+            335
+          ],
+          "note": "Man in blue long-sleeve top, right hand raised to ear (phone), left hand resting on the rebar cage. Mid-body occluded by the vertical bar bundle; blue-jean legs and a dark shoe are visible again below it, so the box spans the inferable continuous body."
+        },
+        {
+          "bbox": [
+            2856,
+            1234,
+            2962,
+            1498
+          ],
+          "note": "Near-camera worker at the right frame edge: light/blond hair, face in left profile, navy-blue shirt. Straddles four tiles - head/shoulder sliver appears at the right edge of r1c2 and the body continues into the top-right of r2c2 and top-left of r2c3, where it is cut off by the bench/rack. Reported as ONE box."
+        }
+      ]
     },
     {
       "id": "window-2-frame-009",
@@ -264,7 +1669,53 @@
       "timestamp_s": 24,
       "path": "frames/window-2-frame-009.jpg",
       "sha256": "84a3b1b9923b3beb0fc0e6f61693a4a1b6b2255b57aec88b55003a83ecf260d8",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            779,
+            363,
+            879,
+            659
+          ],
+          "note": "Near-camera worker: red T-shirt, dark cap, dark trousers, walking right-to-left past the rebar cage carrying a coil/tool in the right hand. Fully visible head-to-boots, ~100x296 px. Unambiguous."
+        },
+        {
+          "bbox": [
+            1785,
+            165,
+            1878,
+            263
+          ],
+          "note": "Worker in bright blue hoodie standing at the far bench against the right wall, facing camera. Head, torso and both arms visible; lower body occluded by the rebar mesh stack in front of him, so box is visible extent only."
+        },
+        {
+          "bbox": [
+            2345,
+            1050,
+            2515,
+            1340
+          ],
+          "note": "Bald/short-haired worker in navy polo shirt seen through the yellow safety mesh, bending over the steel rack handling lifting straps. Red gloves on both hands. Box includes the outstretched left arm and the light trousers at the hip; mesh is thin foreground occlusion so the continuous body behind it is included."
+        },
+        {
+          "bbox": [
+            1538,
+            92,
+            1597,
+            148
+          ],
+          "note": "Head and shoulders of a person in grey/olive clothing standing behind the rack of hanging rebar stirrups, mid-upper frame. Face is distinguishable. Body below the shoulders is behind a DENSE hanging bundle (not thin occlusion), so the box is deliberately limited to the visible head+shoulders rather than an inferred full-body extent."
+        },
+        {
+          "bbox": [
+            450,
+            142,
+            495,
+            188
+          ],
+          "note": "Torn call. Light blue/white patterned patch with a darker rounded region at its upper-left, sitting on top of the dark teal machine housing - reads as head + light checked shirt of someone leaning over the machine. Geometry is consistent (a person behind that machine would show exactly head+shoulders above its top edge). But it could equally be a reflection or a label/decal on the machine panel. Reported per the 'report when torn, mark low' rule."
+        }
+      ]
     },
     {
       "id": "window-2-frame-010",
@@ -272,7 +1723,35 @@
       "timestamp_s": 27,
       "path": "frames/window-2-frame-010.jpg",
       "sha256": "24f4ea090aac05060ef511f7f6d17bdd58ac7e866d2e3b6ead2cf9c48c379f84",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            852,
+            256,
+            958,
+            470
+          ],
+          "note": "Red T-shirt worker walking away from camera, mid-field. Head top y~256; bare left forearm reaching down-left to a dark glove/tool at x~854,y~400 (included in box). Dark trousers; lower legs/feet occluded by the yellow-painted rebar column and a light-grey panel from y~465 down. Right edge stops just short of the r0c0/r0c1 seam (verified by stitching the seam - no red pixels in r0c1)."
+        },
+        {
+          "bbox": [
+            1867,
+            186,
+            1935,
+            280
+          ],
+          "note": "Blue/teal jacket worker facing camera, standing behind the horizontal rebar stack. STRADDLES the r0c1/r0c2 boundary - head and most of the torso in r0c1, right shoulder/sleeve continues into r0c2 (tile x 0-30). Reported as ONE box; verified by stitching r0c1 right edge to r0c2 left edge. Body below y~280 is occluded by the rebar stack."
+        },
+        {
+          "bbox": [
+            2376,
+            1046,
+            2539,
+            1340
+          ],
+          "note": "Near-camera worker, navy polo, bald/short hair, red gloves, bending over rebar behind the yellow mesh fence. Box is the visible extent incl. both arms; the yellow mesh is thin foreground occlusion drawn over a continuous body, so it is boxed through. ~163x294 px, matches the fixture's near-camera size hint."
+        }
+      ]
     },
     {
       "id": "window-2-frame-011",
@@ -280,7 +1759,35 @@
       "timestamp_s": 30,
       "path": "frames/window-2-frame-011.jpg",
       "sha256": "6395ecd6c73f8631581a5824cef53fe8bc9bbcfdd8deca05cbf4b0183d551a2d",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            946,
+            169,
+            1022,
+            375
+          ],
+          "note": "Red T-shirt worker standing at the mesh/bending bench, back to camera, dark grey trousers. Straddles the r0c0/r0c1 boundary at x=960 - the left arm/shoulder is visible in r0c0 at x~946-960. Reported once in frame coords."
+        },
+        {
+          "bbox": [
+            2250,
+            901,
+            2392,
+            1280
+          ],
+          "note": "Blond worker in navy T-shirt and blue jeans walking left-to-right behind the yellow mesh panel, carrying a red cup/can in the left hand (arm extended left, included in box). Motion-blurred. Box excludes a pale elongated blob at ~[2145,1265]-[2230,1315]: it has no trouser leg or ankle connecting it to the body and lies along the rebar grain, so it is read as a rag/offcut, not a second shoe."
+        },
+        {
+          "bbox": [
+            1968,
+            216,
+            2042,
+            315
+          ],
+          "note": "Worker in bright blue long-sleeve top at the far wall, facing camera-left. Only head/torso visible - lower body fully occluded by the stacked rebar cages in front, so the box is the visible extent and stops at the rack edge."
+        }
+      ]
     },
     {
       "id": "window-2-frame-012",
@@ -288,7 +1795,44 @@
       "timestamp_s": 33,
       "path": "frames/window-2-frame-012.jpg",
       "sha256": "d4eb00e0d71489964fb637147c782243d9ff0c8f63bd54eeec30e1ddbbe73294",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            717,
+            146,
+            811,
+            241
+          ],
+          "note": "Worker in bright red t-shirt, dark hair, bent forward over the rebar assembly table, left arm reaching down-left onto the table. Legs occluded by the table/rebar bundle, so the box is the visible upper-body extent only."
+        },
+        {
+          "bbox": [
+            414,
+            150,
+            512,
+            220
+          ],
+          "note": "AMBIGUOUS - blown-out bright blob with a dark head-shaped mass beside it, sitting on/behind the teal wire-straightening machine housing, with what reads as a pale bare forearm extending down-left. Consistent with a welder silhouetted next to arc flare, but the local exposure is clipped and it could also be machine sheet-metal plus a hanging cable. Reported per the 'when torn, still report it' rule. Could plausibly be two people (a head-like mass at frame ~x 495 as well as the bright blob at ~x 450) - boxed as one cluster because they cannot be separated at this resolution."
+        },
+        {
+          "bbox": [
+            2125,
+            270,
+            2212,
+            507
+          ],
+          "note": "Worker in blue long-sleeve top and dark jeans, walking left-to-right along the white wall, red gloves at waist height carrying something. Full body visible head to foot; well clear of all tile boundaries."
+        },
+        {
+          "bbox": [
+            1985,
+            763,
+            2220,
+            1265
+          ],
+          "note": "Near-camera worker in navy t-shirt, light jeans, white sneakers, standing behind the yellow mesh guard rail, left arm raised overhead grasping a lifting sling, holding a red item at waist. Box spans raised hand (top-left) to sneakers (bottom). Body is visible through the thin yellow mesh - boxed as continuous inferable extent per the occlusion rule."
+        }
+      ]
     },
     {
       "id": "window-2-frame-013",
@@ -296,7 +1840,53 @@
       "timestamp_s": 36,
       "path": "frames/window-2-frame-013.jpg",
       "sha256": "ff437912036d14cb8718ec529c3cca6b69f622da17559ae807f503bdf41be0e5",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            668,
+            122,
+            730,
+            238
+          ],
+          "note": "Near-field worker in red T-shirt, walking away from camera toward the open roll-up door, dark trousers, object in right hand. Feet occluded by the rebar pile at the bottom edge of the box."
+        },
+        {
+          "bbox": [
+            463,
+            163,
+            494,
+            266
+          ],
+          "note": "Far-field worker in dark clothing walking left in the rear bay behind the blue machine guard. Head/face, one bare forearm and both legs resolvable at 6x; lower legs merge into shadow so the bottom edge is approximate. ~31x103 px - this is the small-figure case the fixture exists to measure."
+        },
+        {
+          "bbox": [
+            815,
+            0,
+            849,
+            84
+          ],
+          "note": "Worker standing at the far workbench in the doorway bay, seen from behind, leaning over the bench. Head is cut off by the top edge of the frame (y1=0); box is the visible portion only. A pale pink/white patch just to his right (frame x~845-856, y~0-16) may be his outstretched sleeve/hand or an item on the bench - excluded to stay conservative."
+        },
+        {
+          "bbox": [
+            2126,
+            285,
+            2191,
+            458
+          ],
+          "note": "Worker in blue long-sleeve shirt and dark trousers, standing at the rebar table by the white wall, head bent down over the work. Legs disappear behind the horizontal steel beam at the bottom edge of the box."
+        },
+        {
+          "bbox": [
+            1790,
+            738,
+            1818,
+            776
+          ],
+          "note": "Head visible through the yellow mesh gate on the far side of the rebar racks. At 7x the skin-toned patch shows forehead, brow/eye shadow, nose and jaw. Body is occluded by stacked rebar; a pale shape lower-left could be his hand but is more likely one of the white/purple lifting straps, so it is excluded. This is the kind of figure a previous manual pass would drop."
+        }
+      ]
     },
     {
       "id": "window-2-frame-014",
@@ -304,7 +1894,62 @@
       "timestamp_s": 39,
       "path": "frames/window-2-frame-014.jpg",
       "sha256": "49a5daafd3db82b069e608714e27af7e151b778ee12dead8e07cd5a08635b9b8",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            503,
+            158,
+            549,
+            302
+          ],
+          "note": "Worker in dark cap and navy shirt/trousers standing at the wire-straightener machine, facing left-down; orange/red glove visible at his hands (~530-544, 216-230). Full standing figure, feet on the floor at y~300."
+        },
+        {
+          "bbox": [
+            607,
+            103,
+            648,
+            186
+          ],
+          "note": "Worker in bright red t-shirt, back to camera, standing in the open roll-up doorway (strongly backlit). Head and shoulders fall inside the semi-transparent burned-in timestamp band, which darkens them - on first pass this read as a red equipment panel. Overlay verification shows an unmistakable head, sloping shoulders, a bare right arm down the right edge, and dark shorts. Legs below y~186 are occluded by the foreground rack / fire-extinguisher stand (the red cylinder at ~(612-637, 205-258) is the extinguisher, NOT part of this person)."
+        },
+        {
+          "bbox": [
+            821,
+            0,
+            851,
+            80
+          ],
+          "note": "Far-wall worker at the back bench, dark silhouette, both legs clearly separated. Head is cut off by the top frame edge, so y1=0 is the visible extent. ~30x80 px - matches the fixture's stated far-field scale."
+        },
+        {
+          "bbox": [
+            2000,
+            222,
+            2053,
+            322
+          ],
+          "note": "Worker in bright blue polo, short grey hair, facing away/right. Lower body from y~322 down is occluded by the long rebar stack in front of him."
+        },
+        {
+          "bbox": [
+            1798,
+            652,
+            1906,
+            820
+          ],
+          "note": "STRADDLES r0c1 (head, y 652-720) and r1c1 (body, y 720-820) - reported once in frame coords. Short-haired/balding worker in dark navy tee, bent forward over the work area, seen through the yellow mesh guard fence; bare forearm at ~(1870-1906, 755-805). The vertical yellow guardrail post occludes his centre. Legs below y~820 are hidden behind rebar bundles on the floor."
+        },
+        {
+          "bbox": [
+            1565,
+            103,
+            1588,
+            134
+          ],
+          "note": "Head only - a face (dark hair, forehead, eyes/nose shading, pink neck) visible above the wheeled garment rack of hanging striped workwear; body entirely hidden behind the rack. Marked medium rather than high because only ~23x31 px of head is visible with no body context, and the scene brief warns of mannequin-like shapes on racks - but the facial structure and skin/neck tone read as a real person."
+        }
+      ]
     },
     {
       "id": "window-2-frame-015",
@@ -312,7 +1957,62 @@
       "timestamp_s": 42,
       "path": "frames/window-2-frame-015.jpg",
       "sha256": "6966dc8a54656b0b964358a227a895fba099a2e4276dac7904ad447fa84b09df",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            820,
+            0,
+            857,
+            79
+          ],
+          "note": "Far-field worker in dark clothing near the open roll-up door, bent over a rebar table. Head touches the top frame edge (y1=0), so the box is the visible portion. Shoe visible at ~y=77."
+        },
+        {
+          "bbox": [
+            512,
+            116,
+            546,
+            170
+          ],
+          "note": "Red T-shirt worker standing at the bending machine, back to camera. Head partly overlapped by the burned-in timestamp band (band ends ~y=125). Lower body hidden behind the worker in front of him and the machine, so this is head+torso visible extent."
+        },
+        {
+          "bbox": [
+            503,
+            158,
+            546,
+            296
+          ],
+          "note": "Second worker at the same machine, immediately in front of / below the red-shirt one: denim-blue jacket back, head down, dark trousers, right arm reaching toward the rebar. Legs terminate at the machine edge."
+        },
+        {
+          "bbox": [
+            1516,
+            88,
+            1558,
+            134
+          ],
+          "note": "Worker at the far wall workbench, dark/green jacket, head clearly visible. Body below the chest is behind a dense hanging-rebar curtain (opaque, not thin occlusion), so box = visible extent."
+        },
+        {
+          "bbox": [
+            1918,
+            190,
+            1981,
+            300
+          ],
+          "note": "Bright blue long-sleeve worker standing at the rebar rack, back to camera. Left edge sits essentially on the r0c1/r0c2 tile boundary (x~1919). Dark trousers below y~283 partly behind the mesh."
+        },
+        {
+          "bbox": [
+            1872,
+            697,
+            2008,
+            922
+          ],
+          "note": "Near-camera worker in navy T-shirt holding red gloves, behind the yellow mesh fence. Straddles three tiles: head top (y~697-720) appears in r0c2, left shoulder/arm and hand (x~1872-1920) in r1c1, the rest in r1c2. Reported as ONE box in frame coords. Fence bars are thin occlusion, body boxed through them; lower legs below y~922 are hidden by the fence/rebar."
+        }
+      ]
     },
     {
       "id": "window-2-frame-016",
@@ -320,7 +2020,71 @@
       "timestamp_s": 45,
       "path": "frames/window-2-frame-016.jpg",
       "sha256": "6ceb5c3e655296227528ea6408359f9a0ffb708429066d1cb2ad9cfcde1a46a5",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            2766,
+            1102,
+            2896,
+            1551
+          ],
+          "note": "Near-camera worker, navy T-shirt + light blue jeans, short blonde hair, holding a red-handled tool over the steel rack. Largest person in frame (~130x449). Body straddles four tiles: torso/head in r1c2, hand+red tool sliver crosses x=2880 into r1c3 (verified: pale forearm + magenta tool visible at r1c3 left edge), lower legs cross y=1440 into r2c2 (verified: blue jeans visible behind the yellow lattice fence at r2c2 top-right). Single box reported in frame coords. Lower legs partly seen through the open yellow diamond fence; box bottom is where the jeans disappear behind a dark steel plate."
+        },
+        {
+          "bbox": [
+            1870,
+            181,
+            1960,
+            286
+          ],
+          "note": "Worker in bright blue polo shirt, grey/balding head, bent over the far workbench with left arm reaching onto a tan timber and right arm raised toward the wall. Straddles the r0c1/r0c2 boundary at x=1920 (about 50 px of him is in r0c2). Legs below the hips are occluded by the diagonal rebar rack, so the box is visible extent only."
+        },
+        {
+          "bbox": [
+            1505,
+            106,
+            1540,
+            137
+          ],
+          "note": "Far-field worker behind the hanging rebar rack in the centre-back of the hall. Only head (dark hair, pink face) and shoulders/upper arms are visible above the dense hanging stock; the rest is fully occluded by opaque bundled rebar, not thin bars, so no body was inferred. Very small (~35x31 visible)."
+        },
+        {
+          "bbox": [
+            825,
+            0,
+            861,
+            78
+          ],
+          "note": "Far worker in all-dark clothing standing at the back bench near the open roller door. Head is clipped by the frame top edge (y1=0). Full standing figure with legs and feet visible; ~36x78, matching the stated far-wall scale. Distinguished from the dark toolbox-like object ~60 px to its right, which has no limbs and is not annotated."
+        },
+        {
+          "bbox": [
+            497,
+            122,
+            532,
+            249
+          ],
+          "note": "Worker in red T-shirt, dark trousers, back to camera, standing on the raised machine platform (left of the 3-person cluster). Upper body partly overlaps the semi-transparent burned-in timestamp band. Legs disappear behind the machine guard/conveyor around y=249, so box is visible extent."
+        },
+        {
+          "bbox": [
+            528,
+            163,
+            556,
+            285
+          ],
+          "note": "Worker in all-dark clothing (dark hair, dark top, dark trousers), centre of the three-person cluster on the machine platform, facing away. Narrow because he is side-on and partly behind the red-shirt worker."
+        },
+        {
+          "bbox": [
+            554,
+            164,
+            588,
+            291
+          ],
+          "note": "Worker in dark short-sleeve T-shirt with bare pale arms and blue jeans, right of the cluster, side-on, right hand reaching toward a white jerrycan on the platform. Box includes the reaching arm/hand but not the jug itself."
+        }
+      ]
     },
     {
       "id": "window-2-frame-017",
@@ -328,7 +2092,71 @@
       "timestamp_s": 48,
       "path": "frames/window-2-frame-017.jpg",
       "sha256": "9244fdad28b2725182af627b38d64c3cd8573ab7833810ca604355800cb0a725",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            489,
+            124,
+            535,
+            243
+          ],
+          "note": "Worker in red t-shirt, standing at the bending machine, back to camera. Head top sits right at the lower edge of the burned-in timestamp overlay, so y1 is the first row of scalp not covered by the overlay. Legs disappear behind the machine frame."
+        },
+        {
+          "bbox": [
+            531,
+            148,
+            567,
+            256
+          ],
+          "note": "Second worker of the pair, dark navy top and dark cap, immediately right of and slightly behind the red-shirt worker. Partially overlaps him; lower legs occluded by the machine."
+        },
+        {
+          "bbox": [
+            719,
+            113,
+            762,
+            235
+          ],
+          "note": "Worker in navy t-shirt walking/standing in the open aisle, back to camera. The white/lavender vertical sheet immediately to his right is material, not a second person - box stops at his right arm."
+        },
+        {
+          "bbox": [
+            818,
+            1,
+            853,
+            78
+          ],
+          "note": "Far-field worker at the far wall / doorway bench, dark clothing, ~35x77 px. Head is clipped by the top frame edge (y1=1). This is exactly the small-figure class the fixture exists to measure."
+        },
+        {
+          "bbox": [
+            1503,
+            88,
+            1538,
+            136
+          ],
+          "note": "Worker in green/dark top standing behind the vertical stirrup rack. Only head, shoulders and upper torso are visible; the rack below is a dense bundle of stirrups (not thin occlusion), so the box is visible extent only."
+        },
+        {
+          "bbox": [
+            1765,
+            175,
+            1830,
+            252
+          ],
+          "note": "WELDER CANDIDATE - this is the figure most likely missed by the earlier manual pass. Bent forward over the rebar bench, dark hood/mask over the head, bright saturated blue shirt beside it. No arc flare visible in this particular frame, but the pose plus dark head covering next to a locally blown-out blue region matches the welder signature. Box covers hood, torso and the visible upper legs; lower legs are behind the rebar bench."
+        },
+        {
+          "bbox": [
+            2987,
+            1215,
+            3218,
+            1638
+          ],
+          "note": "Near-camera worker, blond, navy t-shirt, red-handled sling/hook in his left hand under a lifting chain. STRADDLES r1c3 (head + torso, down to the y=1440 tile boundary) and r2c3 (light blue work trousers and feet). Reported as ONE box in frame coordinates. Largest person in the frame at ~231x423 px."
+        }
+      ]
     },
     {
       "id": "window-2-frame-018",
@@ -336,7 +2164,71 @@
       "timestamp_s": 51,
       "path": "frames/window-2-frame-018.jpg",
       "sha256": "5f7532c0063301cf39d72a7d6647102124f85c37993d5583e1c838a7cba0711b",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            2995,
+            1220,
+            3222,
+            1650
+          ],
+          "note": "Near-camera worker, navy T-shirt, light blue jeans, red glove on right hand, working at the rebar crates. Straddles the r1c3/r2c3 seam - head/torso in r1c3, legs from y=1440 down into r2c3. ONE box reported for the whole person. Feet lost against the floor/crate shadow around y~1650."
+        },
+        {
+          "bbox": [
+            496,
+            129,
+            532,
+            233
+          ],
+          "note": "Worker in red T-shirt and light cap standing at the rebar rack, facing away/left. Lower legs occluded by the rack and cart in front of him."
+        },
+        {
+          "bbox": [
+            543,
+            134,
+            570,
+            257
+          ],
+          "note": "Worker in dark navy clothing with dark cap, standing immediately right of the red-shirt worker, facing away. Feet hidden behind rebar bundles."
+        },
+        {
+          "bbox": [
+            662,
+            95,
+            712,
+            228
+          ],
+          "note": "Worker in dark T-shirt walking left-to-right across the open floor, mid-stride. Box excludes the white board/panel he is carrying in his right hand (that object extends to about x=728)."
+        },
+        {
+          "bbox": [
+            1423,
+            69,
+            1463,
+            170
+          ],
+          "note": "Worker in dark-green shirt and dark bib overalls at the wall workbench, holding a red tool in his left hand. Legs cut off by the rebar rack in the foreground."
+        },
+        {
+          "bbox": [
+            1776,
+            180,
+            1826,
+            252
+          ],
+          "note": "Worker in bright blue shirt bending forward over the rebar bench, jeans visible lower-left. Person is certain; the exact left/top edge is a little soft because a black jacket/bag hanging on the wall rack abuts his head."
+        },
+        {
+          "bbox": [
+            804,
+            0,
+            836,
+            80
+          ],
+          "note": "Far-field figure by the roller door at the far wall - olive/dark shirt, khaki trousers, dark boots. Head is clipped by the top frame edge, so y1=0 (visible portion only). About 32x80 px - the smallest solid detection in the frame."
+        }
+      ]
     },
     {
       "id": "window-2-frame-019",
@@ -344,7 +2236,71 @@
       "timestamp_s": 54,
       "path": "frames/window-2-frame-019.jpg",
       "sha256": "c2a31c46dd2229c0f2e2080b331d287f084bc3ccbc97dac9d8f3793a56d18aa1",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            3045,
+            1212,
+            3232,
+            1470
+          ],
+          "note": "Near-camera worker, navy t-shirt, left arm raised gripping the hoist chain with a red glove; other hand on a red-handled item at his waist. Box top includes the raised glove. Bottom edge is estimated at ~1470 - his body is cut by the r1c3/r2c3 seam at y=1440 and I could not positively trace the continuation in r2c3 (that region reads as crates/straps), so the lower bound may be slightly short."
+        },
+        {
+          "bbox": [
+            494,
+            176,
+            554,
+            291
+          ],
+          "note": "Worker walking/carrying between the blue machine and the rebar rack; dark upper body, navy trousers, clear stride with both legs visible. Lower legs partly behind rebar."
+        },
+        {
+          "bbox": [
+            504,
+            110,
+            551,
+            182
+          ],
+          "note": "Red t-shirt worker standing at the rebar bench, dark head. Legs occluded by the bench/rack so box ends at the occlusion line."
+        },
+        {
+          "bbox": [
+            541,
+            115,
+            574,
+            217
+          ],
+          "note": "Second figure immediately right of the red-shirt worker, all dark clothing, partly merged with the red-shirt worker and with the vertical rebar rack behind. Separate head is visible, so counted as a distinct person."
+        },
+        {
+          "bbox": [
+            810,
+            2,
+            846,
+            90
+          ],
+          "note": "Far-field worker standing in the bright roll-up-door opening, dark clothes over light headwear. ~36x88 px - matches the far-wall size class this fixture exists to measure. Head is clipped by the top frame edge."
+        },
+        {
+          "bbox": [
+            1305,
+            46,
+            1398,
+            133
+          ],
+          "note": "Worker in dark green/black polo standing at the long straightening bench, arms extended to the right over the workpiece. Box includes the extended arms."
+        },
+        {
+          "bbox": [
+            1732,
+            171,
+            1834,
+            251
+          ],
+          "note": "Worker in bright blue shirt and dark blue cap, bent forward over the rebar cage with arms reaching down-left. Wider than tall because of the bent posture."
+        }
+      ]
     },
     {
       "id": "window-2-frame-020",
@@ -352,7 +2308,62 @@
       "timestamp_s": 57,
       "path": "frames/window-2-frame-020.jpg",
       "sha256": "6885f6b557933cdae8c6cec030327e97fb86274aa2d2ac5dd02867e33fe8b143",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            2882,
+            1156,
+            3106,
+            1608
+          ],
+          "note": "Near-camera worker, dark blue t-shirt, light jeans, right arm raised gripping a red-handled hook on the hoist chain. Straddles the r1c3/r2c3 boundary - torso+head in r1c3, legs/feet in r2c3 top-left. Single box for whole person. Left edge is at/near the x=2880 tile seam so x1 may extend a few px further left."
+        },
+        {
+          "bbox": [
+            1775,
+            182,
+            1862,
+            262
+          ],
+          "note": "Worker in bright blue shirt with dark cap/hair, bent forward over the rebar cage assembly bench on the right. Torso clearly visible, lower body occluded by the rebar stack."
+        },
+        {
+          "bbox": [
+            1315,
+            47,
+            1367,
+            127
+          ],
+          "note": "Worker in dark green/teal shirt standing upright at the long bench against the far wall, facing camera, hands down at the work surface."
+        },
+        {
+          "bbox": [
+            504,
+            116,
+            542,
+            242
+          ],
+          "note": "Worker in red/maroon top with dark trousers, standing beside the dark machine panel. Partially overlapped by the burned-in timestamp overlay band above the head - head top may be slightly clipped by the overlay."
+        },
+        {
+          "bbox": [
+            460,
+            170,
+            507,
+            312
+          ],
+          "note": "Second worker at the same machine, dark jacket and dark cap, leaning/bent toward the panel and slightly lower-left of the red-shirt worker. Legs visible down to the platform."
+        },
+        {
+          "bbox": [
+            3115,
+            1095,
+            3155,
+            1195
+          ],
+          "note": "Dark narrow vertical form standing on the open floor just left of the stacked bent-rebar bundle, with a plausible leg/foot break at the bottom. Genuinely torn: could equally be shadow or an upright dark rebar/tarp against the dim background. Reported per the no-size-floor rule; no arc flare nearby so it is not a welder."
+        }
+      ]
     },
     {
       "id": "window-3-frame-001",
@@ -360,7 +2371,44 @@
       "timestamp_s": 0,
       "path": "frames/window-3-frame-001.jpg",
       "sha256": "e9ec3d469b8c1642d71c8ff8019055b2dc9a72e763a7c3e857850a99e9e2bd06",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            2972,
+            1400,
+            3160,
+            1696
+          ],
+          "note": "Near-camera worker, blue t-shirt, bare forearms, two red gloves, light trousers, bowed head. Straddles the r1c3/r2c3 boundary - top of head visible in r1c3 bottom edge (frame y~1400-1440), body in r2c3. ONE box for the whole person."
+        },
+        {
+          "bbox": [
+            2174,
+            274,
+            2310,
+            496
+          ],
+          "note": "THE WELDER. Blue shirt, welding helmet flipped up on head (dark visor above the face), red gloves both hands, olive/grey apron-pants, dark blue trouser legs. Working at the rebar bench. Legs cut off at bottom by the steel beam - box is visible extent only. This is likely the figure a previous manual pass missed."
+        },
+        {
+          "bbox": [
+            880,
+            252,
+            952,
+            467
+          ],
+          "note": "Worker in red '76' t-shirt, dark cap, black trousers. Lower legs occluded by the yellow post/ladder in front, box is visible extent. Right edge sits on the r0c0/r0c1 tile seam (frame x~955) but he does not extend into r0c1."
+        },
+        {
+          "bbox": [
+            599,
+            64,
+            632,
+            165
+          ],
+          "note": "GENUINELY TORN - reporting as instructed. Dark navy vertical form (~33x100) standing in / hanging in the open roller-door bay, seen through the semi-transparent burned-in timestamp band. Arguments for person: human-ish aspect ratio, dark work clothing plausible, base lands near floor level. Arguments against: no resolvable head/neck articulation, no limbs, no skin tone, the mass is WIDER at the top and tapers downward (opposite of shoulder->torso), and it merges into the overhead rail - consistent with a hanging tarp/hose/curtain by the door. Overlapping timestamp glare makes it unresolvable at this resolution."
+        }
+      ]
     },
     {
       "id": "window-3-frame-002",
@@ -368,7 +2416,53 @@
       "timestamp_s": 3,
       "path": "frames/window-3-frame-002.jpg",
       "sha256": "e6cd8fd219f52920702e350ed5a71238dc797c98bf60d59690fe0890db53e7c2",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            3047,
+            1455,
+            3218,
+            1695
+          ],
+          "note": "Near-camera worker, navy t-shirt, blond hair, bent over the workbench with red-banded gloves. Lower body occluded by the bench top - box covers head to bench line only. Entirely inside r2c3 (head top y~1455, below the r1/r2 boundary)."
+        },
+        {
+          "bbox": [
+            2171,
+            276,
+            2305,
+            537
+          ],
+          "note": "WELDER - welding helmet flipped up on head, blue long-sleeve shirt, red welding gloves, holding a torch/gun at a rebar cage. This is the figure a previous pass reportedly missed. No arc flare in this particular frame, so exposure is normal. Box spans helmet top to boots; legs partly behind the steel bench frame."
+        },
+        {
+          "bbox": [
+            864,
+            326,
+            954,
+            543
+          ],
+          "note": "Worker in red T-shirt with white '76' print, dark cap, beard, white wristband, dark trousers. Standing at the yellow-rebar rack. Right edge of his body reaches x~954, just short of the r0c0/r0c1 boundary at x=960 - single box, no straddle."
+        },
+        {
+          "bbox": [
+            438,
+            184,
+            479,
+            282
+          ],
+          "note": "Mid-field worker in dark teal/blue work shirt and light cap, standing at the bending machine facing away from camera. Legs visible down to the rack/bench edge that occludes his feet."
+        },
+        {
+          "bbox": [
+            600,
+            62,
+            632,
+            165
+          ],
+          "note": "Far-field worker in dark clothing standing on the bright floor near the open roller gate. Torso is overlaid by the burned-in timestamp digits '1:0', which is why confidence is not high; head-shoulder-torso-leg silhouette and the 32x103 px size match the expected far-field worker scale (~31x84). Verified at 5x zoom."
+        }
+      ]
     },
     {
       "id": "window-3-frame-003",
@@ -376,7 +2470,53 @@
       "timestamp_s": 6,
       "path": "frames/window-3-frame-003.jpg",
       "sha256": "04f19537e3ea8903828167c69011f116eadbf68cdf456f7c9a02d19586b04c93",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            2898,
+            1340,
+            3042,
+            1644
+          ],
+          "note": "Near-camera worker, dark-blue t-shirt, short/shaved hair. Head + shoulder visible in r1c3 bottom-left, torso + bare right arm + red glove continue into r2c3 top-left. ONE person spanning the r1/r2 boundary at x~2900-3040. Lower body hidden behind the wooden rebar crate. ~144x304 px, matches the stated near-camera scale."
+        },
+        {
+          "bbox": [
+            2227,
+            306,
+            2311,
+            546
+          ],
+          "note": "WELDER - dark welding helmet/mask, royal-blue long-sleeve shirt, blue jeans, standing at the rebar bench facing left, both hands on a tool (red handle) over the rebar bundle. This is the figure a previous manual pass is likely to have missed: the head reads as a dark blob against the white wall. No arc flare in this particular frame."
+        },
+        {
+          "bbox": [
+            845,
+            405,
+            903,
+            638
+          ],
+          "note": "Mid-field worker in bright red t-shirt, dark hair, dark trousers, light wristband on left wrist. Standing on the sand-coloured floor just left of the yellow-black striped post, right hand raised toward face. Fully inside r0c0 (bottom at frame y~638, does not cross into r1c0)."
+        },
+        {
+          "bbox": [
+            423,
+            184,
+            468,
+            270
+          ],
+          "note": "Worker at the dark machine/bending station behind the green tank - patterned blue/teal upper body, light-coloured item (glove or helmet) at chest height. Torso and head visible, lower body occluded by the machine housing. Medium confidence: small (~45x86 px) and partially blended into the dark machine panel behind, but head/shoulder shape and limb motion blur are person-consistent."
+        },
+        {
+          "bbox": [
+            595,
+            65,
+            635,
+            158
+          ],
+          "note": "Far-field dark silhouette standing in the bright open roller-door bay at the top of the frame. Upper body falls behind the semi-transparent burned-in timestamp band (frame y~65-125) but shows through; two dark legs are clearly separated below the band at y~125-158. ~40x93 px, consistent with the stated far-wall worker scale. Medium confidence: backlit against blown-out doorway, overlay obscures head detail."
+        }
+      ]
     },
     {
       "id": "window-3-frame-004",
@@ -384,7 +2524,53 @@
       "timestamp_s": 9,
       "path": "frames/window-3-frame-004.jpg",
       "sha256": "9f8073843d06345c492474ce6da9a525cee6136110bc7da19072592c7c026334",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            2915,
+            1324,
+            3071,
+            1601
+          ],
+          "note": "Near-camera worker, navy T-shirt, shaved head, leaning over the wooden rebar crate; bare right forearm reaches down to a red object (glove/can) in his hand. STRADDLES the r1c3/r2c3 boundary at frame_y=1440 - head+shoulders in r1c3, torso+arm+hand in r2c3. Reported as ONE box. Legs are hidden behind the crate/foreground rack, so the box ends at the hand. 156x277 px, matches the ~154x292 near-field reference size."
+        },
+        {
+          "bbox": [
+            857,
+            418,
+            909,
+            650
+          ],
+          "note": "Worker in red polo shirt with dark trousers, standing right of centre by the rebar racks, facing left. Right side of body occluded by a pale grey board and a yellow vertical post, so the box is narrow (52x232). Head height is ~1/7 of total height, consistent with a real standing figure."
+        },
+        {
+          "bbox": [
+            426,
+            181,
+            465,
+            289
+          ],
+          "note": "Mid-field worker in dark navy jacket with a light-coloured cap, standing beside the dark blue machine panel in the upper-left third; holding a pale object at chest height. Legs partly occluded by the machine housing. 39x108 px."
+        },
+        {
+          "bbox": [
+            2205,
+            314,
+            2333,
+            518
+          ],
+          "note": "Worker in bright blue shirt and dark bucket hat, standing at the rebar assembly bench against the far wall, left arm extended down-left with a tying tool (red glove visible). Box includes the extended arm, hence the wider aspect. 128x204 px."
+        },
+        {
+          "bbox": [
+            601,
+            63,
+            632,
+            165
+          ],
+          "note": "Far-field figure in dark clothing standing in the blown-out doorway at the top of the frame, just right of a metal ladder. Head, dark torso and separated legs are all resolvable, but the burned-in timestamp band overlays the torso, which is why this is medium and not high. 31x102 px - right at the far-wall reference scale (~31x84), so easy to miss."
+        }
+      ]
     },
     {
       "id": "window-3-frame-005",
@@ -392,7 +2578,44 @@
       "timestamp_s": 12,
       "path": "frames/window-3-frame-005.jpg",
       "sha256": "8e0b7ed88b46755becbe876ea93039905b4d7ed6736398aaee25edf91ee09d51",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            2463,
+            1157,
+            2688,
+            1370
+          ],
+          "note": "Worker bent forward over the steel rack, seen THROUGH the yellow mesh fence - light/bald head, dark navy torso, bare forearm reaching down-left to a red glove. Verified at 250% that the body ends around frame y=1370 and does NOT continue into r2c2 (checked r2c2 top strip separately). Left edge of box is the red glove; the forearm connecting it to the torso is the slightly less certain part, the head+torso are unambiguous."
+        },
+        {
+          "bbox": [
+            2232,
+            336,
+            2321,
+            509
+          ],
+          "note": "THE WELDER. Light helmet, blue jacket, blue trousers, standing/leaning at the bench; the arc flare blows out exposure immediately to his right hip and bleeds over his left side, which is likely why an earlier pass lost him. Box covers helmet top to trouser bottom."
+        },
+        {
+          "bbox": [
+            422,
+            186,
+            457,
+            289
+          ],
+          "note": "Worker in blue shirt with a cap, standing at the dark blue machine/control panel in the upper-left work area. Confirmed at 400%: head, shoulders, blue torso and darker legs all resolve. Right edge stops short of an ambiguous yellow/white vertical strip that is more likely a machine part than his arm."
+        },
+        {
+          "bbox": [
+            587,
+            65,
+            633,
+            162
+          ],
+          "note": "Dark upright silhouette on the bright far floor near the open door, ~46x97 px - the right size for a far-field person at that depth, and it stands on the floor with what looks like a cast shadow. GENUINELY TORN: it is bisected by the burned-in timestamp overlay, and under brightness/contrast boost the top spreads into a fan of thin dark strands that reads more like the splayed end of an upright rebar bundle than a head and shoulders. A large diagonal rebar cage sits immediately down-left of it. Reporting per the torn-case rule; treat as a likely false positive if the fixture penalises them."
+        }
+      ]
     },
     {
       "id": "window-3-frame-006",
@@ -400,7 +2623,44 @@
       "timestamp_s": 15,
       "path": "frames/window-3-frame-006.jpg",
       "sha256": "f9f9fdc488a114cf63a2d338c610b51b95e3389b445cee64b03b5ce7b5766987",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            2955,
+            1378,
+            3125,
+            1668
+          ],
+          "note": "Near-camera worker in blue T-shirt with light gloves, standing behind a wooden crate marked '90K'. Straddles the r1c3/r2c3 boundary at frame y=1440 - top of head/hair is the tan rounded shape in the bottom-left of r1c3, torso and arms are in the top-left of r2c3. Reported as ONE box. Lower body occluded by the crate and the yellow mesh fence, so the box ends at the visible hand/waist level."
+        },
+        {
+          "bbox": [
+            2230,
+            322,
+            2338,
+            560
+          ],
+          "note": "Worker in blue long-sleeve shirt and jeans, standing at the rebar assembly bench facing the white wall, bent slightly forward with both hands on a tool over the mesh. Dark object on the head reads as a welding mask/cap flipped up, but there is no arc flare anywhere in this frame - exposure is normal, so no blown-out welder was found."
+        },
+        {
+          "bbox": [
+            860,
+            422,
+            910,
+            645
+          ],
+          "note": "Worker in red T-shirt with dark cap and dark trousers, standing by the yellow upright next to the coiled-wire stacks. Right side of the body is cut off by the vertical white panel/post, so the box is narrow (50x223) - it is the visible extent only, not the full silhouette."
+        },
+        {
+          "bbox": [
+            437,
+            192,
+            473,
+            263
+          ],
+          "note": "Far-field worker, ~36x71 px, dark blue/grey top, leaning forward over the dark blue machine panel near the elevated platform. Small and low-contrast against the dark machinery, but head, torso and reaching arm are separable. This is exactly the tiny-figure class the fixture exists to measure."
+        }
+      ]
     },
     {
       "id": "window-3-frame-007",
@@ -408,7 +2668,44 @@
       "timestamp_s": 18,
       "path": "frames/window-3-frame-007.jpg",
       "sha256": "fb98e59870a071fdda2b6007568ca40ac4779a53708f2d5ea5e58de65e9bb6fe",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            2958,
+            1425,
+            3162,
+            1702
+          ],
+          "note": "Near-camera worker, navy T-shirt, short/bald head, red gloves, holding a rod. Straddles the r1c3/r2c3 boundary: top of scalp reaches y~1428, i.e. ~12 px sit inside r1c3; the rest is in r2c3. Legs occluded below y~1700 by the workbench/rebar rack. Single box reported for the whole person."
+        },
+        {
+          "bbox": [
+            2176,
+            271,
+            2264,
+            490
+          ],
+          "note": "WELDER at the bench - light-topped welding helmet with dark visor, blue jacket/shirt back, olive apron, blue trousers; arc spatter (orange spray) all around the hands and on the floor below. This is the figure a previous pass is likely to have missed - the flare washes out the local exposure. The dark mass at ~[2176-2218, 310-350] is included as his left arm/hand-held shield; it has no separate head or torso, so it is not counted as a second person."
+        },
+        {
+          "bbox": [
+            854,
+            422,
+            904,
+            602
+          ],
+          "note": "Worker in red polo, dark hair/cap, bare forearm visible, dark trousers, standing by the wire-coil rack. Right side of the body is occluded by a vertical grey panel/board, so the box is the visible extent only (hence the narrow 50x180 aspect)."
+        },
+        {
+          "bbox": [
+            435,
+            160,
+            464,
+            250
+          ],
+          "note": "GENUINELY TORN. Mid-depth form on/behind the dark blue-grey machine near the open roller door: dark upper mass with a striped/segmented texture, a cream-white patch at y~215-228 that reads as a hand or face, a yellow patch (glove?) and a dark-red patch below. Overall extent ~29x90 px, consistent with this depth's person scale, and positioned where someone would stand to work the machine. Equally consistent with a hanging hose/lanyard with a yellow tag and a red handle draped over the machine - no distinct head, and the 'striped' texture looks like corrugated hose. Reported per the torn-case rule; do not treat as confirmed ground truth."
+        }
+      ]
     },
     {
       "id": "window-3-frame-008",
@@ -416,7 +2713,35 @@
       "timestamp_s": 21,
       "path": "frames/window-3-frame-008.jpg",
       "sha256": "1fb83dbe912a37aed50bd4e2042f7cdad47f1578ea7dbe2997812c5dd2c398b9",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            453,
+            182,
+            505,
+            287
+          ],
+          "note": "Worker standing on the raised mezzanine/platform next to the conveyor-ladder, mid-field. Dark jacket + cap, facing right, one arm raised toward a light-colored object. Clearly articulated head/torso/legs. ~52x105 px."
+        },
+        {
+          "bbox": [
+            2167,
+            281,
+            2257,
+            505
+          ],
+          "note": "Welder candidate the earlier pass likely missed: white welding helmet/hard hat, blue shirt, dark trousers, standing at the rebar assembly table against the white block wall, facing left/away. ~90x224 px. A dark mass sits at his chest height on his left (tile ~x500-580,y630-790) - I read it as material/his arms and dark bag rather than a second body, so it is NOT reported separately, but it is the one ambiguity in this tile."
+        },
+        {
+          "bbox": [
+            2720,
+            1344,
+            2876,
+            1440
+          ],
+          "note": "Near-camera worker at bottom-right of r1c2, seen through/behind the yellow mesh fence: light bald head with visible facial shading + blue shirt on the shoulders. Box is the VISIBLE extent only - the body is cut by the r1/r2 tile boundary at y=1440 and continues into r2c2's top-right, which is heavily blown out, so I did not extend the box downward on speculation. Head width ~65 px frame, consistent with near-camera scale."
+        }
+      ]
     },
     {
       "id": "window-3-frame-009",
@@ -424,7 +2749,44 @@
       "timestamp_s": 24,
       "path": "frames/window-3-frame-009.jpg",
       "sha256": "5ad219d46b0337f6378e20ba9d98abcb6cfe42dc492628e7efacbbd655fd2912",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            789,
+            386,
+            890,
+            675
+          ],
+          "note": "Near-camera worker, red T-shirt, dark trousers, dark cap; standing facing away from camera beside the rebar rack. Clearest figure in the frame, fully contained in r0c0 (y2=675 < 720)."
+        },
+        {
+          "bbox": [
+            2170,
+            275,
+            2315,
+            525
+          ],
+          "note": "WELDER. Blue shirt, welding helmet/mask lowered over face (dark visor visible), right arm outstretched to the right holding torch/lead, dark trousers, light shoes. Standing at the wall behind the rebar bench. This is the welder the manual pass missed."
+        },
+        {
+          "bbox": [
+            2605,
+            1278,
+            2800,
+            1470
+          ],
+          "note": "Dark navy T-shirt torso with bare (skin-tone) arms, seen from steep overhead angle, standing behind the vertical yellow guard post at the rebar rack; head is foreshortened/looking down. Lower body fully occluded by the rack. Person straddles the r1c2/r2c2 boundary - a sliver of the arm/hand continues into the top-right of r2c2 (frame y 1440-1470); this is ONE box for the whole person."
+        },
+        {
+          "bbox": [
+            447,
+            192,
+            500,
+            290
+          ],
+          "note": "Mid-field worker in dark blue/grey camo-patterned jacket and cap, standing on the raised platform beside the conveyor/machine, upper body leaning toward the equipment. Small (~53x98 px) and low-contrast against dark machinery, but head-torso-legs articulation is visible - not a hanging garment (it is standing free of the wall, away from any hook line)."
+        }
+      ]
     },
     {
       "id": "window-3-frame-010",
@@ -432,7 +2794,44 @@
       "timestamp_s": 27,
       "path": "frames/window-3-frame-010.jpg",
       "sha256": "ff9ea5da6b2a3af80b8d1e3f83096f731bb498f940fe0c60d4025bb145e7a541",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            641,
+            430,
+            766,
+            629
+          ],
+          "note": "Near-mid-field worker in red T-shirt and dark cap, bent forward over the green EVG machine, dark trousers with reflective bands, boots visible. ~125x199 px."
+        },
+        {
+          "bbox": [
+            474,
+            171,
+            514,
+            307
+          ],
+          "note": "Far-field worker standing beside the ladder / dark blue partition, dark navy clothing head-to-toe, light head visible against the wall. ~40x136 px - one of the small far-field figures this fixture targets."
+        },
+        {
+          "bbox": [
+            2216,
+            300,
+            2305,
+            506
+          ],
+          "note": "WELDER - blue shirt, dark welding helmet/visor flipped down over face, grey sleeve on the extended arm, holding a red torch/tool at the rebar cage on the bench. No arc firing in this frame so no blowout, but the helmet is unmistakable at 4x. This is likely the figure a previous manual pass missed."
+        },
+        {
+          "bbox": [
+            2692,
+            1226,
+            2867,
+            1478
+          ],
+          "note": "Straddles r1c2 (head + torso) and r2c2 (waist/legs sliver below y=1440). Navy T-shirt, short light hair, head bowed, handling a red item at waist height behind the yellow post and yellow diamond mesh. Legs below ~y1478 are occluded by the machine; box stops at the last inferable continuous body."
+        }
+      ]
     },
     {
       "id": "window-3-frame-011",
@@ -440,7 +2839,44 @@
       "timestamp_s": 30,
       "path": "frames/window-3-frame-011.jpg",
       "sha256": "692d6fcf627b6e7fdd178d72819551de6566b37474f2e628fbbc97a87016ecfa",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            660,
+            379,
+            755,
+            650
+          ],
+          "note": "Near-camera worker in red polo + dark cap, bending forward over a rebar bundle beside the green EVG machine. Bare right forearm visible at x~661-682; boots at y~640-650 where dark clutter takes over. Fully inside r0c0."
+        },
+        {
+          "bbox": [
+            2215,
+            311,
+            2316,
+            505
+          ],
+          "note": "Worker in blue long-sleeve top + dark cap, standing at the rebar bench against the far wall, facing away/left, red glove on the hand reaching left onto the bench (x~2217-2233, y~416-430). Legs in blue jeans disappear behind the bench beam around y~500-512; box stops at the last clearly visible leg pixels."
+        },
+        {
+          "bbox": [
+            2960,
+            1425,
+            3182,
+            1642
+          ],
+          "note": "Near-camera worker, navy T-shirt, bare arms, short/bald head seen from above, holding a yellow-handled tool with a red glove (red patch x~2961-3017, y~1478-1538 is the gloved hand, included). STRADDLES A TILE BOUNDARY: the top of the head (y~1425-1440) falls in r1c3, the rest in r2c3 - reported as one box. Legs in blue trousers occluded by a wooden plank below y~1642."
+        },
+        {
+          "bbox": [
+            494,
+            176,
+            525,
+            252
+          ],
+          "note": "Far-field worker in dark clothing standing by the step-ladder near the open gate (~31x76 px, the size class this fixture targets). In frame 011 alone the silhouette is a dark blob with no resolvable head/limbs; I confirmed it by flipping to frames 009-014, where the same spot shows an unmistakable standing figure (light head, navy torso, legs) that shifts position frame to frame. Deliberately EXCLUDED the bright teal object just below/right (frame ~510-533, y~256-300): it is byte-identical across frames 009-020, i.e. static equipment, not clothing."
+        }
+      ]
     },
     {
       "id": "window-3-frame-012",
@@ -448,7 +2884,35 @@
       "timestamp_s": 33,
       "path": "frames/window-3-frame-012.jpg",
       "sha256": "4e8232ac53aaa1d9168fd41fe12ecc16ffcbbde4829c42d5401e7f68936e5b48",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            838,
+            348,
+            924,
+            641
+          ],
+          "note": "Worker in bright red t-shirt + dark baseball cap, standing with back/left side to camera beside the yellow guard post, right of the rebar bending rack. Full body visible head-to-shoe: cap top ~y=349, dark trousers, one shoe planted at ~y=638. Tall/narrow box because he is standing straight, back to camera, arms at his sides."
+        },
+        {
+          "bbox": [
+            2204,
+            306,
+            2316,
+            511
+          ],
+          "note": "Worker in royal-blue sweater + dark cap standing at the rebar assembly bench against the far white block wall. Facing left/away, both arms extended forward-left over the bench (red/pink gloves at approx frame x=2205-2230, y=712 in tile space -> included in box). Blue jeans, feet on the walkway at ~y=509. Not a welder - no arc, exposure is normal daylight here."
+        },
+        {
+          "bbox": [
+            2758,
+            1234,
+            2880,
+            1482
+          ],
+          "note": "Third worker: short-cropped/bald head, navy-blue polo, standing behind the yellow diamond-mesh guard fence at the bottom-right of r1c2, next to the bright yellow diagonal beam. Head top ~y=1236. PERSON identity is high confidence; the BOX EXTENT is the uncertain part - he is clipped by the r1c2 right edge at x=2880 and I could not confirm any continuation in r1c3 (its left edge shows only rack + rebar), so x2 is pinned at the tile seam. Torso continues downward past y=1440 into the top-right corner of r2c2 (dark navy patch at approx frame x=2765-2835, y=1440-1480) before the foreground wire coil occludes him, hence y2=1482. There is also a possible skin-toned hand gripping the yellow beam at approx frame x=2680-2710, y=1845 in tile-space terms (r1c2 tile pixel ~1520-1580, 1220-1280); I did NOT extend the box to it because it is equally readable as rust staining on the mesh."
+        }
+      ]
     },
     {
       "id": "window-3-frame-013",
@@ -456,7 +2920,35 @@
       "timestamp_s": 36,
       "path": "frames/window-3-frame-013.jpg",
       "sha256": "288fa207fc8b2165ba9b5d005719fe8d1fc0af358fbfe006ede709f2847c6ff0",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            791,
+            336,
+            897,
+            548
+          ],
+          "note": "Worker in red t-shirt (number '76' print), bent forward, both hands on a coil of wire beside a vertical bar. Dark hair/head top at y~336, dark trousers and shoes down at y~548 among the coils. Fully inside r0c0."
+        },
+        {
+          "bbox": [
+            2242,
+            299,
+            2321,
+            505
+          ],
+          "note": "WELDER - blue long-sleeve shirt, dark welding helmet/face-shield worn on the head (visor down, reads as a dark blob where the face should be), standing against the white wall right of the rebar rack, holding a red item (welding torch handle / gloves) at hip height. No arc lit in this frame, so no exposure blow-out. Legs disappear behind the steel table at y~505; feet not visible."
+        },
+        {
+          "bbox": [
+            2700,
+            1295,
+            2858,
+            1495
+          ],
+          "note": "Bald / light-haired worker in blue shirt, bent forward over the bar stock, seen through the yellow diamond safety mesh at the bottom-right of r1c2; body continues below the tile seam into the top of r2c2 (verified by zooming r2c2 top-right - blue fabric continues to about y~1490 then becomes indistinguishable clutter behind the mesh). Head and shoulder are unambiguous; the lower boundary and the left edge (dark-navy shadowed shoulder vs. a possible second arm) are approximate because of the mesh occlusion. A red item sits at the bottom-right of the body region (tool/clothing) and is included in the box."
+        }
+      ]
     },
     {
       "id": "window-3-frame-014",
@@ -464,7 +2956,35 @@
       "timestamp_s": 39,
       "path": "frames/window-3-frame-014.jpg",
       "sha256": "873d857760c6e64dd57eed65c2c7e8fcd239e98ebb1e0f827eb03a3c56dbb0b3",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            2880,
+            1377,
+            3042,
+            1660
+          ],
+          "note": "Near-camera worker, blue t-shirt, short light/bald hair, both hands in red gloves reaching down over the yellow mesh guard. Straddles the r1c3/r2c3 boundary: head+shoulder are in r1c3 bottom-left (frame y 1377-1440), torso and both gloved hands are in r2c3 top-left. Left edge sits exactly on the r2c2/r2c3 seam at x=2880 - checked r2c2's right edge, nothing of him spills over. Lower body is hidden behind the mesh guard / bench, so y2 is the bottom of the gloves, not feet. Reported as ONE box."
+        },
+        {
+          "bbox": [
+            2285,
+            356,
+            2400,
+            643
+          ],
+          "note": "WELDER - the one a previous pass is warned about. Dark welding helmet/visor down, blue jacket, red gloves on both hands, working at a bench against the far wall. No arc flare in this particular frame, so exposure is normal and he is clearly visible. y2 is where his dark trouser leg disappears behind the horizontal steel rack (confirmed by zooming r0c2 y1000-1420); feet not visible. x1 includes the raised left hand/red glove near the wall control box."
+        },
+        {
+          "bbox": [
+            845,
+            330,
+            930,
+            562
+          ],
+          "note": "Mid-field worker, dark cap, red t-shirt with a '75' graphic, dark trousers, red item (glove/rag) in his lowered right hand, standing beside a yellow guard post next to the rebar rack. Fully contained in r0c0 - right edge at x=930 does not reach the r0c1 seam at x=960."
+        }
+      ]
     },
     {
       "id": "window-3-frame-015",
@@ -472,7 +2992,35 @@
       "timestamp_s": 42,
       "path": "frames/window-3-frame-015.jpg",
       "sha256": "3cead63dba5a6985081bee8a83a25c25aa664d097062d56ef092a4a657527342",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            659,
+            404,
+            762,
+            640
+          ],
+          "note": "Worker in red polo shirt + dark cap, dark trousers and boots, standing at the green 'EVG' machine, bent slightly forward, both hands down at the machine/rebar. Fully contained in r0c0 (tile x~1318-1525, y~808-1280). Clear head-torso-legs-boots silhouette, no ambiguity."
+        },
+        {
+          "bbox": [
+            2282,
+            324,
+            2390,
+            575
+          ],
+          "note": "THE WELDER. Blue/teal long-sleeve top, welding helmet worn with visor flipped up (dark mask shape over the face), red gloves on both hands, holding a welding torch/electrode holder in the right hand with the black lead cable running back to the wall. Standing against the white block wall behind the rebar rack. Legs (jeans) are progressively occluded by the horizontal rebar bundles from about frame y~500 down; box covers visible extent plus directly inferable body behind the thin rebar. No arc is struck in this frame, so no exposure blowout - this is likely the figure a previous pass missed, since he reads as a low-contrast silhouette against the grey wall."
+        },
+        {
+          "bbox": [
+            2880,
+            1335,
+            3100,
+            1670
+          ],
+          "note": "Near-camera worker, straddles the r1c3/r2c3 tile boundary - reported ONCE in frame coords. Light/blonde hair, navy-blue t-shirt, bare forearms, red work glove on the raised hand. Seen from steeply above at the bottom-right corner of the frame (closest point to the camera, hence the large ~220x338 box). Head + raised gloved hand visible in r1c3 bottom-left; shoulders, torso, and the arm reaching down to a second red glove visible in r2c3 top-left. Lower body is hidden behind the workbench / yellow mesh guard, so the box stops at the last visible body pixel."
+        }
+      ]
     },
     {
       "id": "window-3-frame-016",
@@ -480,7 +3028,35 @@
       "timestamp_s": 45,
       "path": "frames/window-3-frame-016.jpg",
       "sha256": "16d088294de6091303d21f068b563bb8eb36ca020f4378459f8b20b8b3f4df6f",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            690,
+            365,
+            780,
+            650
+          ],
+          "note": "Worker in bright red t-shirt and dark trousers, dark cap, standing at the rebar/stirrup rack facing away from camera. Full body visible head-to-boots, unoccluded."
+        },
+        {
+          "bbox": [
+            2277,
+            325,
+            2375,
+            510
+          ],
+          "note": "WELDER - dark welding helmet/visor, blue long-sleeve shirt, dark jeans, holding a torch (red grip visible at his right hand) against a rebar mesh panel on the wall. This is the figure a previous pass is likely to miss: the helmet reads as a dark blob and the torso is low-contrast against the white block wall. Legs occluded below the knee by the steel beam/rack in front; box covers visible extent."
+        },
+        {
+          "bbox": [
+            2945,
+            1480,
+            3132,
+            1755
+          ],
+          "note": "Near-camera worker at the workbench, navy/blue short-sleeve t-shirt, light-coloured trousers, bald/short-haired head, one arm raised up-left toward the bench. Lower legs sit in a blown-out bright reflection off the bench so the bottom edge is approximate."
+        }
+      ]
     },
     {
       "id": "window-3-frame-017",
@@ -488,7 +3064,53 @@
       "timestamp_s": 48,
       "path": "frames/window-3-frame-017.jpg",
       "sha256": "066ab48200df548e55e571ede9e2ad14785da9470fd569e531ad2e3cdac5d31a",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            2800,
+            1277,
+            3078,
+            1578
+          ],
+          "note": "Near-camera worker, light/blond hair, dark navy t-shirt, right arm extended holding a red/white can or tool; red glove on lower hand. Straddles three tiles: head+torso in r1c3, shoulder/upper-arm crossing the x=2880 boundary into the bottom-right corner of r1c2 (the flesh-toned blob there), and shirt+gloved hand continuing below y=1440 into the top-left of r2c3. Reported as ONE box. Lower legs fully occluded by the wooden crate/rebar rack."
+        },
+        {
+          "bbox": [
+            800,
+            400,
+            915,
+            555
+          ],
+          "note": "Worker in bright red t-shirt, dark cap, bent forward over a coil of wire, bare right arm reaching down. Fully visible, unoccluded."
+        },
+        {
+          "bbox": [
+            2305,
+            325,
+            2390,
+            515
+          ],
+          "note": "This is the welder the earlier manual pass most likely missed. Blue sweatshirt, dark cap/visor, RED welding gloves on both hands, holding an electrode holder with the lead cable running up to the wall; he is working on a rebar mesh jig fixed to the wall. No arc is struck in this frame so there is no exposure blow-out - he reads as an ordinary standing figure. Legs disappear behind the steel beam at approx y=515."
+        },
+        {
+          "bbox": [
+            439,
+            159,
+            495,
+            240
+          ],
+          "note": "Mid/far-field worker on the raised platform beside the ladder: dark hair, lighter face patch, dark upper body, arms raised toward the machine. Small (56x81 px) and low contrast against the dark blue machine housing behind, hence medium rather than high."
+        },
+        {
+          "bbox": [
+            565,
+            70,
+            608,
+            133
+          ],
+          "note": "Far-field dark silhouette standing/stooping at the open roller-gate at the top of the frame. Partially overlapped by the burned-in timestamp overlay band (the overlay itself is NOT annotated - this is the dark human-shaped mass sitting on top of the bright doorway behind it). Size 43x63 px is consistent with the far-wall scale."
+        }
+      ]
     },
     {
       "id": "window-3-frame-018",
@@ -496,7 +3118,35 @@
       "timestamp_s": 51,
       "path": "frames/window-3-frame-018.jpg",
       "sha256": "5075635252815aa26b47a29fcc48bfb01cdbd5f64bfd6f55e5b5d0215db7aed1",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            862,
+            350,
+            936,
+            576
+          ],
+          "note": "Mid-field worker, red t-shirt with white logo, dark green baseball cap, dark trousers. Standing/walking at the rebar bundle racks near the roll-up door. Facing camera-left, head tilted down. Lower legs disappear behind a light grey panel/coil stack at frame y~576. Fully inside r0c0, right edge ~24 px clear of the r0c1 boundary."
+        },
+        {
+          "bbox": [
+            2285,
+            327,
+            2395,
+            648
+          ],
+          "note": "Worker at the bending/cutting station against the white block wall. Dark cap, blue long-sleeve shirt with dark trim, red glove at the waist, denim/grey work trousers. Right hand on a dark tool at the bench. Legs continue behind the horizontal steel storage rack; visible + directly inferable extent ends ~y648. Entirely within r0c2."
+        },
+        {
+          "bbox": [
+            2530,
+            1048,
+            2752,
+            1420
+          ],
+          "note": "Near-field worker walking away from camera, seen partly through the yellow mesh guard fence. Short blond hair, navy short-sleeve t-shirt, bare right forearm, red glove in the lowered hand, light-blue jeans. Mid-stride so the leading leg is offset well to the left of the torso. Denim ends at ~y1415 where the storage rack occludes; verified at 5x that it does not continue into r2c2. Entirely within r1c2."
+        }
+      ]
     },
     {
       "id": "window-3-frame-019",
@@ -504,7 +3154,44 @@
       "timestamp_s": 54,
       "path": "frames/window-3-frame-019.jpg",
       "sha256": "969f968b3a8d614854154d9ac6833033ee076edce90d333b89e2f753c63b28af",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            3025,
+            1535,
+            3215,
+            1888
+          ],
+          "note": "Near-camera worker, bald head, dark navy T-shirt, light trousers, bent forward over a bench; right hand in a red glove reaching down-left, left hand reaching down holding a yellow item. Largest figure in the frame (~190x353 px). Does not cross into r1c3 or r2c2."
+        },
+        {
+          "bbox": [
+            645,
+            372,
+            738,
+            616
+          ],
+          "note": "Mid-field worker in red T-shirt with dark cap, dark trousers, standing at the rebar rack right of the green EVG machine. Legs occluded below the knee by the machine/rebar, so the box ends at the last continuously visible leg pixels rather than at the feet."
+        },
+        {
+          "bbox": [
+            532,
+            137,
+            595,
+            295
+          ],
+          "note": "Worker standing on the raised platform in the background, both arms raised handling vertical rebar (pink/red glove visible on the raised right hand). ~63x158 px. Thin rebar crosses the torso; box covers the inferable continuous body."
+        },
+        {
+          "bbox": [
+            2285,
+            320,
+            2377,
+            536
+          ],
+          "note": "WELDER - blue long-sleeve top, welding mask flipped up on top of the head (dark shape above the face), red glove on the lower hand, holding a red-handled tool. Standing at the white wall behind the steel bench; legs cut off by the bench so the box ends there. This is the figure a manual pass is likely to miss because the mask reads as machinery. No arc flare in this particular frame."
+        }
+      ]
     },
     {
       "id": "window-3-frame-020",
@@ -512,7 +3199,50 @@
       "timestamp_s": 57,
       "path": "frames/window-3-frame-020.jpg",
       "sha256": "491ec13638daf1a7fb6ef5ca507ac594ccd92207b32889155b4e28c64cbcd786",
-      "persons": []
+      "persons": [
+        {
+          "bbox": [
+            2832,
+            1328,
+            3083,
+            1636
+          ],
+          "note": "Near-camera worker, light/blond hair, navy T-shirt, red gloves, light-blue jeans, bent over the crate at the right. Straddles four tiles: head/shoulders in r1c3 (bottom-left), torso+legs in r2c3 (top-left), and his outstretched right forearm + red glove crosses the yellow mesh into r2c2 (top-right corner, frame x 2832-2880, y 1444-1487). Reported once in frame coords. Bottom cut at y~1636 where the wooden crate/mesh occludes the legs."
+        },
+        {
+          "bbox": [
+            626,
+            389,
+            750,
+            642
+          ],
+          "note": "Near-camera worker in red polo + dark cap + beard, dark trousers, standing at the EVG machine handling a long timber/plank. Right arm extends down-left along the plank (leftmost extent x~626). Legs disappear behind the green machine at y~642."
+        },
+        {
+          "bbox": [
+            2260,
+            313,
+            2340,
+            517
+          ],
+          "note": "Mid-field worker at the back wall: blue polo, dark-blue/white patterned cap, dark undersleeve, red glove on the left hand, dark-blue trousers. Handling rebar on the bench. Legs occluded by the rack rail below y~517."
+        },
+        {
+          "bbox": [
+            538,
+            182,
+            581,
+            299
+          ],
+          "note": "Far-field worker bending forward over the rack near the roller door: dark blue/grey shirt, bare forearm reaching down to a red-handled tool, dark trousers. ~43x117 px - one of the small figures this fixture exists to measure."
+        }
+      ]
     }
-  ]
+  ],
+  "annotation": {
+    "annotator": "Claude Opus 4.8 — systematic 12-tile pass at 2x native magnification (4x3 grid of 960x720)",
+    "reviewer": "Tomasz Kowalczyk — full visual review of all 60 frames, per-frame counts and per-box adjudication",
+    "review_date": "2026-07-23",
+    "status": "human-confirmed"
+  }
 }
