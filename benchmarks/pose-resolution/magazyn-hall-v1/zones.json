@@ -1,0 +1,18 @@
+{
+  "inference_roi": {
+    "zone_id": "hall-1",
+    "margin_px": 0
+  },
+  "zones": [
+    {
+      "id": "hall-1",
+      "name": "Hala magazyn (cały kadr)",
+      "polygon": [
+        [0, 0],
+        [3840, 0],
+        [3840, 2160],
+        [0, 2160]
+      ]
+    }
+  ]
+}

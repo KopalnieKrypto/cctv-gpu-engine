@@ -53,3 +53,6 @@ Thumbs.db
 # Agent / IDE-assistant local context — varies per developer, do not share
 .codex/
 AGENTS.md
+benchmarks/pose-resolution/magazyn-hall-v1/frames/
+benchmarks/pose-resolution/magazyn-hall-v1/clips/
+benchmarks/pose-resolution/magazyn-hall-v1/review/
