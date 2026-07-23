@@ -1,8 +1,38 @@
 # magazyn-hall-v1 activity annotation methodology
 
-> **STATUS: SCAFFOLD (2026-07-23).** 296 people, every `activity` null. The crops
-> and manifest are generated; the human labeling pass has not run. See
-> "Annotation pass" for what has to happen before this fixture can score.
+> **STATUS: PROPOSED, AWAITING HUMAN CONFIRMATION (2026-07-23).** 296 people
+> carry a *proposed* activity in `manifest.proposed.json` (real `activity` still
+> null, `review_status: pending`). The proposals are 130 from the human detection
+> notes and 134 from an agent crop read; 32 inherit `unresolved` from the size
+> prior. A human confirms/overrides before this becomes `manifest.json`. See
+> "Preliminary proposals".
+
+## Preliminary proposals — and what they already reveal
+
+`manifest.proposed.json` was drafted from human-authored signal only (the #99
+detection `note` fields) plus an agent crop read where notes were silent, with
+provenance recorded per person (`proposal_source` ∈ note / crop / size_prior) and
+17 genuinely ambiguous people flagged `contested`. No classifier was used.
+
+The proposed distribution is **243 standing, 20 walking, 33 unresolved, 0
+sitting, 0 running**. That is a load-bearing finding, not a footnote:
+
+- The frame-level defect this whole fixture targets is **sitting-vs-standing**.
+  If the confirmed ground truth also has ~0 sitting, this scene *cannot exercise
+  the defect*: the whole-frame "standing" verdict will be accidentally correct
+  almost everywhere, so the whole-frame VLM will score high here for the wrong
+  reason, and the per-person-crop fix will show little improvement to measure.
+- magazyn was the right scene for the **detection** problem (#97/#101) and is a
+  poor scene for the **activity** fix, precisely because a fabrication hall has no
+  posture diversity. Proving the crop fix needs a scene with real sitters — an
+  office, control room, or break area. This reshapes the epic's go/no-go: the
+  second-camera step should be chosen for posture diversity, likely pulled
+  forward, not left as a "reproduce the win" afterthought.
+
+Two false-positive classes were caught and removed during the proposal QA, and
+are guarded against in `tools/propose_activity_labels.py` so they do not recur
+per camera: `"edge sits on the tile boundary"` (box geometry, not posture — all 7
+were standing workers) and two spurious `running` matches on stationary welders.
 
 ## Why this fixture exists
 
