@@ -18,6 +18,7 @@ pass a synchronous "inline" executor.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import signal
@@ -42,6 +43,61 @@ from gpu_service.vram_preflight import preflight_or_exit
 from pipeline.zones import ZoneConfig
 
 logger = logging.getLogger(__name__)
+
+# Baked pose exports a camera may select per-task via zones.json `pose.input_size`
+# (#109). Values are filenames resolved NEXT TO the configured MODEL_PATH, so a
+# MODEL_PATH override keeps finding its siblings and nothing hardcodes /app/models
+# twice. Keep in sync with the Dockerfile bakes; the platform allowlists the same
+# two keys (data-ops ZonesConfigPoseSchema).
+POSE_MODEL_FILENAME_BY_INPUT_SIZE = {
+    "640x640": "yolo11s-pose.onnx",
+    "1280x736": "yolo11s-pose-1280x736.onnx",
+}
+
+
+def _read_pose_input_size(config_path: str | Path) -> str | None:
+    """Read `pose.input_size` from a mounted zones.json, tolerantly.
+
+    Returns ``None`` on a missing file, unreadable bytes, non-JSON, or any shape
+    that is not a string `pose.input_size`. Model selection must not depend on
+    the config being fully valid — the task runner re-parses and validates the
+    whole document per task, and a shift/zones problem there must not blank the
+    detector choice here.
+    """
+    try:
+        data = json.loads(Path(config_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    pose = data.get("pose")
+    if not isinstance(pose, dict):
+        return None
+    input_size = pose.get("input_size")
+    return input_size if isinstance(input_size, str) else None
+
+
+def resolve_pose_model_path(env_default: str, config_path: str | Path) -> str:
+    """Pick the pose model at container startup from the task's zones.json (#109).
+
+    A camera's config may request a baked non-default export via
+    ``pose.input_size``; point ``MODEL_PATH`` at the matching weights, resolved
+    beside ``env_default``. Any absent / malformed / unknown selector falls back
+    to ``env_default`` — the engine treats the size as an allowlist even though
+    the platform already validates it, so a hand-written config cannot select a
+    shape the image does not bake.
+    """
+    input_size = _read_pose_input_size(config_path)
+    if input_size is None:
+        return env_default
+    filename = POSE_MODEL_FILENAME_BY_INPUT_SIZE.get(input_size)
+    if filename is None:
+        logger.warning(
+            "unknown pose input_size %r in zones config; using default model", input_size
+        )
+        return env_default
+    return str(Path(env_default).parent / filename)
+
 
 Payload = dict[str, Any]
 
@@ -127,7 +183,17 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
     port = int(os.environ.get("REST_PORT", "5003"))
-    model_path = os.environ.get("MODEL_PATH", "/app/models/yolo11s-pose.onnx")
+    # Per-camera detector selection (#109): the gpu-agent mounts the task's
+    # zones.json before this container starts, so the model is resolved here,
+    # once, from that config — the same one-container-per-task boundary the model
+    # is already warmed at. Absent config → the baked 640 default.
+    env_model_path = os.environ.get("MODEL_PATH", "/app/models/yolo11s-pose.onnx")
+    zones_config_path = os.environ.get("ZONES_CONFIG_PATH") or "/config/zones.json"
+    model_path = resolve_pose_model_path(env_model_path, zones_config_path)
+    if model_path != env_model_path:
+        logger.info(
+            "pose model selected from zones config: %s (default was %s)", model_path, env_model_path
+        )
     classifier = os.environ.get("CLASSIFIER", "vlm")
     activity_model_path = os.environ.get(
         "ACTIVITY_MODEL_PATH", "/app/models/activity-mlp-v1.0.0.onnx"

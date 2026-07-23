@@ -366,3 +366,69 @@ class TestMainPreflight:
         warmup.assert_not_called()
         fake_serve.assert_not_called()
         fake_app.run.assert_not_called()
+
+
+class TestResolvePoseModelPath:
+    """Per-camera detector selection from the mounted zones.json (#109).
+
+    The engine picks its pose model at container startup from the task's
+    ``zones.json`` ``pose.input_size``, resolved next to the configured
+    ``MODEL_PATH`` so a MODEL_PATH override still finds its baked siblings.
+    Any absent / malformed / unknown selector must fall back to the default —
+    model selection never fails startup on a config issue the task runner will
+    surface per task anyway.
+    """
+
+    DEFAULT = "/app/models/yolo11s-pose.onnx"
+
+    def _write(self, tmp_path, payload: object) -> Path:
+        import json
+
+        cfg = tmp_path / "zones.json"
+        cfg.write_text(json.dumps(payload), encoding="utf-8")
+        return cfg
+
+    def test_missing_config_returns_env_default(self, tmp_path):
+        from gpu_service.rest_server import resolve_pose_model_path
+
+        assert resolve_pose_model_path(self.DEFAULT, tmp_path / "nope.json") == self.DEFAULT
+
+    def test_1280x736_selects_the_non_square_export_beside_the_default(self, tmp_path):
+        from gpu_service.rest_server import resolve_pose_model_path
+
+        cfg = self._write(tmp_path, {"zones": [], "pose": {"input_size": "1280x736"}})
+        assert (
+            resolve_pose_model_path(self.DEFAULT, cfg) == "/app/models/yolo11s-pose-1280x736.onnx"
+        )
+
+    def test_640x640_resolves_to_the_default_weights(self, tmp_path):
+        from gpu_service.rest_server import resolve_pose_model_path
+
+        cfg = self._write(tmp_path, {"zones": [], "pose": {"input_size": "640x640"}})
+        assert resolve_pose_model_path(self.DEFAULT, cfg) == self.DEFAULT
+
+    def test_config_without_pose_returns_env_default(self, tmp_path):
+        from gpu_service.rest_server import resolve_pose_model_path
+
+        cfg = self._write(tmp_path, {"zones": [], "shift": {"windows": [["07:00", "15:00"]]}})
+        assert resolve_pose_model_path(self.DEFAULT, cfg) == self.DEFAULT
+
+    def test_malformed_config_falls_back_to_default(self, tmp_path):
+        from gpu_service.rest_server import resolve_pose_model_path
+
+        cfg = tmp_path / "zones.json"
+        cfg.write_text("{not valid json", encoding="utf-8")
+        assert resolve_pose_model_path(self.DEFAULT, cfg) == self.DEFAULT
+
+    def test_unknown_input_size_falls_back_to_default(self, tmp_path):
+        from gpu_service.rest_server import resolve_pose_model_path
+
+        cfg = self._write(tmp_path, {"pose": {"input_size": "1920x1088"}})
+        assert resolve_pose_model_path(self.DEFAULT, cfg) == self.DEFAULT
+
+    def test_override_dir_is_respected(self, tmp_path):
+        from gpu_service.rest_server import resolve_pose_model_path
+
+        cfg = self._write(tmp_path, {"pose": {"input_size": "1280x736"}})
+        override = "/custom/models/yolo11s-pose.onnx"
+        assert resolve_pose_model_path(override, cfg) == "/custom/models/yolo11s-pose-1280x736.onnx"
