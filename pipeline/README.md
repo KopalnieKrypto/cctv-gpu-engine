@@ -27,7 +27,7 @@ Useful switches:
 | Option | Meaning |
 |---|---|
 | `--classifier heuristic|vlm|mlp` | Activity mode; CLI default is heuristic, Docker default is VLM |
-| `--model PATH` | Fixed-square YOLO11-pose ONNX model |
+| `--model PATH` | YOLO11-pose ONNX model (square or non-square, e.g. 640×640 or 1280×736) |
 | `--reid-model PATH` | OSNet model used by default tracking |
 | `--no-tracker` | Reproduce pre-#32 behavior; not for production |
 | `--max-track-age SECONDS` | Retirement window; default 120 |
@@ -45,7 +45,7 @@ uv run python -m pipeline.analyze input.mp4 \
 
 ## Pose inference
 
-The deployed model is fixed-640 YOLO11s-pose. The loader accepts fixed square YOLO11 pose exports and validates the standard `[1,56,N]` output.
+The default deployed model is 640×640 YOLO11s-pose; a non-square `1280x736` export is a per-camera option (#100/#109). The loader accepts both square and non-square YOLO11 pose exports (letterboxed, aspect-preserving) and validates the standard `[1,56,N]` output.
 
 - bbox: rows 0–3;
 - confidence: row 4;
@@ -154,7 +154,7 @@ An optional top-level block focuses the single pose call on one configured zone:
 
 The crop is clipped to the frame and all outputs are translated back into full-frame pixels. The margin must be explicit, finite, and non-negative.
 
-This path is experimental. Issue #86 found no eligible fixed-640, fixed-1280, or focused-ROI software arm for the bending camera. Production remains fixed-640 while #88 waits for a station-framed camera stream. See [the benchmark result](../benchmark-results/issue-86/README.md).
+This path is experimental. Issue #86 found no eligible fixed-640, fixed-1280, or focused-ROI software arm for the bending **pilot** camera; #88 (closed, deferred) needs a client-provided station-framed stream before that pilot resumes. For deep-hall cameras, per-camera 1280×736 input and `hybrid` tiling are the shipped detection levers (#100/#109/#110/#111); 640×640 full-frame stays the default. See [the benchmark result](../benchmark-results/issue-86/README.md).
 
 ## `result.json` schema 6
 

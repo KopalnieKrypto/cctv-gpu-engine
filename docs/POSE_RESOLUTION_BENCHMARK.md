@@ -148,8 +148,9 @@ Two arms, same fixture and whole-frame scoring zone as #101:
 The subcommand is **detector-isolated** (#110): it scores whole-frame recall,
 recall-by-native-height, per-process peak VRAM, and the pose-only per-hour cost
 (`mean(pose_wallclock_s) * fps * 3600 / 60` — N tiles per frame are summed into
-each sample). No end-to-end VLM run: the tiling pipeline is not wired end-to-end
-yet (a follow-up), and the VLM cost scales with `total_detections`, read apart.
+each sample). No end-to-end VLM run here: this measurement is deliberately detector-isolated,
+and the VLM cost scales with `total_detections`, read apart. (Tiling later
+shipped end-to-end as the `hybrid` pose.mode — #111.)
 The reused 1280×736 model is already baked into the image at
 `/app/models/yolo11s-pose-1280x736.onnx` (sha `7ee0fcd8…`).
 

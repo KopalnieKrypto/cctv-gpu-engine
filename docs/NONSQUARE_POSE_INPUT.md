@@ -93,6 +93,13 @@ actually carries information. Both are bit-identical or better.
 footage reachable, and the fixture requires manual annotation), so no such
 fixture exists yet. This is the same gap #101 is blocked on.
 
+> **Update (2026-07-24):** #99's `magazyn-hall-v1` fixture landed 2026-07-23
+> (296 human-confirmed people), and #101 measured the non-square 1280×736 arm at
+> ~35% recall vs ~7% at 640 on it. The non-square export is now a shipped
+> per-camera `pose.input_size` option (#109), and the `detection_scale`
+> recall-risk caveat shipped in #113. The 2026-07-22 measurements below stand as
+> recorded.
+
 ## Reproducing
 
 ```bash

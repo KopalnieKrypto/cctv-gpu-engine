@@ -1,6 +1,8 @@
 # RTX 5070 vs RTX 4090 — Ograniczenia i Konsekwencje
 
 > Zebrane z testow na serwerze testowym (16-17.03.2026), design docs ml-compute-engine, benchmarkow autoresearch, konfiguracji autoquant.
+>
+> **Uwaga (2026-07-24):** pomiary poniżej używają `yolo11n-pose` jako wariantu benchmarkowego (marzec–kwiecień 2026); model produkcyjny to obecnie **`yolo11s-pose`** (640×640 domyślnie, opcjonalnie per-kamera 1280×736). Wnioski sprzętowe (VRAM, sm_120, cuDNN/cuBLAS) pozostają aktualne.
 
 ---
 

@@ -171,6 +171,10 @@ Opcja C (client-agent) wygrywa bo:
 
 Opcje D (NVR API) i E (tunel) moga byc rozszerzeniem agenta w przyszlosci — agent na LAN klienta moze rowniez pobierac nagrania z NVR API lokalnie.
 
+### Aktualizacja 2026-07-17 — klient jest wyłącznie bare-metal (issue #29)
+
+Kontener Dockerowy klienta został wycofany (#29): jedynym wdrożeniem klienta jest bare-metal appliance (systemd, `client-appliance/`), a `client_agent.appliance` to jego jedyny entrypoint. Recorder działa w trybie buffer-only (lokalny rolling buffer); w trybie platformowym appliance wysyła chunki przez presigned URL-e — żadnych poświadczeń R2 po stronie klienta. Stary flow „`docker compose -f docker-compose.client.yml up` → status.json → report.html” opisany w §11 pozostaje jako historia; bieżący kontrakt to `result.json` renderowany przez platformę.
+
 ---
 
 ## 6. Decyzja 4: Tracking osob
@@ -541,7 +545,7 @@ Scenariusz: Inwestor chce wrocic do miningu
 |--------|-------|-----------|
 | Brak CUDA EP / silent CPU fallback | Pipeline nie startuje lub łamie budżet | `ort.preload_dlls`, jawny cublas, kontrola providerów i fail-fast; brak CPU fallback |
 | MLP szybszy, ale jakościowo słabszy | Regresja raportów po pozornie „tanim” modelu | Zamrożony promotion gate; VLM pozostaje defaultem |
-| Kamera pokazuje za mało pikseli na pracownika | Żaden software arm nie daje wiarygodnego zone report | #86 opublikował no-winner; #88 wymaga station-framed streamu |
+| Kamera pokazuje za mało pikseli na pracownika | Żaden software arm nie daje wiarygodnego zone report | #86 no-winner; wdrożono per-kamera 1280×736 + hybrid tiling (#100/#109/#110/#111), zmierzone na magazyn-hall-v1 (~7% → ~35% → ~49% recall); #88 (zamknięte, odroczone) czeka na station-framed stream od klienta; run o niskim recall niesie caveat `detection_scale` (#113) |
 | Długi czas przetwarzania | Opóźnienie raportu zależne od fixture | Nie podawać ETA bez kalibracji; używać zmierzonych artifactów i jawnej ekstrapolacji |
 | Wolny upload klienta | Opóźnienie dostarczenia wideo | Rolling buffer + presigned chunk upload; mierzyć na docelowym łączu |
 | Klient nie ma Dockera lub sudo | Trudne wdrożenie | Bare-metal root installer oraz user-mode systemd z weryfikacją linger |

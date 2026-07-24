@@ -1,13 +1,13 @@
 # CCTV GPU Engine
 
-Batch surveillance video analysis: MP4 → YOLO-pose + VLM → activity classification → standalone HTML report. Full spec: `SPEC.md`.
+Batch surveillance video analysis: MP4 → YOLO-pose + VLM → activity classification → `result.json` (schema 6, the canonical artifact the platform renders). Standalone HTML is debug-only (`--format html`). Full spec: `SPEC.md`.
 
 ## Quick reference
 
-- CLI: `uv run python -m pipeline.analyze input.mp4 --output report.html --classifier vlm`
+- CLI: `uv run python -m pipeline.analyze input.mp4 --output result.json --classifier vlm` (add `--format html` for a debug HTML report)
 - Classifier modes: `--classifier heuristic` (fast, geometric rules) or `--classifier vlm` (Qwen2.5-VL-3B hybrid, higher accuracy, default in Docker)
-- Pose modes (`--pose-mode`, or per-camera `pose.mode` in the mounted `zones.json`, #111): `full_frame` (default; one downscaled pose call) or `hybrid` (native-resolution tiling + one whole-frame pass — the #110 winner: reaches the 80–120 px band full-frame can't, ~15× the pose cost so strictly opt-in, needs a 1280×736 model). Resolved at container startup exactly like `pose.input_size` selects the model (#109). With `restrict_to_zones`, hybrid bounds the tiling reach to the authored zone bboxes automatically. The resolved mode lands in `result.json` `diagnostics.pose_mode`.
-- Model: `./setup-models.sh` (curls pinned `yolo11n-pose.onnx` from GitHub release `yolo11n-pose-v1.0`, sha256-verified, idempotent). For non-nano sizes (s/m/l/x) see README "Using a different model size".
+- Pose modes (`--pose-mode`, or per-camera `pose.mode` in the mounted `zones.json`, #111): `full_frame` (default; one downscaled pose call) or `hybrid` (native-resolution tiling + one whole-frame pass — the #110 winner: reaches the 80–120 px band full-frame can't, ~15× the pose cost so strictly opt-in, needs a 1280×736 model). Resolved at container startup exactly like `pose.input_size` selects the model (#109). With `restrict_to_zones`, hybrid bounds the tiling reach to the authored zone bboxes automatically. The resolved mode lands in `result.json` `diagnostics.pose_mode`, alongside a `diagnostics.detection_scale` recall-risk signal (#113: `input_scale`, `resolvable_height_frac`, `recall_risk` = `high`|`normal`) that the platform renders as a client-facing caveat so a low-recall run is never presented as a work-time measurement (gpu-exchange #163/#166).
+- Model: `./setup-models.sh` (idempotent, sha256-verified) fetches the production **`yolo11s-pose.onnx`** (640×640 default), the **`yolo11s-pose-1280x736.onnx`** used by the 1280×736 / hybrid pose modes, `osnet_x0_25.onnx` (tracking), and the experimental `activity-mlp-v1.0.0.onnx`. For other sizes (n/m/l/x) see README "Alternative YOLO sizes".
 - Sync deps (dev/macOS): `make sync-dev` (CPU stub onnxruntime, ~50MB)
 - Sync deps (Linux+GPU): `make sync-gpu` (onnxruntime-gpu + cublas, ~1.5GB)
 - Install pre-commit hook (one-time, after sync): `uv run pre-commit install` (ruff format + lint on every commit)
@@ -41,7 +41,7 @@ Batch surveillance video analysis: MP4 → YOLO-pose + VLM → activity classifi
 client appliance (bare-metal, Flask :8080) → R2 (presigned URLs) → gpu-service (Docker+NVIDIA)
 ```
 
-- **Pipeline** (`pipeline/`): frame extraction → YOLO-pose (person detection + displacement) → VLM or heuristic activity classification → HTML report
+- **Pipeline** (`pipeline/`): frame extraction → YOLO-pose (person detection + displacement, per-camera `input_size`/`pose.mode`) → OSNet tracking → VLM/heuristic/MLP activity classification → `result.json` (schema 6; debug HTML via `--format html`)
 - **Client Agent** (`client-agent/`): Flask UI on :8080 for camera discovery, per-camera snapshots, the managed-cameras panel, `/test-connection`, `/stop`, and an RTSP recorder with ffmpeg stream-copy + segmented chunks (#8 ✅, e2e-validated on cctv-vps). The shared package `client_agent/` has a **single entrypoint**: `client_agent.appliance` (bare-metal via waitress; #23 ✅). `agent.py` is no longer an entrypoint — it survives only as the shared `build_app` Flask-app factory that the appliance imports. The recorder is buffer-only (local rolling buffer); in platform mode the appliance uploads via presigned URLs (PresignedUploader). The legacy on-site R2 routes (`/upload`, `/start`, `/jobs`, `/report`) now return 503 (#29).
 - **Client Appliance** (`client-appliance/`): packaging-only target (#24 ✅) — systemd unit, idempotent `install.sh`, env templates, README. Zero Python; consumes the shared `client_agent` package. Operator runs `sudo ./client-appliance/install.sh` on a fresh Ubuntu/RPi mini-PC and gets a `systemctl enable --now`-ed Flask UI in LAN.
 - **GPU Service** (`gpu-service/`): two run-modes share one Docker image:
@@ -52,7 +52,7 @@ client appliance (bare-metal, Flask :8080) → R2 (presigned URLs) → gpu-servi
 
 | Component | Technology |
 |-----------|-----------|
-| Pose model | YOLOv11n-pose ONNX, input `[1,3,640,640]`, output `[1,56,N]` |
+| Pose model | YOLOv11s-pose ONNX (production default), input `[1,3,640,640]` or per-camera `[1,3,736,1280]`, output `[1,56,N]` |
 | Pose inference | onnxruntime-gpu, CUDAExecutionProvider only |
 | Activity classifier (VLM) | Qwen2.5-VL-3B-Instruct via transformers + PyTorch cu128 |
 | Activity classifier (heuristic) | Geometric heuristics on COCO keypoints (legacy fallback) |
@@ -74,11 +74,11 @@ client appliance (bare-metal, Flask :8080) → R2 (presigned URLs) → gpu-servi
 - VLM classifier: `CLASSIFIER=vlm` env var or `--classifier vlm` CLI flag. Model loaded lazily on first frame with a person.
 - Frame extraction: ffmpeg 1 fps, frame-by-frame processing, never full video in RAM
 - YOLO-pose output `[1,56,N]` transposed: rows 0-3 bbox, row 4 conf, rows 5-55 keypoints (17×3)
-- Preprocessing: PIL RGB → resize 640×640 → float32 /255 → CHW → batch dim
+- Preprocessing: RGB → **letterbox** to the model input (aspect-preserving, non-square capable per #100 — never a square stretch) → float32 /255 → CHW → batch dim. `letterbox_params()` is the single source of the forward/inverse transform.
 - Activity classes: sitting, standing, walking, running — no others
 - Person tracking (issue #32) sits between pose detection and aggregation and is **on by default**: OSNet Re-ID cosine similarity is the association metric (never IoU — useless at 1 fps), and a track must be seen `MIN_TRACK_DETECTIONS` (3) times within `TRACK_WINDOW_FRAMES` (5) before it counts — real YOLO output flickers, so the advisory's strict-consecutive rule under-counted real people badly. `--no-tracker` reproduces pre-#32 numbers for baseline comparison. Requires `models/osnet_x0_25.onnx` from `setup-models.sh`.
 - Tracking defaults favour splitting one person into two tracks over merging two people into one (`max_track_age_s` 120 s) — for person-minute reporting a merge silently corrupts the numbers, a split only shows an absence gap
-- Reports: standalone HTML, zero external deps (vendored Chart.js, base64 images)
+- Reports: canonical artifact is `result.json` (schema 6), rendered by the platform. The standalone HTML (`--format html`, vendored Chart.js + base64 images, zero external deps) is debug-only.
 - R2 bucket: `surveillance-data`. Key: `surveillance-jobs/{job_id}/`
 - Job coordination: `status.json` in R2, no database
 - Confidence threshold: 0.25, NMS IoU: 0.45
@@ -94,7 +94,7 @@ client appliance (bare-metal, Flask :8080) → R2 (presigned URLs) → gpu-servi
 - Don't add RTSP live monitoring — batch only
 - Don't add face recognition or person identification
 - Don't worry about RODO/GDPR — deferred to production
-- Don't add platform integration (billing, tenant isolation, job dispatch) — Phase 4
+- Platform integration is built here as a **contract**, not a product: the gpu-agent REST mode (#25, `:5003`), tenant-prefix defense-in-depth (`tenant_url.py`), and platform-mode appliance (#26, register/heartbeat/presigned uploads). Don't build billing, tenant *management*, or job orchestration into this repo — those live in `gpu-exchange`.
 
 ## File structure
 
@@ -109,6 +109,8 @@ client appliance (bare-metal, Flask :8080) → R2 (presigned URLs) → gpu-servi
 ├── pipeline/                  # Core AI pipeline (CLI: python -m pipeline.analyze)
 │   ├── analyze.py             # full-video CLI entry point
 │   ├── pose_detector.py       # ONNX session + CUDAExecutionProvider guard
+│   ├── tiled_detector.py      # TiledPoseDetector — native-resolution tiling + whole-frame pass (hybrid, #110/#111)
+│   ├── detection_scale.py     # detection-scale / recall_risk signal for diagnostics (#113)
 │   ├── tracker.py             # PersonTracker — OSNet-similarity association → stable track_id (#32)
 │   ├── reid.py                # OSNetEmbedder — bbox crop → L2-normalized appearance vector (#32)
 │   ├── track_filter.py        # MinTrackLengthFilter — delay line, only proven tracks aggregate (#32)
@@ -139,8 +141,8 @@ client appliance (bare-metal, Flask :8080) → R2 (presigned URLs) → gpu-servi
 ├── tests/                     # Repo-level meta tests (build_config_test.py)
 ├── test/                      # Legacy single-frame validation scripts (pre-#4)
 ├── docs/                      # Operator setup guides (SETUP_GPU.md, SETUP_CLIENT.md)
-├── setup-models.sh            # curl + sha256 verify yolo11n-pose.onnx from GH release
-├── models/                    # yolo11n-pose.onnx (gitignored, fetched by setup-models.sh)
+├── setup-models.sh            # curl + sha256 verify yolo11s-pose (640 + 1280x736) + osnet + activity-mlp from GH releases
+├── models/                    # yolo11s-pose*.onnx, osnet_x0_25.onnx, activity-mlp* (gitignored, fetched by setup-models.sh)
 ├── scripts/                   # standalone test/benchmark scripts (test_vlm_classifier.py)
 └── test-data/                 # sample MP4s (gitignored)
 ```
@@ -152,6 +154,6 @@ client appliance (bare-metal, Flask :8080) → R2 (presigned URLs) → gpu-servi
 - VLM model (Qwen2.5-VL-3B) loaded lazily — first frame ~40s, subsequent ~0.27s/frame.
 - Accuracy: VLM hybrid ~85% vs heuristic ~45% on ground truth test (sitting 89%, walking 96%).
 
-## Platform integration (future, not now)
+## Platform integration (live)
 
-This is a standalone prototype. Integration into ML Compute Exchange (KopalnieKrypto/ml-compute-engine) planned for Phase 4: docker image reference in gpu-agent compose, `problem_type: 'surveillance_analysis'`, billing, tenant isolation.
+Integrated with the [gpu-exchange](https://github.com/KopalnieKrypto/gpu-exchange) platform: the gpu-agent spawns this image's REST mode (`gpu_service.rest_server`, `:5003`) and passes presigned input/result URLs; tenant-prefix defense-in-depth lives in `tenant_url.py`; the appliance runs platform mode (#26, register/heartbeat/presigned uploads). Billing and tenant management stay on the platform side. Deploy engine changes to the GPU boxes with `bash scripts/deploy-image.sh` (the gpu-agent never `docker pull`s on its own).

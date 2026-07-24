@@ -1,6 +1,6 @@
 # Surveillance Video Activity Analysis — As-Built Specification
 
-Status: current as of 2026-07-17
+Status: current as of 2026-07-24
 Scope: batch CCTV analysis, bare-metal client appliance, standalone R2 worker, and GPU Exchange REST integration
 
 This document describes the implemented system. Historical design intent remains in `IMPLEMENTATION_PLAN.md` and `plans/`; those files are not the current runtime contract.
@@ -84,7 +84,7 @@ dashboard :5000 <── gpu_service.worker ──> input chunks / result.json
 | Property | Contract |
 |---|---|
 | Default model | `models/yolo11s-pose.onnx` |
-| Input | fixed square `[1,3,S,S]`; deployed export uses `S=640` |
+| Input | `[1,3,H,W]`; default 640×640, plus a supported per-camera non-square `1280x736` export (#100/#109) |
 | Output | `[1,56,N]`: bbox 0–3, confidence 4, keypoints 5–55 |
 | Runtime | `onnxruntime-gpu`, `CUDAExecutionProvider` required |
 | Confidence | 0.25 |
@@ -202,7 +202,7 @@ These values are configurable pixel/time thresholds, not universal semantic trut
 
 `inference_roi` crops the single pose call to the selected zone's bounding rectangle plus an explicit margin, then translates detections back into full-frame coordinates.
 
-It is not the production default. Issue #86 measured fixed-640, fixed-1280, and focused-ROI arms; none passed the combined quality, runtime, and VRAM gate. Issue #88 requires an optically station-framed stream before pilot validation resumes.
+It is not the production default. Issue #86 measured fixed-640, fixed-1280, and focused-ROI arms; none passed the combined quality, runtime, and VRAM gate. Issue #88 (closed, deferred) needs an optically station-framed stream from the client before bending-pilot validation can resume. Separately, for deep-hall cameras a non-square `1280x736` input and `hybrid` tiling shipped as per-camera options (#100/#109/#110/#111).
 
 ## 5. Output contracts
 
@@ -234,16 +234,26 @@ It is not the production default. Issue #86 measured fixed-640, fixed-1280, and 
     "model_path": "models/yolo11s-pose.onnx",
     "model_sha256": "e3b0c442…",
     "input_size": [640, 640],
+    "pose_mode": "full_frame",
     "conf_threshold": 0.25,
     "nms_threshold": 0.45,
-    "source_frame": [3840, 2160]
+    "source_frame": [3840, 2160],
+    "detection_scale": {
+      "input_scale": 0.1667,
+      "floor_input_px": 60,
+      "resolvable_height_native_px": 360.0,
+      "resolvable_height_frac": 0.1667,
+      "median_detected_height_native_px": 247.0,
+      "detections_measured": 33,
+      "recall_risk": "high"
+    }
   }
 }
 ```
 
 Each zone contains posture person-minutes plus `presence` and `conversation` blocks. MLP runs populate version/checksum/feature-schema diagnostics.
 
-The detection half of `diagnostics` records the configuration that produced the result, so any artifact can be attributed to it (issue #98). Every value is read back from what actually ran: `model_path` and `model_sha256` come from the weights file the session was created from — never from `MODEL_PATH`'s default or the Dockerfile ARG, because `docker-compose.yml` bind-mounts `./models` over the baked weights — and `input_size` is the ONNX's own declared `[w, h]`, not `IMG_SIZE`. `source_frame` is the `[w, h]` of the first analysed frame. `model_sha256` is `null` only when the weights file cannot be read; diagnostics never fail a job.
+The detection half of `diagnostics` records the configuration that produced the result, so any artifact can be attributed to it (issue #98). Every value is read back from what actually ran: `model_path` and `model_sha256` come from the weights file the session was created from — never from `MODEL_PATH`'s default or the Dockerfile ARG, because `docker-compose.yml` bind-mounts `./models` over the baked weights — and `input_size` is the ONNX's own declared `[w, h]`, not `IMG_SIZE`. `source_frame` is the `[w, h]` of the first analysed frame. `pose_mode` is the resolved detector mode (`full_frame` or `hybrid`, #111). `detection_scale` (#113) is a survivorship-bias-free recall-risk signal derived from scene geometry and the ~60 px model-input detection floor: `input_scale`, the smallest resolvable person height (`resolvable_height_native_px`/`_frac`), a supporting `median_detected_height_native_px`, and a `recall_risk` verdict (`high`|`normal`) the platform renders as a client-facing caveat so a low-recall run is never presented as a work-time measurement. It is `null` only when no frame was analysed. `model_sha256` is `null` only when the weights file cannot be read; diagnostics never fail a job.
 
 Presentation, branding, localization, and interactive layout belong to the platform. The CLI's `--format html` output is a retained local debugging artifact, not the worker/platform contract.
 
@@ -376,8 +386,8 @@ Promotion state:
 
 - VLM remains the deployed default.
 - MLP is published only for reproducibility and is closed as not planned after failing quality gates.
-- Fixed-1280 and focused ROI remain experimental after #86's no-winner result.
-- Zone implementation is complete, but pilot acceptance is blocked on #88 and a manually reviewed real shift.
+- Focused ROI remains experimental after #86's no-winner result. A non-square `1280x736` per-camera input and `hybrid` tiling, by contrast, shipped and were measured on `magazyn-hall-v1` (#100/#101/#109/#110/#111): ~35% recall at 1280×736 and ~49% with tiling, vs ~7% at 640. No arm clears the recall gate alone, so results carry the `detection_scale` recall-risk caveat.
+- Zone implementation is complete. Bending-pilot acceptance remains deferred (#88, closed) pending a client-provided station-framed stream plus a manually reviewed real shift.
 
 ## 11. Required invariants
 
