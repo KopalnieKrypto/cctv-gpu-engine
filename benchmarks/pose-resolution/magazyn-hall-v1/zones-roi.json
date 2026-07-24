@@ -1,0 +1,25 @@
+{
+  "_comment": "The four authored ROI polygons (strefa-1..4) of production camera a7b76f41-a106-4019-811d-db6f9576d0dc, mirrored verbatim from the platform's analysis_config (restrict_to_zones: true, pose 1280x736) on 2026-07-24. Consumed by the with-zones tiling arm (tiled_zones_1280x736) via --roi-zones: pose.pose_benchmark.zone_bounding_boxes reduces each polygon to its bbox, and tiles are kept only where they intersect one. Scoring stays whole-frame (zones.json hall-1), so a person outside these zones is an honest miss. Shift/pose/restrict_to_zones are intentionally omitted here — only the zone polygons drive the tiling reach.",
+  "zones": [
+    {
+      "id": "zone-1",
+      "name": "strefa-1",
+      "polygon": [[812, 26], [594, 110], [922, 428], [1234, 621], [1623, 48]]
+    },
+    {
+      "id": "zone-2",
+      "name": "strefa-2",
+      "polygon": [[1334, 507], [1900, 711], [2307, 228], [1636, 138]]
+    },
+    {
+      "id": "zone-3",
+      "name": "strefa-3",
+      "polygon": [[2720, 1221], [3131, 2021], [3587, 1181], [2865, 569]]
+    },
+    {
+      "id": "zone-4",
+      "name": "strefa-4",
+      "polygon": [[341, 327], [743, 846], [1040, 567], [537, 100]]
+    }
+  ]
+}
