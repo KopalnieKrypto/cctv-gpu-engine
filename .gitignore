@@ -7,6 +7,11 @@ models/activity-mlp-*.json
 test-data/*.mp4
 test-data/*.avi
 
+# Benchmark run scratch: the pose harness streams partial evidence to a
+# `<output>.partial/` dir during an arm, then writes the final JSON. Track the
+# committed results, never the intermediate scratch.
+benchmark-results/**/*.partial/
+
 # Issue #86 benchmark payloads are materialized from the immutable fixture
 # release asset; Git tracks their manifest, hashes, and methodology only.
 benchmarks/pose-resolution/bending-pilot-v1/frames/
