@@ -15,12 +15,12 @@ not yet productionize it.
 
 ## Arms
 
-- **`tiled_1280x736` (without zones)** — measured below. ✅
-- **`tiled_zones_1280x736` (with zones)** — pending the authored zones for camera
-  `a7b76f41` (this fixture's only zone is the whole frame, so a with-zones arm
-  needs the real sub-frame polygons to differ from the grid). Run it with
-  `--roi-zones benchmarks/pose-resolution/magazyn-hall-v1/zones-roi.json` once
-  those zones are mirrored in. ⏳
+- **`tiled_1280x736` (without zones)** — tile the whole frame (16 tiles). ✅
+- **`tiled_zones_1280x736` (with zones)** — tile only inside camera `a7b76f41`'s
+  four authored ROI polygons (`strefa-1..4`, mirrored verbatim from the platform
+  `analysis_config`; 12 of 16 tiles). ✅ **Identical quality to the grid arm at
+  75% of the pose cost** — the four skipped tiles held no detected person, so
+  zone-focusing bought a 25% compute saving at zero recall/precision loss.
 
 ## Aggregate — `tiled_1280x736` vs #101's full-frame arms
 
@@ -34,11 +34,21 @@ overlap 0.2, Intersection-over-Smaller merge threshold 0.6.
 | full frame → 640 (shipped) | 21/12/275 | 63.6% | 7.1% | 12.8% | 115/116 ms | 7,868 MiB | 33 |
 | full frame → 1280×736 | 105/13/191 | 89.0% | 35.5% | 50.7% | 232/234 ms | 8,122 MiB | 118 |
 | **tiled 1280×736 (grid)** | **134/55/162** | **70.9%** | **45.3%** | **55.3%** | **3358/3363 ms** | **710 MiB** | **214** |
+| **tiled 1280×736 (zones)** | **134/55/162** | **70.9%** | **45.3%** | **55.3%** | **2523/2530 ms** | **710 MiB** | **214** |
 
 Tiling has the highest recall and F1 of any arm measured, at the lowest VRAM and
 by far the highest pose cost. Precision drops to 70.9% (from 89.0%): more tiles
 in cluttered regions raise boundary false positives, and IoS-0.6 dedup does not
 catch every cross-tile duplicate — the precision risk #110 named.
+
+The two tiling arms produce **bit-identical detections** (214, same TP/FP/FN,
+same per-band recall). The with-zones arm tiled 12 of the 16 tiles — only those
+intersecting the four authored `strefa` bboxes — and the four it skipped held no
+detected person, so it reached the same numbers on 25% less pose (2523 vs 3358
+ms/frame). On this camera the authored zones already bound where people are, so
+zone-focusing is a free compute saving, not a recall trade. On a camera whose
+zones covered less of the occupied floor it would trade recall for tiles; here it
+does not.
 
 ## Recall by ground-truth person height — the headline
 
@@ -72,12 +82,15 @@ per-hour figure is `mean(pose_wallclock_s) * fps * 3600 / 60` at 1 fps, and each
 | Arm | Tiles/frame | Pose/frame | Pose min/h | Peak VRAM | Detections (drives VLM) |
 |---|---:|---:|---:|---:|---:|
 | full frame → 1280×736 | 1 | 232 ms | ~14 (pose only) | 8,122 MiB | 118 |
-| tiled 1280×736 | 16 | 3358 ms | 202 | 710 MiB | 214 |
+| tiled 1280×736 (grid) | 16 | 3358 ms | 202 | 710 MiB | 214 |
+| tiled 1280×736 (zones) | 12 | 2523 ms | 152 | 710 MiB | 214 |
 
 VRAM is the surprise win — 11× smaller than the full-frame 1280×736 arm — because
-tiling never holds a >1280 px input tensor; it holds sixteen 1280×736 ones in
-sequence. The cost that bites is wall-clock: 202 min of pose per video hour makes
-the grid arm ~14× the shipped detector's pose budget. The VLM adds on top,
+tiling never holds a >1280 px input tensor; it holds twelve-to-sixteen 1280×736
+ones in sequence. The cost that bites is wall-clock: 152–202 min of pose per
+video hour makes the tiling arms ~11–14× the shipped detector's pose budget. The
+with-zones arm is the cheaper of the two at identical quality (152 vs 202 min/h),
+because the authored zones drop four empty tiles per frame. The VLM adds on top,
 scaling with the 214 detections found (read separately, not run here).
 
 ## Reproducibility evidence
@@ -95,10 +108,17 @@ scaling with the 214 detections found (read separately, not run here).
   SHA-256 before CUDA loads.
 - Tile grid: 4 columns × 4 rows = 16 native 1280×736 tiles per 3840×2160 frame at
   overlap 0.2 (columns step 1024 px, rows 589 px, last tile flush to the far
-  edge). Merge is greedy highest-confidence with IoS ≥ 0.6 suppression.
-- `tiled_1280x736.json` retains raw per-frame detections, per-frame pose timing,
-  `recall_by_height`, `detector_cost`, and peak VRAM. Runbook:
-  `docs/POSE_RESOLUTION_BENCHMARK.md` § "Native-resolution tiling arms".
+  edge). Merge is greedy highest-confidence with IoS ≥ 0.6 suppression. The
+  with-zones arm keeps the 12 tiles that intersect a `strefa` bbox.
+- With-zones ROI: `benchmarks/pose-resolution/magazyn-hall-v1/zones-roi.json` —
+  the four authored polygons (`strefa-1..4`) of camera `a7b76f41`, copied verbatim
+  from the platform `analysis_config` (`restrict_to_zones: true`, `pose 1280x736`)
+  on 2026-07-24. Scoring stays whole-frame (`zones.json` `hall-1`), so an
+  out-of-zone person is an honest miss, not silently excluded.
+- `tiled_1280x736.json` and `tiled_zones_1280x736.json` retain raw per-frame
+  detections, per-frame pose timing, `recall_by_height`, `detector_cost`, and peak
+  VRAM. Runbook: `docs/POSE_RESOLUTION_BENCHMARK.md` § "Native-resolution tiling
+  arms".
 
 ## What this redirects the work toward
 
@@ -107,6 +127,7 @@ scaling with the 214 detections found (read separately, not run here).
 2. **Grid-only needs a full-frame pass** to stop losing near-field people. The
    next arm to measure is tiles + one full-frame 1280×736 pass, merged.
 3. **Precision and cost are the productionization gates**, not reach. 70.9%
-   precision and 202 min/h pose say the winning configuration is with-zones
-   (fewer tiles, focused compute) plus better cross-tile dedup — which is why the
-   with-zones arm is the one that has to land next.
+   precision and 152–202 min/h pose are the real blockers. With-zones already cuts
+   25% of the pose for free on this camera; the next levers are better cross-tile
+   dedup (to lift precision) and a coarser overlap or larger tile (to cut tiles),
+   not more reach.
