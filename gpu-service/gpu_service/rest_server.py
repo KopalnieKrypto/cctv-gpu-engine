@@ -54,15 +54,33 @@ POSE_MODEL_FILENAME_BY_INPUT_SIZE = {
     "1280x736": "yolo11s-pose-1280x736.onnx",
 }
 
+# Detector modes a camera may select per-task via zones.json `pose.mode` (#111).
+# ``full_frame`` (default, back-compat) is one downscaled pose call; ``hybrid`` is
+# the #110-winning native tiling + whole-frame pass (~15x pose cost, opt-in). Keep
+# in sync with pipeline.analyze POSE_MODE_* and the platform's allowlist.
+DEFAULT_POSE_MODE = "full_frame"
+POSE_MODES = frozenset({"full_frame", "hybrid"})
+
 
 def _read_pose_input_size(config_path: str | Path) -> str | None:
-    """Read `pose.input_size` from a mounted zones.json, tolerantly.
+    """Read `pose.input_size` from a mounted zones.json, tolerantly (#109).
 
     Returns ``None`` on a missing file, unreadable bytes, non-JSON, or any shape
     that is not a string `pose.input_size`. Model selection must not depend on
     the config being fully valid — the task runner re-parses and validates the
     whole document per task, and a shift/zones problem there must not blank the
     detector choice here.
+    """
+    return _read_pose_field(config_path, "input_size")
+
+
+def _read_pose_field(config_path: str | Path, field: str) -> str | None:
+    """Read a string ``pose.<field>`` from a mounted zones.json, tolerantly.
+
+    Returns ``None`` on a missing file, unreadable bytes, non-JSON, or any shape
+    that is not a string ``pose.<field>``. Detector selection must not depend on
+    the config being fully valid — the task runner re-parses and validates the
+    whole document per task, and a problem there must not blank a choice here.
     """
     try:
         data = json.loads(Path(config_path).read_text(encoding="utf-8"))
@@ -73,8 +91,26 @@ def _read_pose_input_size(config_path: str | Path) -> str | None:
     pose = data.get("pose")
     if not isinstance(pose, dict):
         return None
-    input_size = pose.get("input_size")
-    return input_size if isinstance(input_size, str) else None
+    value = pose.get(field)
+    return value if isinstance(value, str) else None
+
+
+def resolve_pose_mode(config_path: str | Path) -> str:
+    """Pick the detector mode at container startup from the task's zones.json (#111).
+
+    A camera's config may opt into native tiling via ``pose.mode: "hybrid"``; any
+    absent / malformed / unknown selector falls back to ``full_frame`` — the
+    engine treats the mode as an allowlist even though the platform validates it,
+    so a hand-written config cannot select a mode the engine does not implement.
+    Hybrid is ~15× the pose cost, so it is strictly opt-in per camera.
+    """
+    mode = _read_pose_field(config_path, "mode")
+    if mode is None:
+        return DEFAULT_POSE_MODE
+    if mode not in POSE_MODES:
+        logger.warning("unknown pose mode %r in zones config; using %s", mode, DEFAULT_POSE_MODE)
+        return DEFAULT_POSE_MODE
+    return mode
 
 
 def resolve_pose_model_path(env_default: str, config_path: str | Path) -> str:
@@ -145,6 +181,7 @@ def _warm_up_pipeline(
     classifier: str,
     activity_model_path: str,
     activity_model_metadata_path: str,
+    pose_mode: str = DEFAULT_POSE_MODE,
 ) -> PipelineFn:
     """Load YOLO and return the zones-aware configured pipeline closure.
 
@@ -169,6 +206,7 @@ def _warm_up_pipeline(
             activity_model_path=activity_model_path,
             activity_model_metadata_path=activity_model_metadata_path,
             zones=zones,
+            pose_mode=pose_mode,
         )
 
     # Touch the detector once to warm CUDA / cuDNN — fail fast if GPU is
@@ -194,6 +232,11 @@ def main() -> int:
         logger.info(
             "pose model selected from zones config: %s (default was %s)", model_path, env_model_path
         )
+    # Per-camera detector mode (#111), resolved at the same one-container-per-task
+    # boundary as the model. Absent/unknown → full_frame; hybrid is opt-in tiling.
+    pose_mode = resolve_pose_mode(zones_config_path)
+    if pose_mode != DEFAULT_POSE_MODE:
+        logger.info("pose mode selected from zones config: %s", pose_mode)
     classifier = os.environ.get("CLASSIFIER", "vlm")
     activity_model_path = os.environ.get(
         "ACTIVITY_MODEL_PATH", "/app/models/activity-mlp-v1.0.0.onnx"
@@ -217,12 +260,18 @@ def main() -> int:
     executor = ThreadPoolExecutor(max_workers=1)
     http = PresignedHttpClient()
 
-    logger.info("warming up pipeline (model=%s classifier=%s)", model_path, classifier)
+    logger.info(
+        "warming up pipeline (model=%s classifier=%s pose_mode=%s)",
+        model_path,
+        classifier,
+        pose_mode,
+    )
     pipeline_fn = _warm_up_pipeline(
         model_path,
         classifier,
         activity_model_path,
         activity_model_metadata_path,
+        pose_mode,
     )
     readiness.mark_ready()
     logger.info("readiness flipped — accepting /analyze")

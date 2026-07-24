@@ -20,7 +20,12 @@ from typing import Any
 import numpy as np
 
 from pipeline.postprocessing import Detection
-from pipeline.preprocessing import InputSize
+from pipeline.preprocessing import InputSize, input_wh
+
+# Fraction of a tile shared with its neighbour. 0.2 is the value #110 measured
+# the tiling arms at, so productionizing the hybrid mode (#111) tiles the same
+# grid the benchmark scored.
+DEFAULT_TILE_OVERLAP = 0.2
 
 # Cross-tile duplicates are suppressed above this Intersection-over-Smaller. It
 # is deliberately looser than the 0.45 NMS IoU used within a single frame: a
@@ -235,6 +240,16 @@ class TiledPoseDetector:
         """The inner model's input shape, so the harness's shape guard passes."""
         return self.detector.input_size
 
+    @property
+    def model_path(self) -> str | None:
+        """The base model's path, forwarded so result.json records it (#98/#111)."""
+        return self.detector.model_path
+
+    @property
+    def model_sha256(self) -> str | None:
+        """The base weights' digest, forwarded for diagnostics provenance (#98/#111)."""
+        return self.detector.model_sha256
+
     def detect(self, img_bgr: np.ndarray) -> list[Detection]:
         frame_h, frame_w = img_bgr.shape[:2]
         tiles = tile_grid(
@@ -258,3 +273,30 @@ class TiledPoseDetector:
                 _translate_detection(det, tile.x1, tile.y1)
                 pooled.append(det)
         return merge_detections(pooled, self.ios_threshold, self.min_whole_box_ratio)
+
+
+def build_hybrid_detector(
+    base_detector: Any,
+    *,
+    zone_bounds: list[tuple[float, float, float, float]] | None = None,
+    overlap: float = DEFAULT_TILE_OVERLAP,
+) -> TiledPoseDetector:
+    """Wrap a base pose detector as the hybrid tiling detector (#111).
+
+    The ``"hybrid"`` ``pose.mode`` — the #110 winner — tiles the frame into
+    native-resolution windows sized to ``base_detector``'s model input and adds
+    one whole-frame pass, merged. ``base_detector`` must be zone-less (tiling
+    reach is handled here via ``zone_bounds``, not the detector's inference_roi),
+    and its input equals the tile size so each tile letterboxes at scale 1.0.
+    ``zone_bounds`` (the authored zone bboxes, when the camera restricts to zones)
+    focuses the grid; ``None`` tiles the whole frame.
+    """
+    tile_w, tile_h = input_wh(base_detector.input_size)
+    return TiledPoseDetector(
+        detector=base_detector,
+        tile_w=tile_w,
+        tile_h=tile_h,
+        overlap=overlap,
+        zone_bounds=zone_bounds,
+        full_frame_pass=True,
+    )

@@ -12,8 +12,10 @@ import numpy as np
 
 from pipeline.postprocessing import Detection, Keypoint
 from pipeline.tiled_detector import (
+    DEFAULT_TILE_OVERLAP,
     Tile,
     TiledPoseDetector,
+    build_hybrid_detector,
     intersection_over_smaller,
     merge_detections,
     restrict_tiles_to_bounds,
@@ -276,3 +278,49 @@ def test_detect_with_zone_bounds_only_infers_tiles_inside_the_zone():
 
     assert fake.crops == [(100, 100)]  # only the in-zone tile was inferred
     assert [d.bbox for d in detections] == [[10, 10, 30, 30]]
+
+
+def test_build_hybrid_detector_wraps_a_base_detector_at_its_native_tile_size():
+    # #111 wiring: a "hybrid" camera runs the tiling detector over native
+    # 1280x736 tiles plus one whole-frame pass. The factory reads the tile size
+    # off the base detector's declared input, so the tiles letterbox at scale 1.0.
+    base = _FakeTileDetector(per_call=[])
+    base.input_size = (1280, 736)
+
+    detector = build_hybrid_detector(base)
+
+    assert isinstance(detector, TiledPoseDetector)
+    assert detector.detector is base
+    assert (detector.tile_w, detector.tile_h) == (1280, 736)
+    assert detector.overlap == DEFAULT_TILE_OVERLAP
+    assert detector.full_frame_pass is True  # the hybrid arm's whole-frame pass
+    assert detector.zone_bounds is None  # whole-frame grid by default
+
+
+def test_build_hybrid_detector_restricts_reach_to_supplied_zone_bounds():
+    # With authored zones + restrict_to_zones, the tiling reach is bounded to the
+    # zone bboxes so no pose call is spent on frame regions no zone covers.
+    base = _FakeTileDetector(per_call=[])
+    base.input_size = (1280, 736)
+    bounds = [(0.0, 0.0, 500.0, 500.0), (1000.0, 800.0, 2000.0, 1600.0)]
+
+    detector = build_hybrid_detector(base, zone_bounds=bounds)
+
+    assert detector.zone_bounds == bounds
+    assert detector.full_frame_pass is True
+
+
+def test_hybrid_detector_delegates_model_provenance_to_its_base():
+    # result.json diagnostics (#98) read model_path/model_sha256/input_size off
+    # the detector; the tiling wrapper must forward them from the base so a hybrid
+    # job records the same weights provenance a plain job does.
+    base = _FakeTileDetector(per_call=[])
+    base.input_size = (1280, 736)
+    base.model_path = "models/yolo11s-pose-1280x736.onnx"
+    base.model_sha256 = "a" * 64
+
+    detector = build_hybrid_detector(base)
+
+    assert detector.model_path == "models/yolo11s-pose-1280x736.onnx"
+    assert detector.model_sha256 == "a" * 64
+    assert detector.input_size == (1280, 736)

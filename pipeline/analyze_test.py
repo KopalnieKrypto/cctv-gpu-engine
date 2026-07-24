@@ -1205,7 +1205,9 @@ class TestDetectionDiagnostics:
         path.write_bytes(content)
         return path
 
-    def _run(self, mocker, tmp_path, weights, shape=None, frame_shape=(720, 1280, 3)):
+    def _run(
+        self, mocker, tmp_path, weights, shape=None, frame_shape=(720, 1280, 3), pose_mode=None
+    ):
         from pathlib import Path
 
         from pipeline.analyze import run_full_video_to_json
@@ -1218,8 +1220,39 @@ class TestDetectionDiagnostics:
             "pipeline.analyze.iter_frames",
             return_value=iter([(0.0, frame), (1.0, frame)]),
         )
-        payload = run_full_video_to_json([Path("v.mp4")], model_path=str(weights))
+        kwargs = {} if pose_mode is None else {"pose_mode": pose_mode}
+        payload = run_full_video_to_json([Path("v.mp4")], model_path=str(weights), **kwargs)
         return json.loads(payload)["diagnostics"]
+
+    def test_pose_mode_defaults_to_full_frame_and_is_recorded(self, mocker, tmp_path):
+        # Back-compat: a config with no pose.mode analyses full-frame, and the
+        # resolved mode lands in diagnostics like input_size does (#98/#100/#111).
+        weights = self._weights(tmp_path, b"pretend onnx bytes")
+
+        diagnostics = self._run(mocker, tmp_path, weights)
+
+        assert diagnostics["pose_mode"] == "full_frame"
+
+    def test_hybrid_mode_builds_the_tiling_detector_and_records_it(self, mocker, tmp_path):
+        # A hybrid camera drives the native tiling detector end-to-end (real
+        # load_pose_model behind the mocked CUDA session, real build_hybrid_detector
+        # and TiledPoseDetector.detect over the 4K frame's tile grid). The resolved
+        # mode is recorded, and the base model's provenance still flows through the
+        # tiling wrapper into diagnostics.
+        weights = self._weights(tmp_path, b"a 1280x736 export", name="yolo11s-pose-1280x736.onnx")
+
+        diagnostics = self._run(
+            mocker,
+            tmp_path,
+            weights,
+            shape=[1, 3, 736, 1280],
+            frame_shape=(2160, 3840, 3),
+            pose_mode="hybrid",
+        )
+
+        assert diagnostics["pose_mode"] == "hybrid"
+        assert diagnostics["input_size"] == [1280, 736]  # the tile / base model input
+        assert diagnostics["model_path"] == str(weights)  # provenance forwarded by the wrapper
 
     def test_records_the_resolved_detection_config(self, mocker, tmp_path):
         import hashlib
@@ -1276,3 +1309,79 @@ class TestDetectionDiagnostics:
         diagnostics = self._run(mocker, tmp_path, weights, frame_shape=(2160, 3840, 3))
 
         assert diagnostics["source_frame"] == [3840, 2160]
+
+
+class TestPoseModeSelection:
+    """#111 — the engine builds the detector the camera's pose.mode asks for.
+
+    ``full_frame`` (default, back-compat) is the plain PoseDetector; ``hybrid``
+    is the #110-winning TiledPoseDetector wrapping a zone-less base detector plus
+    the whole-frame pass. Detector selection is resolved here, off the config, the
+    same way #109 resolves the model from pose.input_size.
+    """
+
+    def _base(self, input_size=(1280, 736)):
+        base = MagicMock()
+        base.input_size = input_size
+        base.model_path = "models/yolo11s-pose-1280x736.onnx"
+        base.model_sha256 = "b" * 64
+        return base
+
+    def test_full_frame_returns_the_plain_detector_with_zones_passed_through(self, mocker):
+        from pipeline.analyze import _build_detector
+        from pipeline.zones import ZoneConfig
+
+        zones = ZoneConfig.from_dict({"zones": []})
+        loader = mocker.patch("pipeline.analyze.load_pose_model", return_value=self._base())
+
+        detector = _build_detector("models/yolo11s-pose.onnx", zones, "full_frame")
+
+        assert detector is loader.return_value
+        loader.assert_called_once_with("models/yolo11s-pose.onnx", zones=zones)
+
+    def test_hybrid_wraps_a_zoneless_base_in_the_tiling_detector(self, mocker):
+        from pipeline.analyze import _build_detector
+        from pipeline.tiled_detector import TiledPoseDetector
+
+        base = self._base()
+        loader = mocker.patch("pipeline.analyze.load_pose_model", return_value=base)
+
+        detector = _build_detector("models/yolo11s-pose-1280x736.onnx", None, "hybrid")
+
+        assert isinstance(detector, TiledPoseDetector)
+        assert detector.detector is base
+        assert detector.full_frame_pass is True
+        assert (detector.tile_w, detector.tile_h) == (1280, 736)
+        assert detector.zone_bounds is None
+        # The base tiles the whole frame at native scale, so it must be zone-less;
+        # zones drive the tiling *reach*, not the base detector's inference_roi.
+        loader.assert_called_once_with("models/yolo11s-pose-1280x736.onnx", zones=None)
+
+    def test_hybrid_reach_uses_zone_bboxes_when_restrict_to_zones(self, mocker):
+        from pipeline.analyze import _build_detector
+        from pipeline.zones import ZoneConfig
+
+        zones = ZoneConfig.from_dict(
+            {
+                "restrict_to_zones": True,
+                "zones": [{"id": "z", "name": "Z", "polygon": [[10, 20], [110, 20], [60, 220]]}],
+            }
+        )
+        mocker.patch("pipeline.analyze.load_pose_model", return_value=self._base())
+
+        detector = _build_detector("m.onnx", zones, "hybrid")
+
+        assert detector.zone_bounds == [(10, 20, 110, 220)]
+
+    def test_hybrid_tiles_whole_frame_when_zones_present_but_not_restricted(self, mocker):
+        from pipeline.analyze import _build_detector
+        from pipeline.zones import ZoneConfig
+
+        zones = ZoneConfig.from_dict(
+            {"zones": [{"id": "z", "name": "Z", "polygon": [[10, 20], [110, 20], [60, 220]]}]}
+        )
+        mocker.patch("pipeline.analyze.load_pose_model", return_value=self._base())
+
+        detector = _build_detector("m.onnx", zones, "hybrid")
+
+        assert detector.zone_bounds is None  # restrict_to_zones absent -> whole-frame grid

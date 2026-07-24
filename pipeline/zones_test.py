@@ -424,3 +424,27 @@ class TestBendingRulesetDispatch:
             implicit.observe(t, {1: (10.0, 10.0), 2: (20.0, 10.0)})
 
         assert implicit.result() == explicit.result()
+
+
+class TestBoundingBoxes:
+    """The with-zones tiling reach (#111): the xyxy bbox of every authored zone."""
+
+    def test_returns_xyxy_bbox_per_zone(self):
+        config = ZoneConfig.from_dict(
+            {
+                "zones": [
+                    {"id": "a", "name": "A", "polygon": [[10, 20], [110, 20], [60, 220]]},
+                    {"id": "b", "name": "B", "polygon": [[300, 400], [500, 400], [500, 900]]},
+                ]
+            }
+        )
+
+        assert config.bounding_boxes() == [(10, 20, 110, 220), (300, 400, 500, 900)]
+
+    def test_empty_when_no_zones_but_config_otherwise_valid(self):
+        # restrict_to_zones with no polygons means the hybrid detector gets an
+        # empty reach and falls back to the whole-frame grid (analyze handles the
+        # empty list); the helper itself just reports what is authored.
+        config = ZoneConfig.from_dict({"zones": []})
+
+        assert config.bounding_boxes() == []

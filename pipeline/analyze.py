@@ -36,6 +36,7 @@ from pipeline.preprocessing import input_wh
 from pipeline.reid import DEFAULT_REID_MODEL_PATH, load_reid_model
 from pipeline.report_json import render_report_json
 from pipeline.report_renderer import render_report
+from pipeline.tiled_detector import build_hybrid_detector
 from pipeline.track_filter import MinTrackLengthFilter
 from pipeline.tracker import DEFAULT_MAX_TRACK_AGE_S, PersonTracker
 from pipeline.video_frames import iter_frames
@@ -94,6 +95,30 @@ def _aggregate(
         )
 
 
+POSE_MODE_FULL_FRAME = "full_frame"
+POSE_MODE_HYBRID = "hybrid"
+
+
+def _build_detector(model_path: str, zones: ZoneConfig | None, pose_mode: str):
+    """Build the pose detector the camera's ``pose.mode`` selects (#111).
+
+    ``full_frame`` (default) is the plain :class:`PoseDetector`, given ``zones``
+    so an ``inference_roi`` still focuses the single pose call. ``hybrid`` is the
+    #110-winning :class:`TiledPoseDetector`: a zone-less base detector tiled at
+    its native model input plus one whole-frame pass. When the camera restricts
+    to zones, the authored zone bboxes bound the tiling reach (the with-zones
+    compute saving); otherwise the whole frame is tiled. Resolved at startup like
+    #109 resolves the model from ``pose.input_size``.
+    """
+    if pose_mode == POSE_MODE_HYBRID:
+        base_detector = load_pose_model(model_path, zones=None)
+        zone_bounds = None
+        if zones is not None and zones.restrict_to_zones:
+            zone_bounds = zones.bounding_boxes() or None
+        return build_hybrid_detector(base_detector, zone_bounds=zone_bounds)
+    return load_pose_model(model_path, zones=zones)
+
+
 def _analyze_to_report_data(
     chunks: list[Path],
     progress: Callable[[int], None] | None = None,
@@ -107,6 +132,7 @@ def _analyze_to_report_data(
     reid_model_path: str = DEFAULT_REID_MODEL_PATH,
     max_track_age_s: float = DEFAULT_MAX_TRACK_AGE_S,
     zones: ZoneConfig | None = None,
+    pose_mode: str = POSE_MODE_FULL_FRAME,
 ) -> ReportData:
     """Run YOLO-pose pipeline across one or more MP4 chunks → :class:`ReportData`.
 
@@ -144,7 +170,7 @@ def _analyze_to_report_data(
     )
     from pipeline.detections_dump import DetectionsDumpWriter
 
-    detector = load_pose_model(model_path, zones=zones)
+    detector = _build_detector(model_path, zones, pose_mode)
     aggregator = Aggregator(
         fps=fps,
         zones=zones.zones if zones is not None else None,
@@ -176,6 +202,7 @@ def _analyze_to_report_data(
         "model_path": detector.model_path,
         "model_sha256": detector.model_sha256,
         "input_size": list(input_wh(detector.input_size)),
+        "pose_mode": pose_mode,
         "conf_threshold": CONFIDENCE_THRESHOLD,
         "nms_threshold": NMS_IOU_THRESHOLD,
         "source_frame": None,
@@ -341,6 +368,7 @@ def run_full_video_to_json(
     reid_model_path: str = DEFAULT_REID_MODEL_PATH,
     max_track_age_s: float = DEFAULT_MAX_TRACK_AGE_S,
     zones: ZoneConfig | None = None,
+    pose_mode: str = POSE_MODE_FULL_FRAME,
 ) -> bytes:
     """Run the pipeline and return the canonical ``result.json`` bytes (issue #72).
 
@@ -348,7 +376,7 @@ def run_full_video_to_json(
     platform renders it natively in React, so the JSON is pure data (base64
     JPEG keyframes, no brand/i18n/presentation strings). See
     :func:`_analyze_to_report_data` for the
-    ``progress``/``classifier``/``dump_detections``/``track_persons``/``zones``
+    ``progress``/``classifier``/``dump_detections``/``track_persons``/``zones``/``pose_mode``
     contract.
     """
     return render_report_json(
@@ -365,6 +393,7 @@ def run_full_video_to_json(
             reid_model_path=reid_model_path,
             max_track_age_s=max_track_age_s,
             zones=zones,
+            pose_mode=pose_mode,
         )
     )
 
@@ -382,6 +411,7 @@ def run_full_video_to_html(
     reid_model_path: str = DEFAULT_REID_MODEL_PATH,
     max_track_age_s: float = DEFAULT_MAX_TRACK_AGE_S,
     zones: ZoneConfig | None = None,
+    pose_mode: str = POSE_MODE_FULL_FRAME,
 ) -> bytes:
     """Run the pipeline and return a standalone HTML report as bytes.
 
@@ -404,6 +434,7 @@ def run_full_video_to_html(
             reid_model_path=reid_model_path,
             max_track_age_s=max_track_age_s,
             zones=zones,
+            pose_mode=pose_mode,
         )
     ).encode("utf-8")
 
@@ -494,6 +525,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "Default: off.",
     )
     parser.add_argument(
+        "--pose-mode",
+        choices=[POSE_MODE_FULL_FRAME, POSE_MODE_HYBRID],
+        default=POSE_MODE_FULL_FRAME,
+        help="Detector mode (issue #111): full_frame (default, one downscaled pose "
+        "call) or hybrid (native-resolution tiling + one whole-frame pass — the "
+        "#110 winner; ~15x pose cost, needs a 1280x736 --model). With --zones and "
+        "restrict_to_zones, hybrid bounds the tiling to the authored zone bboxes.",
+    )
+    parser.add_argument(
         "--zones",
         type=str,
         default=None,
@@ -545,6 +585,7 @@ def _run_full_video(args: argparse.Namespace) -> int:
             reid_model_path=args.reid_model,
             max_track_age_s=args.max_track_age,
             zones=zones,
+            pose_mode=args.pose_mode,
         )
     except (RuntimeError, ZoneConfigError) as exc:
         print(f"error: {exc}", file=sys.stderr)

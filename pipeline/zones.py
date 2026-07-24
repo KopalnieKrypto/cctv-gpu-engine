@@ -281,6 +281,20 @@ class ZoneConfig:
             )
         return bounds
 
+    def bounding_boxes(self) -> list[tuple[float, float, float, float]]:
+        """The ``xyxy`` bounding box of every authored zone (#111 tiling reach).
+
+        When a hybrid-mode camera restricts to zones, these bound the native
+        tiling grid so no pose call is spent on frame regions no authored zone
+        covers — the with-zones compute saving #110 measured, now for production.
+        """
+        boxes: list[tuple[float, float, float, float]] = []
+        for zone in self.zones:
+            xs = [point[0] for point in zone.polygon]
+            ys = [point[1] for point in zone.polygon]
+            boxes.append((min(xs), min(ys), max(xs), max(ys)))
+        return boxes
+
     @property
     def shift_schedule(self) -> ShiftSchedule | None:
         """The parsed shift-gating schedule, or ``None`` when no shift is set.

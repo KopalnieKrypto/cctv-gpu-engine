@@ -6,6 +6,7 @@ Batch surveillance video analysis: MP4 → YOLO-pose + VLM → activity classifi
 
 - CLI: `uv run python -m pipeline.analyze input.mp4 --output report.html --classifier vlm`
 - Classifier modes: `--classifier heuristic` (fast, geometric rules) or `--classifier vlm` (Qwen2.5-VL-3B hybrid, higher accuracy, default in Docker)
+- Pose modes (`--pose-mode`, or per-camera `pose.mode` in the mounted `zones.json`, #111): `full_frame` (default; one downscaled pose call) or `hybrid` (native-resolution tiling + one whole-frame pass — the #110 winner: reaches the 80–120 px band full-frame can't, ~15× the pose cost so strictly opt-in, needs a 1280×736 model). Resolved at container startup exactly like `pose.input_size` selects the model (#109). With `restrict_to_zones`, hybrid bounds the tiling reach to the authored zone bboxes automatically. The resolved mode lands in `result.json` `diagnostics.pose_mode`.
 - Model: `./setup-models.sh` (curls pinned `yolo11n-pose.onnx` from GitHub release `yolo11n-pose-v1.0`, sha256-verified, idempotent). For non-nano sizes (s/m/l/x) see README "Using a different model size".
 - Sync deps (dev/macOS): `make sync-dev` (CPU stub onnxruntime, ~50MB)
 - Sync deps (Linux+GPU): `make sync-gpu` (onnxruntime-gpu + cublas, ~1.5GB)

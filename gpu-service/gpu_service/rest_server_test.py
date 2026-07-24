@@ -342,6 +342,7 @@ class TestMainPreflight:
             "mlp",
             "/models/activity.onnx",
             "/models/activity.json",
+            "full_frame",  # resolved pose.mode (#111); absent config → full_frame
         )
 
     def test_main_aborts_before_warm_up_when_preflight_fails(self, mocker, tmp_path, monkeypatch):
@@ -432,3 +433,57 @@ class TestResolvePoseModelPath:
         cfg = self._write(tmp_path, {"pose": {"input_size": "1280x736"}})
         override = "/custom/models/yolo11s-pose.onnx"
         assert resolve_pose_model_path(override, cfg) == "/custom/models/yolo11s-pose-1280x736.onnx"
+
+
+class TestResolvePoseMode:
+    """Per-camera detector mode from the mounted zones.json (#111).
+
+    Mirrors #109's model resolution: the engine reads ``pose.mode`` at container
+    startup from the task's ``zones.json`` and selects full-frame vs hybrid
+    tiling. Any absent / malformed / unknown selector falls back to the
+    back-compatible ``full_frame`` — mode selection never fails startup on a
+    config issue the task runner will surface per task anyway.
+    """
+
+    def _write(self, tmp_path, payload: object):
+        import json
+
+        cfg = tmp_path / "zones.json"
+        cfg.write_text(json.dumps(payload), encoding="utf-8")
+        return cfg
+
+    def test_missing_config_returns_full_frame(self, tmp_path):
+        from gpu_service.rest_server import resolve_pose_mode
+
+        assert resolve_pose_mode(tmp_path / "nope.json") == "full_frame"
+
+    def test_hybrid_is_selected(self, tmp_path):
+        from gpu_service.rest_server import resolve_pose_mode
+
+        cfg = self._write(tmp_path, {"zones": [], "pose": {"mode": "hybrid"}})
+        assert resolve_pose_mode(cfg) == "hybrid"
+
+    def test_explicit_full_frame_is_respected(self, tmp_path):
+        from gpu_service.rest_server import resolve_pose_mode
+
+        cfg = self._write(tmp_path, {"zones": [], "pose": {"mode": "full_frame"}})
+        assert resolve_pose_mode(cfg) == "full_frame"
+
+    def test_config_without_pose_returns_full_frame(self, tmp_path):
+        from gpu_service.rest_server import resolve_pose_mode
+
+        cfg = self._write(tmp_path, {"zones": [], "pose": {"input_size": "1280x736"}})
+        assert resolve_pose_mode(cfg) == "full_frame"
+
+    def test_malformed_config_falls_back_to_full_frame(self, tmp_path):
+        from gpu_service.rest_server import resolve_pose_mode
+
+        cfg = tmp_path / "zones.json"
+        cfg.write_text("{not valid json", encoding="utf-8")
+        assert resolve_pose_mode(cfg) == "full_frame"
+
+    def test_unknown_mode_falls_back_to_full_frame(self, tmp_path):
+        from gpu_service.rest_server import resolve_pose_mode
+
+        cfg = self._write(tmp_path, {"pose": {"mode": "quadtree"}})
+        assert resolve_pose_mode(cfg) == "full_frame"
