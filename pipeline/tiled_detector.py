@@ -29,6 +29,15 @@ from pipeline.preprocessing import InputSize
 # containment that tiling creates, where IoU under-scores the pair.
 DEFAULT_IOS_THRESHOLD = 0.6
 
+# A candidate box that swallows an already-kept box is treated as that person's
+# *whole body* (and the kept box as a clipped partial) only when it is at least
+# this many times larger. Below the ratio the two boxes are near-equal — two
+# people, one nested behind the other, or the same box twice — and greedy
+# confidence order, not size, decides which survives. Tuned to sit under the
+# full-frame-pass-vs-tile-partial area gap (a half-body partial is ~0.5x its
+# whole box) while staying above the jitter between two views of one whole body.
+DEFAULT_MIN_WHOLE_BOX_RATIO = 1.5
+
 
 @dataclass(frozen=True)
 class Tile:
@@ -122,22 +131,62 @@ def intersection_over_smaller(a: list[float], b: list[float]) -> float:
     return inter / smaller if smaller > 0 else 0.0
 
 
+def _bbox_area(bbox: list[float]) -> float:
+    return max(0.0, bbox[2] - bbox[0]) * max(0.0, bbox[3] - bbox[1])
+
+
 def merge_detections(
     detections: list[Detection],
     ios_threshold: float = DEFAULT_IOS_THRESHOLD,
+    min_whole_box_ratio: float = DEFAULT_MIN_WHOLE_BOX_RATIO,
 ) -> list[Detection]:
-    """Greedily dedup detections pooled from overlapping tiles.
+    """Greedily dedup pooled tile detections, then drop cross-tile split duplicates.
 
-    Highest confidence wins: a candidate is dropped when its IoS with an
-    already-kept detection is at or above ``ios_threshold``, so the whole-body
-    box beats the seam-clipped partial of the same person while two distinct
-    people standing close (neither containing the other) both survive.
+    Phase 1 is the original greedy pass: highest confidence wins, and a candidate
+    is suppressed when its IoS with an already-kept detection is at or above
+    ``ios_threshold``. So the whole-body box beats the seam-clipped partial of the
+    same person, and two distinct people standing close (neither containing the
+    other) both survive.
+
+    Phase 2 closes the precision leak #112 named: when a large person straddles a
+    tile seam, each tile emits a *partial* box and a marginally-higher-confidence
+    partial can be kept ahead of the whole-body box (from the full-frame pass),
+    which is then suppressed — leaving two barely-overlapping partials of one
+    person that phase 1 keeps as a double count. The suppressed whole box is the
+    evidence they are one object: any suppressed box that contains two or more
+    kept boxes, each at least ``min_whole_box_ratio``× smaller, marks those kept
+    boxes as fragments of a single person. The strongest fragment stays; the rest
+    are dropped. The coarse whole box is *not* reintroduced — measured worse at
+    IoU 0.5 than the native-resolution fragment it contains (#112), so promoting
+    it regresses the ≥260 px band rather than helping it.
     """
     kept: list[Detection] = []
+    suppressed: list[Detection] = []
     for candidate in sorted(detections, key=lambda d: d.confidence, reverse=True):
         if all(intersection_over_smaller(candidate.bbox, k.bbox) < ios_threshold for k in kept):
             kept.append(candidate)
-    return kept
+        else:
+            suppressed.append(candidate)
+
+    dropped: set[int] = set()
+    for container in suppressed:
+        container_area = _bbox_area(container.bbox)
+        members = [
+            det
+            for det in kept
+            if id(det) not in dropped
+            and intersection_over_smaller(det.bbox, container.bbox) >= ios_threshold
+            and container_area >= min_whole_box_ratio * _bbox_area(det.bbox)
+        ]
+        if len(members) >= 2:
+            # Fragments of one seam-split person: keep the strongest, drop the
+            # duplicates. ``>= 2`` guards a container that swallows a single box —
+            # that is an ordinary contained partial phase 1 already handled, not a
+            # split we should collapse further.
+            members.sort(key=lambda d: d.confidence, reverse=True)
+            for duplicate in members[1:]:
+                dropped.add(id(duplicate))
+    return [det for det in kept if id(det) not in dropped]
 
 
 def _translate_detection(det: Detection, dx: int, dy: int) -> None:
@@ -179,6 +228,7 @@ class TiledPoseDetector:
     zone_bounds: list[tuple[float, float, float, float]] | None = None
     ios_threshold: float = DEFAULT_IOS_THRESHOLD
     full_frame_pass: bool = False
+    min_whole_box_ratio: float = DEFAULT_MIN_WHOLE_BOX_RATIO
 
     @property
     def input_size(self) -> InputSize:
@@ -207,4 +257,4 @@ class TiledPoseDetector:
             for det in self.detector.detect(crop):
                 _translate_detection(det, tile.x1, tile.y1)
                 pooled.append(det)
-        return merge_detections(pooled, self.ios_threshold)
+        return merge_detections(pooled, self.ios_threshold, self.min_whole_box_ratio)

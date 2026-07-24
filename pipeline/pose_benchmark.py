@@ -1149,6 +1149,7 @@ def _run_tiling_arm_command(args: argparse.Namespace) -> int:
             "tile_size": list(expected_input_size),
             "overlap": args.overlap,
             "ios_threshold": detector.ios_threshold,
+            "min_whole_box_ratio": detector.min_whole_box_ratio,
             "scope": "zones" if zone_bounds is not None else "whole_frame",
             "roi_zone_bounds": [list(box) for box in zone_bounds] if zone_bounds else None,
             "full_frame_pass": detector.full_frame_pass,

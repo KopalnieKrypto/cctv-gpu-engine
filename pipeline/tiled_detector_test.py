@@ -130,6 +130,43 @@ def test_merge_keeps_both_when_overlap_stays_under_the_threshold():
     assert len(merged) == 2
 
 
+def test_merge_removes_a_cross_tile_duplicate_that_ios_alone_leaves_uncaught():
+    # The un-caught cross-tile duplicate (#112): a big near-field person spans a
+    # seam and is clipped into a left and a right partial by two tiles; the two
+    # partials barely overlap each other (IoS well under threshold), so IoS-only
+    # greedy keeps BOTH — one person counted twice, the precision leak. The
+    # full-frame pass frames them whole, but at a lower score than the strongest
+    # partial, so greedy suppresses the whole box. That suppressed whole box is
+    # the evidence the two partials are one person: it contains both, each much
+    # smaller, so the weaker partial is dropped as a duplicate and one detection
+    # remains — the strongest, native-resolution fragment, not the coarse whole.
+    partial_left = _det([1000, 500, 1160, 1400], 0.92)  # strongest, a clipped half
+    whole = _det([1000, 500, 1300, 1400], 0.88)  # full-frame pass: contains both halves
+    partial_right = _det([1140, 500, 1300, 1400], 0.80)  # the other tile's half
+
+    merged = merge_detections([partial_left, whole, partial_right], ios_threshold=0.6)
+
+    assert [d.bbox for d in merged] == [[1000, 500, 1160, 1400]]
+    assert [d.confidence for d in merged] == [0.92]
+
+
+def test_merge_keeps_the_native_partial_over_a_lower_confidence_whole_box():
+    # The big-person whole-box-vs-partial case (#112). The issue floated promoting
+    # the whole box over a higher-confidence partial, but the measured benchmark
+    # says the coarse full-frame-pass whole box matches the GT *worse* at IoU 0.5
+    # than the native-resolution tile partial, so promoting it regresses the
+    # ≥260 px band. With no second fragment to mark a duplicate, the single
+    # contained partial is left exactly as greedy chose it — the whole box is
+    # suppressed, never promoted.
+    partial = _det([0, 0, 90, 180], 0.90)  # native tile half, higher confidence
+    whole = _det([0, 0, 180, 180], 0.85)  # coarse full-frame box, contains it
+
+    merged = merge_detections([partial, whole], ios_threshold=0.6)
+
+    assert [d.bbox for d in merged] == [[0, 0, 90, 180]]
+    assert [d.confidence for d in merged] == [0.90]
+
+
 class _FakeTileDetector:
     """A per-tile pose call stand-in: returns canned crop-local detections.
 
