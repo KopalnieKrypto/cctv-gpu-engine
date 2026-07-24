@@ -12,7 +12,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from copy import deepcopy
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -314,7 +314,32 @@ ARM_INPUT_SIZES: dict[str, tuple[int, int]] = {
     # at 2.24x its measured cost rather than full_frame_1280's 3.87x.
     "full_frame_1280x736": (1280, 736),
     "focused_roi_640": (640, 640),
+    # Issue #110: native-resolution tiling. Both arms run the same 1280x736 model
+    # per tile — a 1280x736 native tile letterboxes at scale 1.0, so an 80-120 px
+    # person keeps their pixels instead of shrinking below the ~60 px input floor
+    # a full-frame downscale forced them under. The arms differ only in reach:
+    # the whole frame (grid) versus only the authored zones (focused compute).
+    "tiled_1280x736": (1280, 736),
+    "tiled_zones_1280x736": (1280, 736),
 }
+
+# The full-frame arms measured by ``run-arm`` (#86/#101). Kept distinct from the
+# tiling arms so ``run-arm`` cannot silently measure a tiling arm as a plain
+# full-frame detector — the input size is identical, only the mode differs.
+FULL_FRAME_ARMS: tuple[str, ...] = (
+    "baseline_640",
+    "baseline_640x384",
+    "full_frame_1280",
+    "full_frame_1280x736",
+    "focused_roi_640",
+)
+
+# The tiling arms measured by ``run-tiling-arm`` (#110).
+TILING_ARMS: tuple[str, ...] = ("tiled_1280x736", "tiled_zones_1280x736")
+
+# Fraction of a tile shared with each neighbour (#110). 20% keeps a person on a
+# tile seam whole inside at least one tile at the cost of the extra tiles.
+DEFAULT_TILE_OVERLAP = 0.2
 
 
 def expected_input_size_for_arm(arm: str) -> tuple[int, int]:
@@ -629,6 +654,140 @@ def _metrics(tp: int, fp: int, fn: int) -> DetectionScore:
     return DetectionScore(tp=tp, fp=fp, fn=fn, precision=precision, recall=recall, f1=f1)
 
 
+# The recall-by-native-height bands #101 made the headline metric. Recall is
+# flatly 0% below a ~60 px input-height floor and steps to ~70% above it, so the
+# story is which band an arm reaches — the 80-120 px bucket (90 of 296 people)
+# is the one tiling exists to recover. Half-open [lo, hi); the top band is open.
+DEFAULT_HEIGHT_BANDS: list[tuple[float, float]] = [
+    (0.0, 80.0),
+    (80.0, 120.0),
+    (120.0, 180.0),
+    (180.0, 260.0),
+    (260.0, float("inf")),
+]
+
+
+def match_ground_truth(
+    detections: list[Detection],
+    ground_truth: list[list[float]],
+    iou_threshold: float = 0.5,
+) -> set[int]:
+    """Return the indices of ground-truth boxes matched one-to-one to detections.
+
+    Detections are consumed in descending confidence, each claiming its
+    highest-IoU still-unclaimed ground-truth box when the overlap clears
+    ``iou_threshold``. The single matching rule shared by :func:`score_frame`
+    (which reads the count as true positives) and :func:`recall_by_height`
+    (which reads *which* people were found), so the two can never disagree.
+    """
+    unmatched = set(range(len(ground_truth)))
+    matched: set[int] = set()
+    for detection in sorted(detections, key=lambda item: item.confidence, reverse=True):
+        best = max(
+            unmatched,
+            key=lambda index: _iou(detection.bbox, ground_truth[index]),
+            default=None,
+        )
+        if best is not None and _iou(detection.bbox, ground_truth[best]) >= iou_threshold:
+            unmatched.remove(best)
+            matched.add(best)
+    return matched
+
+
+def recall_by_height(
+    frames: Iterable[tuple[list[Detection], list[list[float]]]],
+    bands: list[tuple[float, float]] = DEFAULT_HEIGHT_BANDS,
+    iou_threshold: float = 0.5,
+) -> list[dict[str, Any]]:
+    """Aggregate detection recall split by native ground-truth person height.
+
+    ``frames`` yields ``(detections, ground_truth)`` per frame — the detections
+    already in full-frame coordinates. Each ground-truth box is bucketed by its
+    pixel height (``y2 - y1``) into the half-open band containing it and counted
+    as found when :func:`match_ground_truth` paired it. Returns one record per
+    band in ``bands`` order, so a zero-recall band is still reported rather than
+    silently dropped.
+    """
+    people = [0 for _ in bands]
+    found = [0 for _ in bands]
+    for detections, ground_truth in frames:
+        matched = match_ground_truth(detections, ground_truth, iou_threshold)
+        for index, box in enumerate(ground_truth):
+            height = box[3] - box[1]
+            for band_index, (low, high) in enumerate(bands):
+                if low <= height < high:
+                    people[band_index] += 1
+                    if index in matched:
+                        found[band_index] += 1
+                    break
+    return [
+        {
+            "min_height": low,
+            "max_height": None if high == float("inf") else high,
+            "people": people[band_index],
+            "matched": found[band_index],
+            "recall": (found[band_index] / people[band_index]) if people[band_index] else 0.0,
+        }
+        for band_index, (low, high) in enumerate(bands)
+    ]
+
+
+def recall_by_height_from_evidence(
+    evidence_frames: list[dict[str, Any]],
+    benchmark_frames: list[BenchmarkFrame],
+    bands: list[tuple[float, float]] = DEFAULT_HEIGHT_BANDS,
+    iou_threshold: float = 0.5,
+) -> list[dict[str, Any]]:
+    """Recompute recall-by-height from a run's stored per-frame detection evidence.
+
+    :func:`run_detection_arm` already persisted every detection's bbox and
+    confidence, so the size breakdown reads back from that rather than paying a
+    second GPU pass. Only bbox and confidence drive matching, so keypoints are
+    left empty in the reconstructed detections.
+    """
+    frames = [
+        (
+            [
+                Detection(
+                    bbox=list(evidence["bbox"]),
+                    confidence=float(evidence["confidence"]),
+                    keypoints=[],
+                )
+                for evidence in evidence_frame["detections"]
+            ],
+            benchmark_frame.ground_truth,
+        )
+        for evidence_frame, benchmark_frame in zip(evidence_frames, benchmark_frames, strict=True)
+    ]
+    return recall_by_height(frames, bands=bands, iou_threshold=iou_threshold)
+
+
+def pose_min_per_hour(pose_wallclock_s: list[float], fps: int) -> float:
+    """Extrapolate the mean per-frame pose cost to minutes of pose per video hour.
+
+    This is the detector's *isolated* cost (#110 methodology): a tiling arm runs
+    N pose calls per frame, and ``pose_wallclock_s`` already sums them, so this
+    is the per-hour floor that tiling's pose stage alone imposes — decode and the
+    VLM (which scales with detections found) are read separately.
+    """
+    if not pose_wallclock_s:
+        return 0.0
+    mean_s = sum(pose_wallclock_s) / len(pose_wallclock_s)
+    return mean_s * fps * 3600 / 60
+
+
+def _polygon_bbox(polygon: list[tuple[float, float]]) -> tuple[float, float, float, float]:
+    """Axis-aligned ``xyxy`` bounding box of a polygon's vertices."""
+    xs = [point[0] for point in polygon]
+    ys = [point[1] for point in polygon]
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def zone_bounding_boxes(zones: ZoneConfig) -> list[tuple[float, float, float, float]]:
+    """The ``xyxy`` bounding box of every authored zone — the with-zones tiling reach."""
+    return [_polygon_bbox(zone.polygon) for zone in zones.zones]
+
+
 def score_frame(
     detections: list[Detection],
     ground_truth: list[list[float]],
@@ -641,21 +800,9 @@ def score_frame(
         if zone is None
         else [detection for detection in detections if zone.contains(*foot_point(detection))]
     )
-    unmatched = set(range(len(ground_truth)))
-    tp = 0
-    fp = 0
-    for detection in sorted(in_zone, key=lambda item: item.confidence, reverse=True):
-        best = max(
-            unmatched,
-            key=lambda index: _iou(detection.bbox, ground_truth[index]),
-            default=None,
-        )
-        if best is not None and _iou(detection.bbox, ground_truth[best]) >= iou_threshold:
-            unmatched.remove(best)
-            tp += 1
-        else:
-            fp += 1
-    return _metrics(tp=tp, fp=fp, fn=len(unmatched))
+    matched = match_ground_truth(in_zone, ground_truth, iou_threshold)
+    tp = len(matched)
+    return _metrics(tp=tp, fp=len(in_zone) - tp, fn=len(ground_truth) - tp)
 
 
 def _detection_to_evidence(detection: Detection) -> dict[str, Any]:
@@ -922,6 +1069,122 @@ def _run_arm_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_tiling_arm_command(args: argparse.Namespace) -> int:
+    """Measure one native-resolution tiling arm (#110), detector-isolated.
+
+    Scores whole-frame recall (the scoring zone stays the fixture's inference_roi
+    zone, unchanged from #101) plus recall-by-native-height, and reports the
+    pose-only per-hour cost and peak VRAM. No end-to-end VLM run: the tiling
+    pipeline is not wired end-to-end yet (a follow-up), and #110 isolates the
+    detector on purpose — the VLM scales with detections found and is read apart.
+    """
+    from pipeline.pose_detector import load_pose_model
+    from pipeline.tiled_detector import TiledPoseDetector
+
+    zones = ZoneConfig.load(args.zones)
+    if zones.inference_roi is None:
+        raise BenchmarkConfigError("zones config needs inference_roi for the tiling scoring zone")
+    scoring_zone = next(zone for zone in zones.zones if zone.id == zones.inference_roi.zone_id)
+    expected_input_size = expected_input_size_for_arm(args.arm)
+    tile_w, tile_h = expected_input_size
+
+    zone_bounds: list[tuple[float, float, float, float]] | None = None
+    if args.arm == "tiled_zones_1280x736":
+        if not args.roi_zones:
+            raise BenchmarkConfigError(
+                "the with-zones arm needs --roi-zones naming the authored zones to tile within"
+            )
+        zone_bounds = zone_bounding_boxes(ZoneConfig.load(args.roi_zones))
+        if not zone_bounds:
+            raise BenchmarkConfigError(
+                f"--roi-zones {args.roi_zones} defines no zones to tile within"
+            )
+
+    fixture = load_benchmark_fixture(Path(args.fixture), zone=scoring_zone)
+    output = Path(args.output)
+    partial_dir = output.parent / f"{output.stem}.partial"
+
+    with PeakProcessVramMonitor() as vram:
+        base_detector = load_pose_model(args.model, zones=None)
+        if input_wh(base_detector.input_size) != expected_input_size:
+            raise BenchmarkConfigError(
+                f"arm {args.arm} requires a fixed {expected_input_size} model, "
+                f"but {args.model} declares {input_wh(base_detector.input_size)}"
+            )
+        detector = TiledPoseDetector(
+            detector=base_detector,
+            tile_w=tile_w,
+            tile_h=tile_h,
+            overlap=args.overlap,
+            zone_bounds=zone_bounds,
+        )
+        detection_run = run_detection_arm(
+            name=args.arm,
+            detector=detector,
+            frames=fixture.frames,
+            zone=scoring_zone,
+            partial_path=partial_dir / "detections.json",
+        )
+
+    height_recall = recall_by_height_from_evidence(detection_run.frames, fixture.frames)
+
+    metrics = _metrics(detection_run.tp, detection_run.fp, detection_run.fn)
+    total_detections = sum(len(frame["detections"]) for frame in detection_run.frames)
+    payload = {
+        "schema_version": 1,
+        "name": args.arm,
+        "fixture": fixture.summary.fixture_id,
+        "mode": "tiling",
+        "tiling": {
+            "tile_size": list(expected_input_size),
+            "overlap": args.overlap,
+            "ios_threshold": detector.ios_threshold,
+            "scope": "zones" if zone_bounds is not None else "whole_frame",
+            "roi_zone_bounds": [list(box) for box in zone_bounds] if zone_bounds else None,
+        },
+        "quality": {
+            "tp": metrics.tp,
+            "fp": metrics.fp,
+            "fn": metrics.fn,
+            "precision": metrics.precision,
+            "recall": metrics.recall,
+            "f1": metrics.f1,
+        },
+        "recall_by_height": height_recall,
+        "pose_inference_wallclock_s": {
+            "samples": detection_run.pose_wallclock_s,
+            "p50": _percentile(detection_run.pose_wallclock_s, 0.50),
+            "p95": _percentile(detection_run.pose_wallclock_s, 0.95),
+        },
+        "detector_cost": {
+            "total_detections": total_detections,
+            "pose_min_per_hour": pose_min_per_hour(detection_run.pose_wallclock_s, fps=1),
+            "fps": 1,
+            "formula": "mean(pose_wallclock_s) * fps * 3600 / 60",
+            "note": (
+                "Pose-only, detector-isolated (#110). The N tiles per frame are "
+                "summed into each pose_wallclock_s sample; decode and VLM are "
+                "excluded and the VLM scales with total_detections."
+            ),
+        },
+        "peak_process_gpu_vram_mb": vram.peak_mb,
+        "frames": detection_run.frames,
+        "model": {
+            "path": args.model,
+            "sha256": _sha256_file(Path(args.model)),
+            "input_size": list(expected_input_size),
+        },
+    }
+    _write_json(output, payload)
+    print(
+        f"BENCHMARK_TILING_ARM_COMPLETE arm={args.arm} frames={fixture.summary.frame_count} "
+        f"detections={total_detections} vram_mb={vram.peak_mb:.1f} "
+        f"pose_min_per_h={payload['detector_cost']['pose_min_per_hour']:.2f}",
+        flush=True,
+    )
+    return 0
+
+
 def _metrics_from_arm_payload(payload: dict[str, Any]) -> ArmMetrics:
     quality = payload["quality"]
     end_to_end = payload["end_to_end"]
@@ -992,11 +1255,11 @@ def _select_command(args: argparse.Namespace) -> int:
 def build_cli_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Issue #86 measured pose-mode benchmark")
     subcommands = parser.add_subparsers(dest="command", required=True)
-    run_arm = subcommands.add_parser("run-arm", help="measure one arm in an isolated process")
+    run_arm = subcommands.add_parser("run-arm", help="measure one full-frame arm in isolation")
     run_arm.add_argument(
         "--arm",
         required=True,
-        choices=sorted(ARM_INPUT_SIZES),
+        choices=sorted(FULL_FRAME_ARMS),
     )
     run_arm.add_argument("--fixture", required=True)
     run_arm.add_argument("--zones", required=True)
@@ -1006,6 +1269,21 @@ def build_cli_parser() -> argparse.ArgumentParser:
     run_arm.add_argument("--film-2-fixture", required=True)
     run_arm.add_argument("--output", required=True)
     run_arm.set_defaults(handler=_run_arm_command)
+
+    run_tiling = subcommands.add_parser(
+        "run-tiling-arm", help="measure one native-resolution tiling arm (#110)"
+    )
+    run_tiling.add_argument("--arm", required=True, choices=sorted(TILING_ARMS))
+    run_tiling.add_argument("--fixture", required=True)
+    run_tiling.add_argument("--zones", required=True)
+    run_tiling.add_argument(
+        "--roi-zones",
+        help="zones config whose polygons bound the with-zones arm's tiling (required for it)",
+    )
+    run_tiling.add_argument("--model", required=True)
+    run_tiling.add_argument("--overlap", type=float, default=DEFAULT_TILE_OVERLAP)
+    run_tiling.add_argument("--output", required=True)
+    run_tiling.set_defaults(handler=_run_tiling_arm_command)
 
     select = subcommands.add_parser("select", help="select winner from three measured arm files")
     select.add_argument("--fixture", required=True)

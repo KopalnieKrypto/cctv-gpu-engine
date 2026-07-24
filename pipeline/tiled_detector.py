@@ -1,0 +1,198 @@
+"""Native-resolution frame tiling for pose detection (issue #110).
+
+#101 established that the effective detection floor is ~60 px of person height
+at model input, and that the 80-120 px native band — the largest bucket in the
+`magazyn-hall-v1` ground truth — is 0% at every full-frame arm because a 3840 px
+frame squeezed into a 1280 px input shrinks those people below the floor. Tiling
+is the only lever left: crop the frame into overlapping **native-resolution**
+tiles sized to the model input, detect each tile at full pixel scale, translate
+detections back to full-frame coordinates, and merge across the overlaps.
+
+The geometry and merge are pure; the per-tile pose call is supplied by an inner
+detector object, so :class:`TiledPoseDetector` is testable without a GPU.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+import numpy as np
+
+from pipeline.postprocessing import Detection
+from pipeline.preprocessing import InputSize
+
+# Cross-tile duplicates are suppressed above this Intersection-over-Smaller. It
+# is deliberately looser than the 0.45 NMS IoU used within a single frame: a
+# person clipped by a tile seam produces a *partial* box, and IoS measures how
+# much of the smaller box the larger one swallows — the right question for the
+# containment that tiling creates, where IoU under-scores the pair.
+DEFAULT_IOS_THRESHOLD = 0.6
+
+
+@dataclass(frozen=True)
+class Tile:
+    """A native-frame crop rectangle in ``xyxy`` pixel coordinates."""
+
+    x1: int
+    y1: int
+    x2: int
+    y2: int
+
+
+def _axis_starts(length: int, tile: int, overlap: float) -> list[int]:
+    """Start offsets so ``tile``-wide windows cover ``[0, length)`` with overlap.
+
+    The last window is flush against the far edge rather than hanging past it,
+    so every tile stays the same native size (no ragged, letterbox-padded edge
+    tile) and no strip of the frame goes unscanned.
+    """
+    if tile >= length:
+        return [0]
+    step = max(1, round(tile * (1.0 - overlap)))
+    starts = list(range(0, length - tile + 1, step))
+    if starts[-1] != length - tile:
+        starts.append(length - tile)
+    return starts
+
+
+def tile_grid(
+    *,
+    frame_w: int,
+    frame_h: int,
+    tile_w: int,
+    tile_h: int,
+    overlap: float,
+) -> list[Tile]:
+    """Slice a frame into overlapping native-resolution tiles.
+
+    ``overlap`` is the fraction of a tile shared with its neighbour (0.2 = 20%),
+    so a person straddling a tile boundary is whole inside at least one tile.
+    Tiles are clamped to the frame; when the frame is smaller than a tile in an
+    axis a single tile spans that axis.
+    """
+    x_starts = _axis_starts(frame_w, tile_w, overlap)
+    y_starts = _axis_starts(frame_h, tile_h, overlap)
+    return [
+        Tile(
+            x1=x,
+            y1=y,
+            x2=min(x + tile_w, frame_w),
+            y2=min(y + tile_h, frame_h),
+        )
+        for y in y_starts
+        for x in x_starts
+    ]
+
+
+def _tiles_overlap(tile: Tile, bounds: tuple[float, float, float, float]) -> bool:
+    """Whether ``tile`` shares positive area with the ``xyxy`` ``bounds`` box."""
+    bx1, by1, bx2, by2 = bounds
+    return tile.x1 < bx2 and bx1 < tile.x2 and tile.y1 < by2 and by1 < tile.y2
+
+
+def restrict_tiles_to_bounds(
+    tiles: list[Tile],
+    bounds: list[tuple[float, float, float, float]],
+) -> list[Tile]:
+    """Keep tiles that share pixels with any zone bounding box (with-zones arm).
+
+    A tile only grazing a bbox edge shares zero area and carries no in-zone
+    pixels, so it is dropped: the point of the with-zones arm is to not spend a
+    pose call on frame regions no authored zone covers.
+    """
+    return [tile for tile in tiles if any(_tiles_overlap(tile, box) for box in bounds)]
+
+
+def intersection_over_smaller(a: list[float], b: list[float]) -> float:
+    """Intersection area over the smaller box's area, for two ``xyxy`` boxes.
+
+    Unlike IoU this reaches 1.0 when one box sits fully inside the other — the
+    signature of a person clipped by a tile seam whose partial box nests inside
+    their whole box in the neighbouring tile.
+    """
+    ix1 = max(a[0], b[0])
+    iy1 = max(a[1], b[1])
+    ix2 = min(a[2], b[2])
+    iy2 = min(a[3], b[3])
+    inter = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
+    area_a = max(0.0, a[2] - a[0]) * max(0.0, a[3] - a[1])
+    area_b = max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
+    smaller = min(area_a, area_b)
+    return inter / smaller if smaller > 0 else 0.0
+
+
+def merge_detections(
+    detections: list[Detection],
+    ios_threshold: float = DEFAULT_IOS_THRESHOLD,
+) -> list[Detection]:
+    """Greedily dedup detections pooled from overlapping tiles.
+
+    Highest confidence wins: a candidate is dropped when its IoS with an
+    already-kept detection is at or above ``ios_threshold``, so the whole-body
+    box beats the seam-clipped partial of the same person while two distinct
+    people standing close (neither containing the other) both survive.
+    """
+    kept: list[Detection] = []
+    for candidate in sorted(detections, key=lambda d: d.confidence, reverse=True):
+        if all(intersection_over_smaller(candidate.bbox, k.bbox) < ios_threshold for k in kept):
+            kept.append(candidate)
+    return kept
+
+
+def _translate_detection(det: Detection, dx: int, dy: int) -> None:
+    """Shift a tile-local detection into full-frame pixels, in place."""
+    det.bbox[0] += dx
+    det.bbox[1] += dy
+    det.bbox[2] += dx
+    det.bbox[3] += dy
+    for keypoint in det.keypoints:
+        keypoint.x += dx
+        keypoint.y += dy
+
+
+@dataclass
+class TiledPoseDetector:
+    """Run an inner single-tile pose detector across a native-resolution grid.
+
+    Presents the same ``detect(img_bgr) -> list[Detection]`` surface as
+    :class:`pipeline.pose_detector.PoseDetector`, so the benchmark harness and
+    pipeline drive it unchanged. ``detector`` is any object exposing that method
+    plus ``input_size`` — in production a zone-less ``PoseDetector`` whose model
+    input equals the tile size, so each tile letterboxes at scale 1.0 and people
+    keep their native pixel height.
+
+    ``zone_bounds`` (with-zones arm) restricts inference to tiles that intersect
+    an authored zone's bounding box; ``None`` tiles the whole frame.
+    """
+
+    detector: Any
+    tile_w: int
+    tile_h: int
+    overlap: float
+    zone_bounds: list[tuple[float, float, float, float]] | None = None
+    ios_threshold: float = DEFAULT_IOS_THRESHOLD
+
+    @property
+    def input_size(self) -> InputSize:
+        """The inner model's input shape, so the harness's shape guard passes."""
+        return self.detector.input_size
+
+    def detect(self, img_bgr: np.ndarray) -> list[Detection]:
+        frame_h, frame_w = img_bgr.shape[:2]
+        tiles = tile_grid(
+            frame_w=frame_w,
+            frame_h=frame_h,
+            tile_w=self.tile_w,
+            tile_h=self.tile_h,
+            overlap=self.overlap,
+        )
+        if self.zone_bounds is not None:
+            tiles = restrict_tiles_to_bounds(tiles, self.zone_bounds)
+        pooled: list[Detection] = []
+        for tile in tiles:
+            crop = img_bgr[tile.y1 : tile.y2, tile.x1 : tile.x2]
+            for det in self.detector.detect(crop):
+                _translate_detection(det, tile.x1, tile.y1)
+                pooled.append(det)
+        return merge_detections(pooled, self.ios_threshold)

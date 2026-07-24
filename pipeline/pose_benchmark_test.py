@@ -24,6 +24,7 @@ import numpy as np
 import pytest
 
 from pipeline.pose_benchmark import (
+    DEFAULT_HEIGHT_BANDS,
     HEARTBEAT_INTERVAL_S,
     ArmMetrics,
     BenchmarkConfigError,
@@ -35,9 +36,11 @@ from pipeline.pose_benchmark import (
     build_results_artifact,
     evaluate_eligibility,
     load_benchmark_fixture,
+    match_ground_truth,
     measure_end_to_end,
     measure_fixture_recall,
     query_process_gpu_vram_mb,
+    recall_by_height,
     run_detection_arm,
     score_frame,
     select_winner,
@@ -78,6 +81,62 @@ def test_score_frame_matches_once_filters_by_zone_and_counts_duplicates():
     assert score.precision == pytest.approx(2 / 3)
     assert score.recall == pytest.approx(1.0)
     assert score.f1 == pytest.approx(0.8)
+
+
+def test_match_ground_truth_pairs_each_person_once_in_confidence_order():
+    # Highest-confidence detection claims its best GT first; a lower-confidence
+    # duplicate of an already-claimed person matches nothing.
+    detections = [
+        _detection([0, 0, 10, 20], 0.9),
+        _detection([0, 0, 10, 20], 0.5),  # duplicate of person 0
+        _detection([100, 0, 110, 20], 0.8),
+    ]
+    ground_truth = [[0, 0, 10, 20], [100, 0, 110, 20]]
+
+    matched = match_ground_truth(detections, ground_truth, iou_threshold=0.5)
+
+    assert matched == {0, 1}
+
+
+def test_match_ground_truth_ignores_detections_below_the_iou_threshold():
+    detections = [_detection([0, 0, 10, 20], 0.9)]
+    ground_truth = [[500, 500, 510, 520]]
+
+    assert match_ground_truth(detections, ground_truth, iou_threshold=0.5) == set()
+
+
+def test_recall_by_height_buckets_matched_people_into_native_size_bands():
+    # The metric #101 made the headline: recall split by native person height,
+    # because the 80-120 px band is the one tiling exists to recover. Two frames,
+    # people at heights 100 (matched), 100 (missed), 300 (matched).
+    bands = [(0.0, 120.0), (120.0, float("inf"))]
+    frames = [
+        (
+            [_detection([0, 0, 30, 100], 0.9)],  # matches the first 100px person
+            [[0, 0, 30, 100], [200, 0, 230, 100]],  # second 100px person is missed
+        ),
+        (
+            [_detection([0, 0, 60, 300], 0.9)],  # matches the 300px person
+            [[0, 0, 60, 300]],
+        ),
+    ]
+
+    result = recall_by_height(frames, bands=bands, iou_threshold=0.5)
+
+    assert result == [
+        {"min_height": 0.0, "max_height": 120.0, "people": 2, "matched": 1, "recall": 0.5},
+        {"min_height": 120.0, "max_height": None, "people": 1, "matched": 1, "recall": 1.0},
+    ]
+
+
+def test_default_height_bands_are_the_issue_101_boundaries():
+    assert DEFAULT_HEIGHT_BANDS == [
+        (0.0, 80.0),
+        (80.0, 120.0),
+        (120.0, 180.0),
+        (180.0, 260.0),
+        (260.0, float("inf")),
+    ]
 
 
 def test_score_frame_can_measure_whole_frame_regression_without_a_zone_filter():
@@ -529,6 +588,14 @@ class TestArmInputSizes:
         with pytest.raises(BenchmarkConfigError, match="unknown benchmark arm"):
             expected_input_size_for_arm("baseline_512")
 
+    def test_the_tiling_arms_declare_the_1280_by_736_tile_input(self):
+        from pipeline.pose_benchmark import expected_input_size_for_arm
+
+        # Both tiling arms run the same 1280x736 model per tile; they differ only
+        # in whether the whole frame or just authored zones get tiled.
+        assert expected_input_size_for_arm("tiled_1280x736") == (1280, 736)
+        assert expected_input_size_for_arm("tiled_zones_1280x736") == (1280, 736)
+
     def test_run_arm_cli_accepts_the_non_square_arm(self):
         from pipeline.pose_benchmark import build_cli_parser
 
@@ -555,3 +622,104 @@ class TestArmInputSizes:
         )
 
         assert args.arm == "baseline_640x384"
+
+
+class TestTilingArmWiring:
+    """Issue #110 — the tiling arms and their isolated-detector cost readout."""
+
+    def test_pose_min_per_hour_extrapolates_per_frame_pose_cost(self):
+        from pipeline.pose_benchmark import pose_min_per_hour
+
+        # At 1 fps, a mean 0.5 s pose call per frame is 0.5 s x 3600 frames = 1800
+        # pose-seconds an hour = 30 minutes. This is the detector's isolated cost,
+        # not the full pipeline's — VLM/decode are read separately (#110).
+        assert pose_min_per_hour([0.4, 0.6], fps=1) == pytest.approx(30.0)
+        assert pose_min_per_hour([], fps=1) == 0.0
+
+    def test_zone_bounding_boxes_reduces_each_zone_polygon_to_its_bbox(self):
+        from pipeline.pose_benchmark import zone_bounding_boxes
+        from pipeline.zones import ZoneConfig
+
+        config = ZoneConfig.from_dict(
+            {
+                "zones": [
+                    {"id": "z1", "name": "Z1", "polygon": [[10, 20], [110, 20], [60, 220]]},
+                ]
+            }
+        )
+
+        assert zone_bounding_boxes(config) == [(10.0, 20.0, 110.0, 220.0)]
+
+    def test_run_tiling_arm_cli_parses_both_arms_and_the_roi_zones_flag(self):
+        from pipeline.pose_benchmark import build_cli_parser
+
+        args = build_cli_parser().parse_args(
+            [
+                "run-tiling-arm",
+                "--arm",
+                "tiled_zones_1280x736",
+                "--fixture",
+                "m.json",
+                "--zones",
+                "z.json",
+                "--roi-zones",
+                "roi.json",
+                "--model",
+                "m.onnx",
+                "--overlap",
+                "0.2",
+                "--output",
+                "o.json",
+            ]
+        )
+
+        assert args.arm == "tiled_zones_1280x736"
+        assert args.roi_zones == "roi.json"
+        assert args.overlap == pytest.approx(0.2)
+
+    def test_recall_by_height_from_evidence_rebuilds_detections_from_stored_bboxes(self):
+        from pipeline.pose_benchmark import recall_by_height_from_evidence
+
+        # The shape run_detection_arm persists: per-frame "detections" evidence
+        # with bbox + confidence. One 100px person found, one 100px person missed.
+        evidence_frames = [
+            {"detections": [{"bbox": [0, 0, 30, 100], "confidence": 0.9}]},
+        ]
+        benchmark_frames = [
+            BenchmarkFrame(
+                id="f0",
+                window_id="w1",
+                image=None,
+                ground_truth=[[0, 0, 30, 100], [200, 0, 230, 100]],
+            )
+        ]
+
+        result = recall_by_height_from_evidence(
+            evidence_frames,
+            benchmark_frames,
+            bands=[(0.0, 120.0)],
+        )
+
+        assert result == [
+            {"min_height": 0.0, "max_height": 120.0, "people": 2, "matched": 1, "recall": 0.5}
+        ]
+
+    def test_run_tiling_arm_cli_rejects_a_full_frame_arm_name(self):
+        from pipeline.pose_benchmark import build_cli_parser
+
+        with pytest.raises(SystemExit):
+            build_cli_parser().parse_args(
+                [
+                    "run-tiling-arm",
+                    "--arm",
+                    "baseline_640",
+                    "--fixture",
+                    "m.json",
+                    "--zones",
+                    "z.json",
+                    "--model",
+                    "m.onnx",
+                    "--output",
+                    "o.json",
+                ]
+            )

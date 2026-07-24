@@ -125,3 +125,58 @@ If no arm qualifies, file the required narrow follow-up first and rerun
 `select` with `--follow-up-issue <URL>`. No production default changes. If a
 non-baseline arm wins, promote only that arm, rerun the worker-path validation,
 then regenerate the final artifact with `--production-default-changed`.
+
+## Native-resolution tiling arms (issue #110)
+
+#101 proved the effective detection floor is ~60 px of person height at model
+input, and that the 80–120 px native band (90 of 296 people in `magazyn-hall-v1`)
+is 0% at every full-frame arm because a 3840 px frame downscaled to a 1280 px
+input shrinks those people below the floor. Tiling is the only lever left: crop
+the frame into overlapping **native-resolution** 1280×736 tiles (a native tile
+letterboxes at scale 1.0, so an 80–120 px person keeps their pixels), detect each
+tile, translate back to full-frame coordinates, and merge across the overlaps
+with Intersection-over-Smaller dedup.
+
+Two arms, same fixture and whole-frame scoring zone as #101:
+
+- `tiled_1280x736` — tile the whole frame (grid). Reaches every band, pays for
+  the most tiles.
+- `tiled_zones_1280x736` — tile only inside the authored zone bounding boxes
+  (`--roi-zones`), the production-shaped variant. Scoring stays whole-frame, so
+  a person outside the tiled zones is an honest miss.
+
+The subcommand is **detector-isolated** (#110): it scores whole-frame recall,
+recall-by-native-height, per-process peak VRAM, and the pose-only per-hour cost
+(`mean(pose_wallclock_s) * fps * 3600 / 60` — N tiles per frame are summed into
+each sample). No end-to-end VLM run: the tiling pipeline is not wired end-to-end
+yet (a follow-up), and the VLM cost scales with `total_detections`, read apart.
+The reused 1280×736 model is already baked into the image at
+`/app/models/yolo11s-pose-1280x736.onnx` (sha `7ee0fcd8…`).
+
+Run each arm in a fresh container on an idle GPU (same pattern as above,
+`--pid=host` for the per-PID VRAM sampler):
+
+```bash
+export DOCKER_HOST=unix:///var/run/docker.sock
+IMAGE=ghcr.io/kopalniekrypto/cctv-gpu-engine/gpu-service:latest
+
+docker run --rm --gpus device=1 --pid=host --ipc=host \
+  --entrypoint /app/.venv/bin/python \
+  -v "$PWD/pipeline:/app/pipeline:ro" \
+  -v "$PWD/benchmarks:/app/benchmarks:ro" \
+  -v "$PWD/benchmark-results:/app/benchmark-results" \
+  "$IMAGE" -u -m pipeline.pose_benchmark run-tiling-arm \
+  --arm tiled_1280x736 \
+  --fixture benchmarks/pose-resolution/magazyn-hall-v1/manifest.json \
+  --zones benchmarks/pose-resolution/magazyn-hall-v1/zones.json \
+  --model /app/models/yolo11s-pose-1280x736.onnx \
+  --overlap 0.2 \
+  --output benchmark-results/issue-110/tiled_1280x736.json
+```
+
+For the with-zones arm add `--arm tiled_zones_1280x736` and
+`--roi-zones benchmarks/pose-resolution/magazyn-hall-v1/zones-roi.json` (the
+authored sub-frame zones mirrored from the production camera). Each arm's JSON
+records `recall_by_height`, `quality`, `detector_cost`, `peak_process_gpu_vram_mb`,
+and raw per-frame detections. There is no `select` step — the tiling arms are a
+measurement against #101's rows, not a production-winner election.
