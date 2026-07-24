@@ -28,6 +28,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from pipeline.aggregator import Aggregator, ReportData
+from pipeline.detection_scale import detection_scale
 from pipeline.detections_dump import detection_to_dict
 from pipeline.frame_extractor import extract_frame_at
 from pipeline.pose_detector import load_pose_model
@@ -208,6 +209,11 @@ def _analyze_to_report_data(
         "source_frame": None,
     }
 
+    # Native bbox heights of every raw detection, for the #113 recall-risk
+    # signal. Collected before track_filter drops unproven tracks, because this
+    # measures the detector's resolvability, not what survived aggregation.
+    detected_heights: list[float] = []
+
     with DetectionsDumpWriter(dump_detections) as dump:
         # --- Per-person MLP path -------------------------------------------
         if classifier == "mlp":
@@ -237,6 +243,7 @@ def _analyze_to_report_data(
                         detection.activity = mlp.classify(detection)
                     detections = smoother.smooth(detections)
                     dump.write_frame(shifted, detections)
+                    detected_heights.extend(d.bbox[3] - d.bbox[1] for d in detections)
                     _aggregate(aggregator, track_filter, shifted, frame, detections)
                     last_ts = shifted
                     frames_since_progress += 1
@@ -304,6 +311,7 @@ def _analyze_to_report_data(
                         prev_centers = []
 
                     dump.write_frame(shifted, detections)
+                    detected_heights.extend(d.bbox[3] - d.bbox[1] for d in detections)
                     _aggregate(aggregator, track_filter, shifted, frame, detections)
                     last_ts = shifted
                     frames_since_progress += 1
@@ -330,6 +338,7 @@ def _analyze_to_report_data(
                         detections = person_tracker.update(frame, detections, shifted)
                     detections = smoother.smooth(detections)
                     dump.write_frame(shifted, detections)
+                    detected_heights.extend(d.bbox[3] - d.bbox[1] for d in detections)
                     _aggregate(aggregator, track_filter, shifted, frame, detections)
                     last_ts = shifted
                     frames_since_progress += 1
@@ -349,6 +358,10 @@ def _analyze_to_report_data(
                 frame=confirmed.frame,
                 detections=confirmed.detections,
             )
+
+    diagnostics["detection_scale"] = detection_scale(
+        diagnostics["source_frame"], input_wh(detector.input_size), detected_heights
+    )
 
     report = aggregator.build_report_data()
     report.diagnostics = diagnostics

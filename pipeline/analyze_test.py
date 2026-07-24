@@ -1310,6 +1310,37 @@ class TestDetectionDiagnostics:
 
         assert diagnostics["source_frame"] == [3840, 2160]
 
+    def test_detection_scale_is_emitted_for_the_resolved_scene(self, mocker, tmp_path):
+        # Issue #113 — the recall-risk signal rides in diagnostics next to the
+        # config that produced it. On a 4K hall at the shipped 640 input the scene
+        # scores "high": only people >= ~360 native px reach the ~60 px floor.
+        from pipeline.detection_scale import detection_scale
+
+        weights = self._weights(tmp_path, b"pretend onnx bytes")
+
+        diagnostics = self._run(mocker, tmp_path, weights, frame_shape=(2160, 3840, 3))
+
+        # The mocked session detects nobody, so heights are empty; the scene
+        # geometry is still fully scored from source_frame + input_size.
+        assert diagnostics["detection_scale"] == detection_scale([3840, 2160], (640, 640), [])
+        assert diagnostics["detection_scale"]["recall_risk"] == "high"
+
+    def test_detection_scale_is_null_when_no_frame_was_analysed(self, mocker, tmp_path):
+        # An empty video has no source_frame, so there is no scene to score — the
+        # block is null rather than a fabricated geometry from the model default.
+        from pathlib import Path
+
+        from pipeline.analyze import run_full_video_to_json
+        from pipeline.pose_detector_test import _mock_cuda_session
+
+        weights = self._weights(tmp_path, b"pretend onnx bytes")
+        _mock_cuda_session(mocker)
+        mocker.patch("pipeline.analyze.iter_frames", return_value=iter([]))
+
+        payload = run_full_video_to_json([Path("v.mp4")], model_path=str(weights))
+
+        assert json.loads(payload)["diagnostics"]["detection_scale"] is None
+
 
 class TestPoseModeSelection:
     """#111 — the engine builds the detector the camera's pose.mode asks for.
