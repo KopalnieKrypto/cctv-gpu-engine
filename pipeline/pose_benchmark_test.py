@@ -595,6 +595,8 @@ class TestArmInputSizes:
         # in whether the whole frame or just authored zones get tiled.
         assert expected_input_size_for_arm("tiled_1280x736") == (1280, 736)
         assert expected_input_size_for_arm("tiled_zones_1280x736") == (1280, 736)
+        # The hybrid arm (grid + one full-frame pass) runs the same model.
+        assert expected_input_size_for_arm("tiled_fullframe_1280x736") == (1280, 736)
 
     def test_run_arm_cli_accepts_the_non_square_arm(self):
         from pipeline.pose_benchmark import build_cli_parser

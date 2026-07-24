@@ -164,6 +164,12 @@ class TiledPoseDetector:
 
     ``zone_bounds`` (with-zones arm) restricts inference to tiles that intersect
     an authored zone's bounding box; ``None`` tiles the whole frame.
+
+    ``full_frame_pass`` (hybrid arm) adds one whole-frame pose call whose
+    detections join the tile pool before merging. A person too large to fit one
+    tile is split into seam-clipped partials by the grid; the whole-frame pass
+    frames them once, and the higher-confidence whole box suppresses the partials
+    in the merge — recovering the large near-field people grid-only tiling loses.
     """
 
     detector: Any
@@ -172,6 +178,7 @@ class TiledPoseDetector:
     overlap: float
     zone_bounds: list[tuple[float, float, float, float]] | None = None
     ios_threshold: float = DEFAULT_IOS_THRESHOLD
+    full_frame_pass: bool = False
 
     @property
     def input_size(self) -> InputSize:
@@ -190,6 +197,11 @@ class TiledPoseDetector:
         if self.zone_bounds is not None:
             tiles = restrict_tiles_to_bounds(tiles, self.zone_bounds)
         pooled: list[Detection] = []
+        if self.full_frame_pass:
+            # The whole frame letterboxed to the tile size — offset (0, 0), so its
+            # detections are already in full-frame coordinates. Pooled before the
+            # tiles so the whole-body box, kept on confidence, wins the merge.
+            pooled.extend(self.detector.detect(img_bgr))
         for tile in tiles:
             crop = img_bgr[tile.y1 : tile.y2, tile.x1 : tile.x2]
             for det in self.detector.detect(crop):

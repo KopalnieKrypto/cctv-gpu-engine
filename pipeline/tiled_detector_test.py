@@ -193,6 +193,35 @@ def test_detect_merges_the_same_person_seen_in_two_overlapping_tiles():
     assert detections[0].confidence == 0.90  # the whole-frame view kept its box
 
 
+def test_detect_with_full_frame_pass_recovers_a_person_the_tiles_split():
+    # 200x100 frame, two 100x100 tiles. A big near-field person spans both tiles;
+    # each tile only sees a clipped half, but a whole-frame pass frames them once.
+    # The full-frame pass runs first (call 0 = whole image), then the two tiles.
+    fake = _FakeTileDetector(
+        per_call=[
+            [_kp_det([0, 0, 180, 90], 0.90, (90, 45))],  # full-frame pass: whole body
+            [_kp_det([0, 0, 90, 90], 0.50, (45, 45))],  # tile x=0: left half (clipped)
+            [_kp_det([0, 0, 80, 90], 0.50, (40, 45))],  # tile x=100: right half -> [100,0,180,90]
+        ]
+    )
+    detector = TiledPoseDetector(
+        detector=fake,
+        tile_w=100,
+        tile_h=100,
+        overlap=0.0,
+        full_frame_pass=True,
+    )
+    frame = np.zeros((100, 200, 3), dtype=np.uint8)
+
+    detections = detector.detect(frame)
+
+    assert fake.crops == [(100, 200), (100, 100), (100, 100)]  # whole frame, then two tiles
+    # The whole-body box wins; both seam-clipped partials are suppressed as
+    # contained within it, so the split person is one detection, not two halves.
+    assert [d.bbox for d in detections] == [[0, 0, 180, 90]]
+    assert detections[0].confidence == 0.90
+
+
 def test_detect_with_zone_bounds_only_infers_tiles_inside_the_zone():
     # 200x100 frame, two 100x100 tiles. The zone bbox covers only the left tile,
     # so the right tile never costs a pose call — the with-zones compute saving.

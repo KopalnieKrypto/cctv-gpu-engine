@@ -321,6 +321,11 @@ ARM_INPUT_SIZES: dict[str, tuple[int, int]] = {
     # the whole frame (grid) versus only the authored zones (focused compute).
     "tiled_1280x736": (1280, 736),
     "tiled_zones_1280x736": (1280, 736),
+    # Issue #110 follow-up: the grid arm plus one whole-frame 1280x736 pass,
+    # merged. The grid recovers the small-person bands but splits large near-field
+    # people across seams; the full-frame pass frames them once and the merge
+    # keeps the whole box — buying back the >=260 px band grid-only regressed.
+    "tiled_fullframe_1280x736": (1280, 736),
 }
 
 # The full-frame arms measured by ``run-arm`` (#86/#101). Kept distinct from the
@@ -335,7 +340,11 @@ FULL_FRAME_ARMS: tuple[str, ...] = (
 )
 
 # The tiling arms measured by ``run-tiling-arm`` (#110).
-TILING_ARMS: tuple[str, ...] = ("tiled_1280x736", "tiled_zones_1280x736")
+TILING_ARMS: tuple[str, ...] = (
+    "tiled_1280x736",
+    "tiled_zones_1280x736",
+    "tiled_fullframe_1280x736",
+)
 
 # Fraction of a tile shared with each neighbour (#110). 20% keeps a person on a
 # tile seam whole inside at least one tile at the cost of the extra tiles.
@@ -1117,6 +1126,7 @@ def _run_tiling_arm_command(args: argparse.Namespace) -> int:
             tile_h=tile_h,
             overlap=args.overlap,
             zone_bounds=zone_bounds,
+            full_frame_pass=args.arm == "tiled_fullframe_1280x736",
         )
         detection_run = run_detection_arm(
             name=args.arm,
@@ -1141,6 +1151,7 @@ def _run_tiling_arm_command(args: argparse.Namespace) -> int:
             "ios_threshold": detector.ios_threshold,
             "scope": "zones" if zone_bounds is not None else "whole_frame",
             "roi_zone_bounds": [list(box) for box in zone_bounds] if zone_bounds else None,
+            "full_frame_pass": detector.full_frame_pass,
         },
         "quality": {
             "tp": metrics.tp,
