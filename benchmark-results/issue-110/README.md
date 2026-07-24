@@ -21,6 +21,11 @@ not yet productionize it.
   `analysis_config`; 12 of 16 tiles). ✅ **Identical quality to the grid arm at
   75% of the pose cost** — the four skipped tiles held no detected person, so
   zone-focusing bought a 25% compute saving at zero recall/precision loss.
+- **`tiled_fullframe_1280x736` (hybrid)** — the 16-tile grid plus one whole-frame
+  1280×736 pass, merged (17 pose calls/frame). ✅ **Pareto-dominates the grid
+  arm** — better on every band and every aggregate metric, for +6% cost — because
+  the full-frame pass frames the large near-field people the grid splits, and the
+  IoS merge keeps the whole-body box over the seam partials. The best arm measured.
 
 ## Aggregate — `tiled_1280x736` vs #101's full-frame arms
 
@@ -35,6 +40,7 @@ overlap 0.2, Intersection-over-Smaller merge threshold 0.6.
 | full frame → 1280×736 | 105/13/191 | 89.0% | 35.5% | 50.7% | 232/234 ms | 8,122 MiB | 118 |
 | **tiled 1280×736 (grid)** | **134/55/162** | **70.9%** | **45.3%** | **55.3%** | **3358/3363 ms** | **710 MiB** | **214** |
 | **tiled 1280×736 (zones)** | **134/55/162** | **70.9%** | **45.3%** | **55.3%** | **2523/2530 ms** | **710 MiB** | **214** |
+| **tiled + full-frame (hybrid)** | **145/53/151** | **73.2%** | **49.0%** | **58.7%** | **3568/3577 ms** | **710 MiB** | **223** |
 
 Tiling has the highest recall and F1 of any arm measured, at the lowest VRAM and
 by far the highest pose cost. Precision drops to 70.9% (from 89.0%): more tiles
@@ -52,13 +58,19 @@ does not.
 
 ## Recall by ground-truth person height — the headline
 
-| GT height (native px) | people | `baseline_640` | `full_frame_1280x736` | **`tiled_1280x736`** |
-|---|---:|---:|---:|---:|
-| < 80 | 32 | 0.0% | 0.0% | **3.1%** |
-| **80–120** | **90** | **0.0%** | **0.0%** | **23.3%** |
-| 120–180 | 34 | 0.0% | 11.8% | **35.3%** |
-| 180–260 | 91 | 1.1% | 71.4% | **83.5%** |
-| ≥ 260 | 49 | 40.8% | 73.5% | **49.0%** |
+| GT height (native px) | people | `baseline_640` | `full_frame_1280x736` | `tiled` (grid/zones) | **`tiled_fullframe`** |
+|---|---:|---:|---:|---:|---:|
+| < 80 | 32 | 0.0% | 0.0% | 3.1% | **3.1%** |
+| **80–120** | **90** | **0.0%** | **0.0%** | **23.3%** | **23.3%** |
+| 120–180 | 34 | 0.0% | 11.8% | 35.3% | **38.2%** |
+| 180–260 | 91 | 1.1% | 71.4% | 83.5% | **86.8%** |
+| ≥ 260 | 49 | 40.8% | 73.5% | 49.0% | **63.3%** |
+
+The hybrid keeps the tiles' small-band wins (`< 180 px` unchanged or better) and
+buys back the large-band loss: `≥ 260 px` goes 49.0% → 63.3%, and `180–260 px`
+83.5% → 86.8%. It does not fully reach the full-frame arm's 73.5% at `≥ 260`
+(some whole-body boxes are still out-competed by a higher-confidence tile partial
+in the merge) — a dedup-tuning lever, not a ceiling.
 
 Two things the numbers say:
 
@@ -84,6 +96,7 @@ per-hour figure is `mean(pose_wallclock_s) * fps * 3600 / 60` at 1 fps, and each
 | full frame → 1280×736 | 1 | 232 ms | ~14 (pose only) | 8,122 MiB | 118 |
 | tiled 1280×736 (grid) | 16 | 3358 ms | 202 | 710 MiB | 214 |
 | tiled 1280×736 (zones) | 12 | 2523 ms | 152 | 710 MiB | 214 |
+| tiled + full-frame (hybrid) | 17 | 3568 ms | 215 | 710 MiB | 223 |
 
 VRAM is the surprise win — 11× smaller than the full-frame 1280×736 arm — because
 tiling never holds a >1280 px input tensor; it holds twelve-to-sixteen 1280×736
@@ -115,19 +128,29 @@ scaling with the 214 detections found (read separately, not run here).
   from the platform `analysis_config` (`restrict_to_zones: true`, `pose 1280x736`)
   on 2026-07-24. Scoring stays whole-frame (`zones.json` `hall-1`), so an
   out-of-zone person is an honest miss, not silently excluded.
-- `tiled_1280x736.json` and `tiled_zones_1280x736.json` retain raw per-frame
-  detections, per-frame pose timing, `recall_by_height`, `detector_cost`, and peak
-  VRAM. Runbook: `docs/POSE_RESOLUTION_BENCHMARK.md` § "Native-resolution tiling
-  arms".
+- The hybrid arm (`tiled_fullframe_1280x736`) adds one whole-frame 1280×736 pose
+  call (offset 0,0, already full-frame coords) to the 16-tile pool before the
+  merge — 17 pose calls/frame. Same model, same fixture, same whole-frame scoring.
+- `tiled_1280x736.json`, `tiled_zones_1280x736.json`, and
+  `tiled_fullframe_1280x736.json` retain raw per-frame detections, per-frame pose
+  timing, `recall_by_height`, `detector_cost`, and peak VRAM. Runbook:
+  `docs/POSE_RESOLUTION_BENCHMARK.md` § "Native-resolution tiling arms".
 
 ## What this redirects the work toward
 
 1. **Tiling is the band-80–120 lever, confirmed.** No full-frame arm on 12 GB
    reaches it; tiling does, at 23.3% and rising with the larger bands.
-2. **Grid-only needs a full-frame pass** to stop losing near-field people. The
-   next arm to measure is tiles + one full-frame 1280×736 pass, merged.
-3. **Precision and cost are the productionization gates**, not reach. 70.9%
-   precision and 152–202 min/h pose are the real blockers. With-zones already cuts
-   25% of the pose for free on this camera; the next levers are better cross-tile
-   dedup (to lift precision) and a coarser overlap or larger tile (to cut tiles),
-   not more reach.
+2. **The hybrid (tiles + full-frame pass) is the arm to carry forward.** It
+   Pareto-dominates grid-only — every band and every aggregate metric better for
+   +6% cost — and fixes the near-field regression (≥260 px 49% → 63%). Grid-only
+   is obsoleted by it.
+3. **The real production choice is two modes, not four.** `full_frame_1280x736`
+   (cheap, ~14 min/h, high precision, but blind below 180 px) versus `hybrid`
+   (sees the small bands and the large ones, ~15× the pose cost, ~73% precision).
+   Zones is an orthogonal compute optimization that layers on either. Grid-only
+   and zones-only need not be exposed.
+4. **Precision and cost are the remaining gates.** 73.2% precision (cross-tile
+   dedup) and 215 min/h pose. Next levers: better dedup to lift precision and to
+   close the ≥260 gap to full-frame's 73.5%; a coarser overlap or larger tile to
+   cut the tile count. Then wire the winning mode end-to-end (the pipeline does
+   not tile yet) behind a per-camera config field, like #109 did for resolution.
