@@ -56,6 +56,17 @@ DEFAULT_BUDGETS_MB: dict[str, int] = {
     # Issue #34 same-image Film 1 peak: 540 MiB. Rounded to 768 MiB for
     # allocator/driver variation; raw 0.5-second samples are committed.
     "mlp": 768,
+    # NOTE (2026-07-29): this one does NOT follow the "+20% headroom" rule above
+    # — it sits ~700 MiB BELOW the measured peak, so it is a floor, not a
+    # ceiling. Measured per-PID peak for a vlm run is 7,866 MiB
+    # (`benchmark-results/issue-86`) / 7,868 MiB (`issue-101`), which decomposes
+    # as ~7,161 MiB Qwen2.5-VL-3B bf16 weights (7.51 GB of .safetensors) plus
+    # ~707 MiB for the pose session that loads in the same process. 7168 ≈ the
+    # VLM weights alone, i.e. the pose session is unaccounted for. Consequence:
+    # a GPU with free VRAM between 7,168 and 7,866 MiB passes this gate and can
+    # still OOM mid-load — the exact failure #43 added the gate to prevent.
+    # Left unchanged pending a deliberate call, since raising it makes the gate
+    # stricter and could start rejecting boxes that currently run fine.
     "vlm": 7168,
 }
 

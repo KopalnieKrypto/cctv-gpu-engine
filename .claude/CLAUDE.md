@@ -149,8 +149,8 @@ client appliance (bare-metal, Flask :8080) → R2 (presigned URLs) → gpu-servi
 
 ## Performance (RTX 5070, 1h video)
 
-- **VLM hybrid** (recommended): ~20 min total (3:1 ratio), ~6GB VRAM. YOLO ~100ms + VLM ~270ms per frame.
-- **Heuristic only**: ~7 min total (8:1 ratio), ~600MB VRAM. YOLO ~100ms/frame.
+- **VLM hybrid** (recommended): ~20 min total (3:1 ratio), **~7.9 GB VRAM** (7,866 MiB peak, per-PID `nvidia-smi`, `benchmark-results/issue-86`; ≈7,161 MiB Qwen2.5-VL-3B bf16 weights + ~707 MiB pose session). YOLO ~100ms + VLM ~270ms per frame.
+- **Heuristic only**: ~7 min total (8:1 ratio), **~710 MiB VRAM** (measured pose-only, `benchmark-results/issue-110`). YOLO ~100ms/frame.
 - VLM model (Qwen2.5-VL-3B) loaded lazily — first frame ~40s, subsequent ~0.27s/frame.
 - Accuracy: VLM hybrid ~85% vs heuristic ~45% on ground truth test (sitting 89%, walking 96%).
 

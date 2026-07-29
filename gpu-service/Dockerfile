@@ -60,7 +60,7 @@ RUN curl -fL "${YOLO_MODEL_1280X736_URL}" -o /app/models/yolo11s-pose-1280x736.o
 
 # OSNet Re-ID weights (issue #32). Person tracking is on by default, so this
 # is as load-bearing as the pose model: without it every job dies on boot in
-# load_reid_model(). 0.7 MB, so it costs the image nothing.
+# load_reid_model(). 1.5 MB, so it costs the image nothing.
 ARG OSNET_MODEL_URL=https://github.com/KopalnieKrypto/cctv-gpu-engine/releases/download/osnet-x0_25-v1.0/osnet_x0_25.onnx
 ARG OSNET_MODEL_SHA256=86f6314fc903d6b3c7e90c8f4dc5f438fb640faf2840574f3170b749c4765ce6
 RUN curl -fL "${OSNET_MODEL_URL}" -o /app/models/osnet_x0_25.onnx \

@@ -8,7 +8,7 @@
 #   1. YOLO11s-pose v1.0 — person detection + COCO keypoints (38 MB,
 #      ~150 ms/frame on RTX 5070, noticeably better detection than nano).
 #   2. OSNet x0_25 (MSMT17) v1.0 — person Re-ID appearance embedding for
-#      tracking (0.7 MB, issue #32). Tracking is on by default, so the
+#      tracking (1.5 MB, issue #32). Tracking is on by default, so the
 #      pipeline will not start without it. `--no-tracker` skips its use.
 #
 # Both are pinned to versioned GitHub releases so every checkout lands the
