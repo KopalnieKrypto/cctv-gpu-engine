@@ -188,3 +188,61 @@ class TestIterFramesStderrBackpressure:
         assert isinstance(err, RuntimeError)
         assert "exit 3" in str(err)
         assert marker in str(err)
+
+
+class TestProbeDurationS:
+    """``probe_duration_s`` is the clip length the progress interpolation needs.
+
+    Issue #115: the pipeline reports a percentage per chunk, and turning a
+    within-chunk timestamp into a fraction requires knowing how long the chunk
+    is. It must degrade to ``None`` rather than raise — a job must never die
+    because ffprobe could not read a duration; the caller falls back to the
+    old chunk-start behaviour.
+    """
+
+    def test_returns_duration_from_ffprobe_output(self, mocker):
+        from pipeline.video_frames import probe_duration_s
+
+        completed = MagicMock(returncode=0, stdout=b"1834.560000\n", stderr=b"")
+        run = mocker.patch("pipeline.video_frames.subprocess.run", return_value=completed)
+
+        assert probe_duration_s("clip.mp4") == pytest.approx(1834.56)
+
+        cmd = run.call_args[0][0]
+        assert cmd[0] == "ffprobe"
+        assert "format=duration" in cmd
+        assert cmd[-1] == "clip.mp4"
+
+    def test_returns_none_when_ffprobe_fails(self, mocker):
+        from pipeline.video_frames import probe_duration_s
+
+        completed = MagicMock(returncode=1, stdout=b"", stderr=b"boom")
+        mocker.patch("pipeline.video_frames.subprocess.run", return_value=completed)
+
+        assert probe_duration_s("clip.mp4") is None
+
+    def test_returns_none_when_duration_is_not_a_number(self, mocker):
+        """Some containers report ``N/A`` — a stream-copied RTSP chunk with no
+        duration in the header is exactly the shape production feeds us."""
+        from pipeline.video_frames import probe_duration_s
+
+        completed = MagicMock(returncode=0, stdout=b"N/A\n", stderr=b"")
+        mocker.patch("pipeline.video_frames.subprocess.run", return_value=completed)
+
+        assert probe_duration_s("clip.mp4") is None
+
+    def test_returns_none_when_ffprobe_missing(self, mocker):
+        from pipeline.video_frames import probe_duration_s
+
+        mocker.patch("pipeline.video_frames.subprocess.run", side_effect=FileNotFoundError())
+
+        assert probe_duration_s("clip.mp4") is None
+
+    def test_returns_none_on_nonpositive_duration(self, mocker):
+        """A zero duration would make the caller divide by zero."""
+        from pipeline.video_frames import probe_duration_s
+
+        completed = MagicMock(returncode=0, stdout=b"0.000000\n", stderr=b"")
+        mocker.patch("pipeline.video_frames.subprocess.run", return_value=completed)
+
+        assert probe_duration_s("clip.mp4") is None

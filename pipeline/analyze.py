@@ -40,7 +40,7 @@ from pipeline.report_renderer import render_report
 from pipeline.tiled_detector import build_hybrid_detector
 from pipeline.track_filter import MinTrackLengthFilter
 from pipeline.tracker import DEFAULT_MAX_TRACK_AGE_S, PersonTracker
-from pipeline.video_frames import iter_frames
+from pipeline.video_frames import iter_frames, probe_duration_s
 from pipeline.zones import ZoneConfig, ZoneConfigError
 
 DEFAULT_FPS = 1
@@ -53,6 +53,37 @@ DEFAULT_ACTIVITY_MODEL_METADATA_PATH = "models/activity-mlp-v1.0.0.json"
 # and we burn R2 PUTs writing status.json. 3 frames at 1 fps → ~1 sample/3s,
 # ~100 samples on a 5-min job — the sweet spot user asked for.
 PROGRESS_FRAME_INTERVAL = 3
+
+
+def _intra_chunk_pct(
+    chunk_base: float,
+    chunk_span: float,
+    timestamp_s: float,
+    chunk_duration_s: float | None,
+) -> int:
+    """Overall 0-100 percentage for a frame ``timestamp_s`` into a chunk.
+
+    The callback used to pass the *chunk-start* percentage on every intra-chunk
+    tick, which is constant within a chunk — and every real job is a single
+    chunk, so ``/status`` reported ``progress: 0.0`` for the whole run and then
+    jumped to complete (issue #115). Interpolating against the clip duration
+    turns it back into a usable signal: with gpu-exchange's 8 h job timeout, a
+    wedged job and a healthy long one are otherwise indistinguishable for
+    hours.
+
+    ``chunk_duration_s`` of ``None`` (ffprobe unavailable, or a container with
+    no duration header) degrades to the chunk-start value — the old behaviour,
+    never a crash.
+
+    Capped at 99: the frame loop is not the whole job (track-filter flush,
+    aggregation and rendering still follow), so only the end-of-chunk tick may
+    report 100. Claiming completion while work remains is the same misleading
+    signal in the other direction.
+    """
+    frac = 0.0
+    if chunk_duration_s:
+        frac = min(1.0, max(0.0, timestamp_s / chunk_duration_s))
+    return min(int(chunk_base + frac * chunk_span), 99)
 
 
 def _frames_recording_source_size(chunk: Path, fps: int, diagnostics: dict):
@@ -149,10 +180,13 @@ def _analyze_to_report_data(
 
     ``progress`` — if given, called every ``PROGRESS_FRAME_INTERVAL`` frames
     *and* at every end-of-chunk boundary with an int percentage 0-100. The
-    intra-chunk calls report the chunk-start percentage (so the value stays
-    monotonically non-decreasing) but still tick the worker's telemetry
-    sampler — without them, gpu_service.metrics.MetricsAggregator only sees
-    chunk boundaries and ``gpu_util_peak`` is sampled outside the hot path.
+    intra-chunk calls interpolate the frame's timestamp against the chunk's
+    ffprobe'd duration (issue #115), so a single-chunk job — which is every
+    real job — reports a climbing percentage instead of a constant ``0``; see
+    :func:`_intra_chunk_pct`. The cadence is unchanged because each call also
+    ticks the worker's telemetry sampler — without those, gpu_service.metrics.
+    MetricsAggregator only sees chunk boundaries and ``gpu_util_peak`` is
+    sampled outside the hot path.
     ``dump_detections`` — if given, one JSONL line per processed frame is
     streamed to this path (issue #35). The aggregator only keeps a bounded
     keyframe buffer (#49), so this raw per-frame archive can't be
@@ -231,8 +265,10 @@ def _analyze_to_report_data(
             time_offset = 0.0
             step = 1.0 / fps
             frames_since_progress = 0
+            chunk_span = 100.0 / len(chunks)
             for chunk_index, chunk in enumerate(chunks):
-                chunk_start_pct = int(chunk_index / len(chunks) * 100)
+                chunk_base = chunk_index * chunk_span
+                chunk_duration_s = probe_duration_s(chunk)
                 last_ts = time_offset
                 for timestamp_s, frame in _frames_recording_source_size(chunk, fps, diagnostics):
                     shifted = timestamp_s + time_offset
@@ -249,7 +285,9 @@ def _analyze_to_report_data(
                     frames_since_progress += 1
                     if progress is not None and frames_since_progress >= PROGRESS_FRAME_INTERVAL:
                         frames_since_progress = 0
-                        progress(chunk_start_pct)
+                        progress(
+                            _intra_chunk_pct(chunk_base, chunk_span, timestamp_s, chunk_duration_s)
+                        )
                 time_offset = last_ts + step
                 if progress is not None:
                     progress(int((chunk_index + 1) / len(chunks) * 100))
@@ -264,8 +302,10 @@ def _analyze_to_report_data(
             time_offset = 0.0
             step = 1.0 / fps
             frames_since_progress = 0
+            chunk_span = 100.0 / len(chunks)
             for chunk_index, chunk in enumerate(chunks):
-                chunk_start_pct = int(chunk_index / len(chunks) * 100)
+                chunk_base = chunk_index * chunk_span
+                chunk_duration_s = probe_duration_s(chunk)
                 last_ts = time_offset
                 for timestamp_s, frame in _frames_recording_source_size(chunk, fps, diagnostics):
                     shifted = timestamp_s + time_offset
@@ -317,7 +357,9 @@ def _analyze_to_report_data(
                     frames_since_progress += 1
                     if progress is not None and frames_since_progress >= PROGRESS_FRAME_INTERVAL:
                         frames_since_progress = 0
-                        progress(chunk_start_pct)
+                        progress(
+                            _intra_chunk_pct(chunk_base, chunk_span, timestamp_s, chunk_duration_s)
+                        )
                 time_offset = last_ts + step
                 if progress is not None:
                     progress(int((chunk_index + 1) / len(chunks) * 100))
@@ -328,8 +370,10 @@ def _analyze_to_report_data(
             time_offset = 0.0
             step = 1.0 / fps
             frames_since_progress = 0
+            chunk_span = 100.0 / len(chunks)
             for chunk_index, chunk in enumerate(chunks):
-                chunk_start_pct = int(chunk_index / len(chunks) * 100)
+                chunk_base = chunk_index * chunk_span
+                chunk_duration_s = probe_duration_s(chunk)
                 last_ts = time_offset
                 for timestamp_s, frame in _frames_recording_source_size(chunk, fps, diagnostics):
                     shifted = timestamp_s + time_offset
@@ -344,7 +388,9 @@ def _analyze_to_report_data(
                     frames_since_progress += 1
                     if progress is not None and frames_since_progress >= PROGRESS_FRAME_INTERVAL:
                         frames_since_progress = 0
-                        progress(chunk_start_pct)
+                        progress(
+                            _intra_chunk_pct(chunk_base, chunk_span, timestamp_s, chunk_duration_s)
+                        )
                 time_offset = last_ts + step
                 if progress is not None:
                     progress(int((chunk_index + 1) / len(chunks) * 100))

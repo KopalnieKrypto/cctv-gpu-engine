@@ -414,6 +414,138 @@ class TestRunFullVideoToHtml:
         assert all(0 <= p <= 100 for p in seen)
         assert seen[-1] == 100
 
+    def test_single_chunk_progress_climbs_within_the_chunk(self, mocker):
+        """A single-chunk job must report *movement*, not a constant (issue #115).
+
+        Every real job is one recorded clip → ``len(chunks) == 1``, so the old
+        chunk-start percentage was ``0`` for the entire run and ``/status``
+        returned ``progress: 0.0`` for hours. With gpu-exchange's JOB_TIMEOUT_MS
+        raised to 8h, a wedged job and a healthy long job became
+        indistinguishable — this callback is the cheapest signal telling them
+        apart, so it has to move.
+        """
+        from pathlib import Path
+
+        from pipeline.analyze import run_full_video_to_html
+
+        fake_frame = np.zeros((40, 60, 3), dtype=np.uint8)
+        chunk_frames = [(float(i), fake_frame) for i in range(60)]
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            side_effect=[iter(chunk_frames)],
+        )
+        # The chunk is 60 s long, so frame at t=30 is halfway through the job.
+        mocker.patch("pipeline.analyze.probe_duration_s", return_value=60.0)
+        fake_detector = _fake_detector()
+        fake_detector.detect.return_value = []
+        mocker.patch(
+            "pipeline.analyze.load_pose_model",
+            return_value=fake_detector,
+        )
+
+        seen: list[int] = []
+        run_full_video_to_html([Path("only.mp4")], progress=seen.append)
+
+        intra = seen[:-1]  # drop the terminal 100% chunk-end tick
+        assert len(set(intra)) >= 2, (
+            f"single-chunk job reported only {sorted(set(intra))} before "
+            f"completion — progress must climb during the chunk, not sit at "
+            f"the chunk-start percentage"
+        )
+        assert intra == sorted(intra), f"progress went backwards: {intra}"
+        # Roughly linear in elapsed video time: the tick nearest the midpoint
+        # of a 60 s chunk should read ~50%, not 0 and not 100.
+        assert any(35 <= p <= 65 for p in intra), (
+            f"no mid-run progress value in {sorted(set(intra))} — the callback "
+            f"is not interpolating against the clip duration"
+        )
+        assert all(0 <= p <= 100 for p in seen)
+        assert seen[-1] == 100
+
+    def test_intra_chunk_progress_never_reports_complete(self, mocker):
+        """The last frame of the last chunk still leaves track-filter flush,
+        aggregation and rendering to do. Reporting 100% there would recreate
+        the same lie in the other direction: ``state: running, progress: 1.0``.
+        Only the end-of-chunk tick may say 100."""
+        from pathlib import Path
+
+        from pipeline.analyze import run_full_video_to_html
+
+        fake_frame = np.zeros((40, 60, 3), dtype=np.uint8)
+        chunk_frames = [(float(i), fake_frame) for i in range(30)]
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            side_effect=[iter(chunk_frames)],
+        )
+        mocker.patch("pipeline.analyze.probe_duration_s", return_value=30.0)
+        fake_detector = _fake_detector()
+        fake_detector.detect.return_value = []
+        mocker.patch("pipeline.analyze.load_pose_model", return_value=fake_detector)
+
+        seen: list[int] = []
+        run_full_video_to_html([Path("only.mp4")], progress=seen.append)
+
+        assert seen[:-1] and max(seen[:-1]) < 100, (
+            f"an intra-chunk tick reported 100% while frames were still being processed: {seen}"
+        )
+        assert seen[-1] == 100
+
+    def test_progress_falls_back_to_chunk_start_when_duration_unknown(self, mocker):
+        """No duration (ffprobe missing, ``N/A`` header) must degrade to the
+        old chunk-boundary behaviour — never crash, never go backwards."""
+        from pathlib import Path
+
+        from pipeline.analyze import run_full_video_to_html
+
+        fake_frame = np.zeros((40, 60, 3), dtype=np.uint8)
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            side_effect=[
+                iter([(float(i), fake_frame) for i in range(9)]),
+                iter([(float(i), fake_frame) for i in range(9)]),
+            ],
+        )
+        mocker.patch("pipeline.analyze.probe_duration_s", return_value=None)
+        fake_detector = _fake_detector()
+        fake_detector.detect.return_value = []
+        mocker.patch("pipeline.analyze.load_pose_model", return_value=fake_detector)
+
+        seen: list[int] = []
+        run_full_video_to_html([Path("a.mp4"), Path("b.mp4")], progress=seen.append)
+
+        assert seen == sorted(seen)
+        assert all(0 <= p <= 100 for p in seen)
+        assert seen[-1] == 100
+        # Chunk boundaries still land where they used to: 50 after chunk 1.
+        assert 50 in seen
+
+    def test_multi_chunk_progress_interpolates_inside_each_chunk(self, mocker):
+        """Chunk 2 of 2 must span 50→100, not restart the ramp at 0."""
+        from pathlib import Path
+
+        from pipeline.analyze import run_full_video_to_html
+
+        fake_frame = np.zeros((40, 60, 3), dtype=np.uint8)
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            side_effect=[
+                iter([(float(i), fake_frame) for i in range(30)]),
+                iter([(float(i), fake_frame) for i in range(30)]),
+            ],
+        )
+        mocker.patch("pipeline.analyze.probe_duration_s", return_value=30.0)
+        fake_detector = _fake_detector()
+        fake_detector.detect.return_value = []
+        mocker.patch("pipeline.analyze.load_pose_model", return_value=fake_detector)
+
+        seen: list[int] = []
+        run_full_video_to_html([Path("a.mp4"), Path("b.mp4")], progress=seen.append)
+
+        assert seen == sorted(seen)
+        assert any(1 <= p <= 49 for p in seen), f"no progress inside chunk 1: {seen}"
+        assert any(51 <= p <= 99 for p in seen), f"no progress inside chunk 2: {seen}"
+        assert seen[-1] == 100
+
     def test_pipeline_runtime_error_propagates_uncaught(self, mocker):
         from pathlib import Path
 

@@ -64,6 +64,43 @@ def _probe_dimensions(video_path: str | Path) -> tuple[int, int]:
     return int(streams[0]["width"]), int(streams[0]["height"])
 
 
+def probe_duration_s(video_path: str | Path) -> float | None:
+    """Return the clip length in seconds, or ``None`` if it can't be read.
+
+    Used by :mod:`pipeline.analyze` to turn a within-chunk timestamp into a
+    fraction of the job, so ``progress`` climbs during a chunk instead of
+    reporting the chunk-start percentage (issue #115).
+
+    Deliberately total: a missing ffprobe, an unreadable file, or a container
+    with no duration in its header (a stream-copied RTSP chunk reports ``N/A``)
+    all yield ``None``. Progress reporting is a diagnostic — it must never be
+    the reason a job fails, and the caller degrades to chunk-boundary progress.
+    """
+    cmd = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        str(video_path),
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, check=False, timeout=30)  # noqa: S603
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        duration = float(result.stdout.decode("utf-8", errors="replace").strip())
+    except ValueError:
+        return None  # "N/A" — header carries no duration
+    if duration <= 0 or duration != duration:  # NaN-safe
+        return None
+    return duration
+
+
 def _build_ffmpeg_cmd(video_path: str | Path, fps: int) -> list[str]:
     """Assemble the streaming ffmpeg command (extracted for testability)."""
     return [
