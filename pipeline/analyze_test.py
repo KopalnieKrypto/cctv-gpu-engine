@@ -1320,6 +1320,114 @@ class TestZonesIntegration:
         assert "error:" in capsys.readouterr().err
 
 
+class TestHybridZonesIntegration:
+    """Issue #116 — ``pose.mode="hybrid"`` and zones, together, end-to-end.
+
+    The seam neither suite covered. ``TestPoseModeSelection`` asserts the tiling
+    *reach*; ``aggregator_test`` exercises ``restrict_to_zones`` against
+    detections whose ``zone_id`` was set by hand — a population the hybrid
+    detector could not produce, because its base is deliberately zone-less and
+    nothing downstream stamped membership. Two production jobs reported an empty
+    hall over 3399 detections before anything failed.
+
+    Same fakes as :class:`TestZonesIntegration`: a real ``PoseDetector`` behind a
+    fake ONNX session, wrapped by the real ``build_hybrid_detector``, so tiling,
+    the merge, zone stamping, the ROI mask and the ``zones[]`` section all run.
+    The 640x640 frame is one tile, so the tile pass and the whole-frame pass see
+    the same worker and the merge folds them back into one person.
+    """
+
+    def _run(self, mocker, tmp_path, zones_config, extra_args=()):
+        from pipeline.pose_detector import PoseDetector
+
+        # bbox [280, 260, 360, 620] in the 640x640 frame -> foot point (320, 620).
+        data = np.zeros((1, 56, 1), dtype=np.float32)
+        data[0, 0, 0], data[0, 1, 0] = 320, 440
+        data[0, 2, 0], data[0, 3, 0] = 80, 360
+        data[0, 4, 0] = 0.9
+        fake_session = MagicMock()
+        fake_session.run.return_value = [data]
+        mocker.patch(
+            "pipeline.analyze.load_pose_model",
+            side_effect=lambda model_path, zones=None: PoseDetector(
+                session=fake_session, input_name="images", zones=zones
+            ),
+        )
+        frame = np.full((640, 640, 3), 128, dtype=np.uint8)
+        mocker.patch(
+            "pipeline.analyze.iter_frames",
+            return_value=iter([(float(t), frame) for t in range(5)]),
+        )
+        zones_path = tmp_path / "zones.json"
+        zones_path.write_text(json.dumps(zones_config), encoding="utf-8")
+        out_path = tmp_path / "result.json"
+
+        exit_code = main(
+            [
+                "video.mp4",
+                "--output",
+                str(out_path),
+                "--zones",
+                str(zones_path),
+                "--pose-mode",
+                "hybrid",
+                *extra_args,
+            ]
+        )
+
+        assert exit_code == 0
+        return json.loads(out_path.read_text(encoding="utf-8"))
+
+    def _zone(self, polygon, *, restrict):
+        return {
+            "restrict_to_zones": restrict,
+            "zones": [{"id": "bending-1", "name": "Giętarka 1", "polygon": polygon}],
+        }
+
+    def test_hybrid_counts_a_worker_standing_inside_a_restricted_zone(self, mocker, tmp_path):
+        # The reported bug: hybrid + restrict_to_zones reported peak_persons 0
+        # while diagnostics showed thousands of detections, because every one of
+        # them reached the aggregator's ROI mask with zone_id None.
+        payload = self._run(
+            mocker,
+            tmp_path,
+            # Lower band contains the foot point (320, 620).
+            self._zone([[0, 400], [640, 400], [640, 640], [0, 640]], restrict=True),
+        )
+
+        assert payload["peak_persons"] > 0
+        assert sum(payload["person_minutes"].values()) > 0
+        assert sum(payload["zones"][0]["person_minutes"].values()) > 0
+
+    def test_hybrid_still_drops_a_worker_outside_every_polygon(self, mocker, tmp_path):
+        # The masking feature has to keep working: stamping membership is not
+        # the same as granting it. This worker's feet are in no polygon, so
+        # restrict_to_zones must still exclude them from the headline totals.
+        payload = self._run(
+            mocker,
+            tmp_path,
+            # Upper band does NOT contain the foot point (320, 620).
+            self._zone([[0, 0], [640, 0], [640, 300], [0, 300]], restrict=True),
+        )
+
+        assert payload["peak_persons"] == 0
+        assert sum(payload["person_minutes"].values()) == pytest.approx(0.0)
+
+    def test_hybrid_populates_the_zone_breakdown_without_restrict_to_zones(self, mocker, tmp_path):
+        # The quieter half: with the mask off the headline totals were right, so
+        # a dead per-zone breakdown looked like an empty zone rather than a bug.
+        payload = self._run(
+            mocker,
+            tmp_path,
+            self._zone([[0, 400], [640, 400], [640, 640], [0, 640]], restrict=False),
+        )
+
+        assert sum(payload["person_minutes"].values()) > 0  # unchanged, as before
+        zone_total = sum(payload["zones"][0]["person_minutes"].values())
+        assert zone_total == pytest.approx(sum(payload["person_minutes"].values()))
+        assert zone_total > 0
+
+
 class TestDetectionDiagnostics:
     """Issue #98 — result.json must name the configuration that produced it.
 
@@ -1536,6 +1644,28 @@ class TestPoseModeSelection:
 
         assert detector.zone_bounds == [(10, 20, 110, 220)]
 
+    def test_hybrid_stamps_zone_membership_while_its_base_stays_zoneless(self, mocker):
+        # #116: the zone-less base is what makes tiling correct (no inference_roi
+        # crop re-applied per tile), but it also means nothing in the hybrid path
+        # stamped zone_id — so restrict_to_zones dropped every detection and two
+        # production jobs reported an empty hall over 3399 detections. The tiling
+        # wrapper carries the config for membership; the base still gets none.
+        from pipeline.analyze import _build_detector
+        from pipeline.zones import ZoneConfig
+
+        zones = ZoneConfig.from_dict(
+            {
+                "restrict_to_zones": True,
+                "zones": [{"id": "z", "name": "Z", "polygon": [[10, 20], [110, 20], [60, 220]]}],
+            }
+        )
+        loader = mocker.patch("pipeline.analyze.load_pose_model", return_value=self._base())
+
+        detector = _build_detector("m.onnx", zones, "hybrid")
+
+        assert detector.zones is zones
+        loader.assert_called_once_with("m.onnx", zones=None)
+
     def test_hybrid_tiles_whole_frame_when_zones_present_but_not_restricted(self, mocker):
         from pipeline.analyze import _build_detector
         from pipeline.zones import ZoneConfig
@@ -1548,3 +1678,21 @@ class TestPoseModeSelection:
         detector = _build_detector("m.onnx", zones, "hybrid")
 
         assert detector.zone_bounds is None  # restrict_to_zones absent -> whole-frame grid
+
+    def test_hybrid_stamps_zone_membership_even_when_not_restricting(self, mocker):
+        # The quieter half of #116: with restrict_to_zones off the headline
+        # totals stay right, so hybrid's all-zero zones[] breakdown fails
+        # silently. Membership is what that section is built from, so it cannot
+        # be gated on the masking opt-in — only the tiling *reach* is.
+        from pipeline.analyze import _build_detector
+        from pipeline.zones import ZoneConfig
+
+        zones = ZoneConfig.from_dict(
+            {"zones": [{"id": "z", "name": "Z", "polygon": [[10, 20], [110, 20], [60, 220]]}]}
+        )
+        mocker.patch("pipeline.analyze.load_pose_model", return_value=self._base())
+
+        detector = _build_detector("m.onnx", zones, "hybrid")
+
+        assert detector.zones is zones  # per-zone reporting still works
+        assert detector.zone_bounds is None  # but the grid still covers the frame

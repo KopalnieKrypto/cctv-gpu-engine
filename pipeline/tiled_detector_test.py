@@ -21,6 +21,7 @@ from pipeline.tiled_detector import (
     restrict_tiles_to_bounds,
     tile_grid,
 )
+from pipeline.zones import ZoneConfig
 
 
 def test_tile_grid_covers_a_4k_frame_with_native_sized_overlapping_tiles():
@@ -280,6 +281,112 @@ def test_detect_with_zone_bounds_only_infers_tiles_inside_the_zone():
     assert [d.bbox for d in detections] == [[10, 10, 30, 30]]
 
 
+def test_detect_stamps_zone_id_on_what_it_returns():
+    # #116: the hybrid base detector is deliberately zone-less (tiling owns
+    # reach), so nothing else in the hybrid path stamps zone_id — and the
+    # aggregator's restrict_to_zones mask drops every detection that lacks one,
+    # reporting an empty hall over thousands of real detections. The tiling
+    # wrapper carries a membership-only zones reference and stamps its output.
+    zones = ZoneConfig.from_dict(
+        {
+            "zones": [
+                {
+                    "id": "press",
+                    "name": "Prasa",
+                    "polygon": [[0, 0], [100, 0], [100, 100], [0, 100]],
+                }
+            ]
+        }
+    )
+    fake = _FakeTileDetector(per_call=[[_kp_det([10, 10, 30, 60], 0.9, (20, 20))]])
+    detector = TiledPoseDetector(detector=fake, tile_w=100, tile_h=100, overlap=0.0, zones=zones)
+    frame = np.zeros((100, 100, 3), dtype=np.uint8)
+
+    detections = detector.detect(frame)
+
+    # Foot point (20, 60) — the midpoint of the box's bottom edge — is inside.
+    assert [d.zone_id for d in detections] == ["press"]
+
+
+def test_detect_stamps_zone_id_from_full_frame_not_tile_local_coordinates():
+    # #116: every tile detection is born in crop-local pixels, so a foot point
+    # read before translation is measured against the wrong end of the frame.
+    # Two 100x100 tiles over a 200x100 frame, one zone per half: both tiles
+    # report the same crop-local box, and only the translation tells the two
+    # workers apart. Stamped tile-local, both would land in the left bay.
+    zones = ZoneConfig.from_dict(
+        {
+            "zones": [
+                {
+                    "id": "left-bay",
+                    "name": "Lewa",
+                    "polygon": [[0, 0], [100, 0], [100, 100], [0, 100]],
+                },
+                {
+                    "id": "right-bay",
+                    "name": "Prawa",
+                    "polygon": [[100, 0], [200, 0], [200, 100], [100, 100]],
+                },
+            ]
+        }
+    )
+    fake = _FakeTileDetector(
+        per_call=[
+            [_kp_det([10, 10, 30, 60], 0.9, (20, 20))],  # tile x=0   -> foot (20, 60)
+            [_kp_det([10, 10, 30, 60], 0.8, (20, 20))],  # tile x=100 -> foot (120, 60)
+        ]
+    )
+    detector = TiledPoseDetector(detector=fake, tile_w=100, tile_h=100, overlap=0.0, zones=zones)
+    frame = np.zeros((100, 200, 3), dtype=np.uint8)
+
+    detections = detector.detect(frame)
+
+    assert [d.bbox for d in detections] == [[10, 10, 30, 60], [110, 10, 130, 60]]
+    assert [d.zone_id for d in detections] == ["left-bay", "right-bay"]
+
+
+def test_detect_stamps_the_box_that_survives_the_merge_from_its_own_foot_point():
+    # #116: stamping has to happen after the merge, on the box that survives it.
+    # 150x100 frame, 100x100 tiles at 50% overlap: both tiles frame the same
+    # worker, but the seam tile cuts them off at the knees. The two views have
+    # *different* foot points, and here they fall in different zones — so a
+    # detector that stamped the pooled tile-local boxes and merged afterwards
+    # could attribute this person to the zone of a box it then threw away.
+    zones = ZoneConfig.from_dict(
+        {
+            "zones": [
+                {
+                    "id": "floor",
+                    "name": "Hala",
+                    "polygon": [[0, 70], [150, 70], [150, 100], [0, 100]],
+                },
+                {
+                    "id": "walkway",
+                    "name": "Przejście",
+                    "polygon": [[0, 0], [150, 0], [150, 70], [0, 70]],
+                },
+            ]
+        }
+    )
+    fake = _FakeTileDetector(
+        per_call=[
+            [_kp_det([60, 10, 90, 90], 0.90, (75, 50))],  # tile x=0: whole body, foot (75, 90)
+            [
+                _kp_det([10, 10, 40, 60], 0.70, (25, 50))
+            ],  # tile x=50: cut at the knees, foot (75, 60)
+        ]
+    )
+    detector = TiledPoseDetector(detector=fake, tile_w=100, tile_h=100, overlap=0.5, zones=zones)
+    frame = np.zeros((100, 150, 3), dtype=np.uint8)
+
+    detections = detector.detect(frame)
+
+    # One person, attributed by the surviving box's own feet (75, 90) — on the
+    # floor — not by the absorbed partial's (75, 60), which is in the walkway.
+    assert [d.bbox for d in detections] == [[60, 10, 90, 90]]
+    assert [d.zone_id for d in detections] == ["floor"]
+
+
 def test_build_hybrid_detector_wraps_a_base_detector_at_its_native_tile_size():
     # #111 wiring: a "hybrid" camera runs the tiling detector over native
     # 1280x736 tiles plus one whole-frame pass. The factory reads the tile size
@@ -308,6 +415,25 @@ def test_build_hybrid_detector_restricts_reach_to_supplied_zone_bounds():
 
     assert detector.zone_bounds == bounds
     assert detector.full_frame_pass is True
+
+
+def test_build_hybrid_detector_carries_zones_for_stamping_independently_of_reach():
+    # #116: the two zone-shaped inputs are separate responsibilities and must be
+    # settable separately. ``zone_bounds`` bounds where tiles are *placed* (the
+    # #111 compute saving) and confers no membership; ``zones`` decides which
+    # polygon a detection belongs to. A camera with authored zones but no
+    # restrict_to_zones tiles the whole frame and still needs its zones[]
+    # breakdown, so stamping must not ride along with the reach bounds.
+    base = _FakeTileDetector(per_call=[])
+    base.input_size = (1280, 736)
+    zones = ZoneConfig.from_dict(
+        {"zones": [{"id": "z", "name": "Z", "polygon": [[0, 0], [10, 0], [10, 10]]}]}
+    )
+
+    detector = build_hybrid_detector(base, zones=zones)
+
+    assert detector.zones is zones
+    assert detector.zone_bounds is None  # reach is untouched by stamping
 
 
 def test_hybrid_detector_delegates_model_provenance_to_its_base():

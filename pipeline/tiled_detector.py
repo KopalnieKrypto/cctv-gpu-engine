@@ -21,6 +21,7 @@ import numpy as np
 
 from pipeline.postprocessing import Detection
 from pipeline.preprocessing import InputSize, input_wh
+from pipeline.zones import ZoneConfig
 
 # Fraction of a tile shared with its neighbour. 0.2 is the value #110 measured
 # the tiling arms at, so productionizing the hybrid mode (#111) tiles the same
@@ -216,8 +217,21 @@ class TiledPoseDetector:
     input equals the tile size, so each tile letterboxes at scale 1.0 and people
     keep their native pixel height.
 
-    ``zone_bounds`` (with-zones arm) restricts inference to tiles that intersect
-    an authored zone's bounding box; ``None`` tiles the whole frame.
+    The two zone-shaped inputs are deliberately separate responsibilities, and
+    conflating them is what issue #116 was:
+
+    * ``zone_bounds`` (with-zones arm) restricts inference to tiles that
+      intersect an authored zone's bounding box; ``None`` tiles the whole frame.
+      It bounds where tiles are *placed*, and confers no zone membership.
+    * ``zones`` stamps each returned detection's ``zone_id`` from its foot
+      point — membership only. It is *not* passed to the inner detector, which
+      stays zone-less so no ``inference_roi`` crop is re-applied per tile; the
+      base detector therefore never stamps, and without this the aggregator's
+      ``restrict_to_zones`` mask discards every detection the hybrid mode makes.
+
+    Set ``zones`` whenever a camera has authored zones, independently of
+    ``restrict_to_zones`` — the ``zones[]`` per-zone breakdown is built from
+    membership too, and is silently all-zero without it.
 
     ``full_frame_pass`` (hybrid arm) adds one whole-frame pose call whose
     detections join the tile pool before merging. A person too large to fit one
@@ -231,6 +245,7 @@ class TiledPoseDetector:
     tile_h: int
     overlap: float
     zone_bounds: list[tuple[float, float, float, float]] | None = None
+    zones: ZoneConfig | None = None
     ios_threshold: float = DEFAULT_IOS_THRESHOLD
     full_frame_pass: bool = False
     min_whole_box_ratio: float = DEFAULT_MIN_WHOLE_BOX_RATIO
@@ -272,13 +287,23 @@ class TiledPoseDetector:
             for det in self.detector.detect(crop):
                 _translate_detection(det, tile.x1, tile.y1)
                 pooled.append(det)
-        return merge_detections(pooled, self.ios_threshold, self.min_whole_box_ratio)
+        merged = merge_detections(pooled, self.ios_threshold, self.min_whole_box_ratio)
+        if self.zones is not None:
+            # Membership is decided here, after the merge and in full-frame
+            # pixels: a tile-local foot point is measured against the wrong end
+            # of the frame, and a box the merge discarded is not the box whose
+            # feet should name the zone. Stamping the survivors also skips the
+            # point-in-polygon test for every partial the merge threw away.
+            for det in merged:
+                det.zone_id = self.zones.zone_for_detection(det)
+        return merged
 
 
 def build_hybrid_detector(
     base_detector: Any,
     *,
     zone_bounds: list[tuple[float, float, float, float]] | None = None,
+    zones: ZoneConfig | None = None,
     overlap: float = DEFAULT_TILE_OVERLAP,
 ) -> TiledPoseDetector:
     """Wrap a base pose detector as the hybrid tiling detector (#111).
@@ -289,7 +314,10 @@ def build_hybrid_detector(
     reach is handled here via ``zone_bounds``, not the detector's inference_roi),
     and its input equals the tile size so each tile letterboxes at scale 1.0.
     ``zone_bounds`` (the authored zone bboxes, when the camera restricts to zones)
-    focuses the grid; ``None`` tiles the whole frame.
+    focuses the grid; ``None`` tiles the whole frame. ``zones`` is the separate,
+    membership-only reference that stamps ``zone_id`` on the merged detections
+    (#116) — pass it whenever the camera has zones at all, because the base
+    detector is zone-less and nothing else in this path stamps.
     """
     tile_w, tile_h = input_wh(base_detector.input_size)
     return TiledPoseDetector(
@@ -298,5 +326,6 @@ def build_hybrid_detector(
         tile_h=tile_h,
         overlap=overlap,
         zone_bounds=zone_bounds,
+        zones=zones,
         full_frame_pass=True,
     )

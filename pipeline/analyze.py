@@ -137,17 +137,26 @@ def _build_detector(model_path: str, zones: ZoneConfig | None, pose_mode: str):
     ``full_frame`` (default) is the plain :class:`PoseDetector`, given ``zones``
     so an ``inference_roi`` still focuses the single pose call. ``hybrid`` is the
     #110-winning :class:`TiledPoseDetector`: a zone-less base detector tiled at
-    its native model input plus one whole-frame pass. When the camera restricts
-    to zones, the authored zone bboxes bound the tiling reach (the with-zones
-    compute saving); otherwise the whole frame is tiled. Resolved at startup like
+    its native model input plus one whole-frame pass. Resolved at startup like
     #109 resolves the model from ``pose.input_size``.
+
+    Hybrid mode uses ``zones`` twice, for two different things (#116):
+
+    * as ``zone_bounds``, and only when the camera restricts to zones — the
+      authored bboxes bound the tiling *reach*, which is the #111 compute
+      saving; otherwise the whole frame is tiled.
+    * as ``zones``, always — the tiling wrapper stamps ``zone_id`` on what it
+      returns. The base stays zone-less so no ``inference_roi`` crop is
+      re-applied per tile, which also means it never stamps membership, and an
+      unstamped detection is dropped outright by the aggregator's ROI mask and
+      counts toward no zone in the ``zones[]`` breakdown.
     """
     if pose_mode == POSE_MODE_HYBRID:
         base_detector = load_pose_model(model_path, zones=None)
         zone_bounds = None
         if zones is not None and zones.restrict_to_zones:
             zone_bounds = zones.bounding_boxes() or None
-        return build_hybrid_detector(base_detector, zone_bounds=zone_bounds)
+        return build_hybrid_detector(base_detector, zone_bounds=zone_bounds, zones=zones)
     return load_pose_model(model_path, zones=zones)
 
 
