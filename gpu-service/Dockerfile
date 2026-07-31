@@ -165,11 +165,25 @@ ENV MODEL_PATH=/app/models/yolo11s-pose.onnx \
 #   docker run --entrypoint python <image> -m gpu_service.rest_server
 EXPOSE 5000 5003
 
-# Healthcheck: dashboard responds on /dashboard. If the worker crashes the
-# daemon thread dies with it, so a 200 here = both processes alive.
-# Port is read from $DASHBOARD_PORT (defaults to 5000) so a second worker
-# instance launched with `-e DASHBOARD_PORT=5001` is healthchecked correctly.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD curl -fsS "http://127.0.0.1:${DASHBOARD_PORT:-5000}/dashboard" >/dev/null || exit 1
+# Healthcheck: probe BOTH run-modes, pass if either answers (issue #114).
+# One image serves two entrypoints and each binds exactly one port:
+#   * REST mode (`--entrypoint python -m gpu_service.rest_server`, what the
+#     gpu-agent runs in production) → $REST_PORT, and /healthz is its readiness
+#     gate: 503 until the model + CUDA are loaded, 200 after.
+#   * default ENTRYPOINT (gpu_service.worker, R2 poll) → $DASHBOARD_PORT. The
+#     dashboard runs on a daemon thread that dies with the worker, so a 200 on
+#     /dashboard means both processes are alive.
+# Probing only the dashboard made every REST-mode container permanently
+# `unhealthy` by construction — nothing ever binds :5000 in that mode. Ports
+# stay env-driven so `-e DASHBOARD_PORT=5001` (or a moved REST port) is still
+# probed correctly. `||` not `&&`: only one port ever answers in a given mode.
+#
+# --start-period=240s: /healthz deliberately 503s until the VLM is loaded, and
+# a cold load was measured at ~2 min. Failures inside the start period don't
+# count toward the failing streak, so this only suppresses a spurious burst.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=240s --retries=3 \
+    CMD curl -fsS "http://127.0.0.1:${REST_PORT:-5003}/healthz" >/dev/null \
+     || curl -fsS "http://127.0.0.1:${DASHBOARD_PORT:-5000}/dashboard" >/dev/null \
+     || exit 1
 
 ENTRYPOINT ["python", "-m", "gpu_service.worker"]

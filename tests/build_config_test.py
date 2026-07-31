@@ -626,6 +626,133 @@ class TestRuffJobScope:
         )
 
 
+def _healthcheck_directive() -> str | None:
+    """Return the gpu-service Dockerfile ``HEALTHCHECK`` as one logical line.
+
+    Collapses backslash-newline continuations so a multi-line directive is a
+    single string, the same way :func:`_vlm_pip_install_commands` flattens the
+    ``RUN`` recipes.
+    """
+    collapsed = re.sub(r"\\\n\s*", " ", GPU_SERVICE_DOCKERFILE.read_text())
+    for line in collapsed.splitlines():
+        if line.strip().startswith("HEALTHCHECK"):
+            return line.strip()
+    return None
+
+
+class TestGpuServiceHealthcheckCoversBothEntrypoints:
+    """The image's HEALTHCHECK must be meaningful in *both* run-modes (issue #114).
+
+    One image serves two entrypoints: the default ``gpu_service.worker``
+    (dashboard on ``$DASHBOARD_PORT``) and the gpu-agent's REST override
+    ``python -m gpu_service.rest_server`` (``$REST_PORT``). The probe used to
+    hit the dashboard only, so every REST-mode container — i.e. every container
+    production actually runs — reported ``unhealthy`` for its entire life while
+    working perfectly. That is worse than no healthcheck: it misleads incident
+    triage and makes real health-gating (``depends_on: service_healthy``, an
+    orchestrator restart policy, a gpu-agent readiness gate) impossible.
+
+    These assertions are the CI coverage the issue asks for — the default
+    entrypoint was the only path anyone checked, which is exactly why the
+    regression stayed invisible. Runtime verification (``docker inspect
+    --format '{{.State.Health.Status}}'``) still happens on a GPU box.
+    """
+
+    # /healthz deliberately 503s until the model is loaded; an observed cold
+    # start took ~2 min (container up 08:12 → "VLM loaded." 08:14:22). The
+    # start period must clear that, or every cold start logs a failure burst.
+    MIN_START_PERIOD_S = 180
+
+    def test_healthcheck_directive_exists(self):
+        assert _healthcheck_directive() is not None, (
+            "gpu-service/Dockerfile has no HEALTHCHECK directive — issue #114 "
+            "requires one that works for both entrypoints."
+        )
+
+    def test_healthcheck_probes_rest_healthz_readiness_gate(self):
+        """REST mode binds ``$REST_PORT`` only, and ``/healthz`` is the
+        readiness gate (model + CUDA loaded) — strictly more informative than
+        a liveness ping."""
+        directive = _healthcheck_directive()
+        assert directive is not None
+        assert "/healthz" in directive, (
+            f"HEALTHCHECK never probes /healthz, so a REST-mode container "
+            f"(the way gpu-agent runs this image) can never report healthy — "
+            f"nothing binds the dashboard port in that mode. Got:\n{directive}"
+        )
+        assert "REST_PORT" in directive, (
+            f"HEALTHCHECK must read the REST port from $REST_PORT (the same "
+            f"env var rest_server.py:221 binds), not a hardcoded number. "
+            f"Got:\n{directive}"
+        )
+
+    def test_healthcheck_still_probes_dashboard_for_worker_mode(self):
+        """The default entrypoint (R2-polling worker) has no ``/healthz`` —
+        its dashboard probe must survive the fix."""
+        directive = _healthcheck_directive()
+        assert directive is not None
+        assert "/dashboard" in directive, (
+            f"HEALTHCHECK dropped the /dashboard probe — the default "
+            f"ENTRYPOINT (gpu_service.worker) serves no /healthz, so worker "
+            f"containers would now be permanently unhealthy instead. "
+            f"Got:\n{directive}"
+        )
+        assert "DASHBOARD_PORT" in directive, (
+            f"HEALTHCHECK must keep reading $DASHBOARD_PORT so a second worker "
+            f"started with `-e DASHBOARD_PORT=5001` is probed correctly. "
+            f"Got:\n{directive}"
+        )
+
+    def test_healthcheck_passes_when_either_entrypoint_answers(self):
+        """The two probes must be OR-ed. ``&&`` would demand both ports answer,
+        which no single run-mode ever satisfies — inverting the bug rather
+        than fixing it."""
+        directive = _healthcheck_directive()
+        assert directive is not None
+        assert directive.count("curl") >= 2, (
+            f"HEALTHCHECK must probe both ports (one curl each) so the same "
+            f"image is healthchecked correctly whichever entrypoint it was "
+            f"started with. Got:\n{directive}"
+        )
+        assert "||" in directive, (
+            f"HEALTHCHECK probes must be chained with `||` (pass if *either* "
+            f"answers). Got:\n{directive}"
+        )
+        assert "&&" not in directive, (
+            f"HEALTHCHECK chains probes with `&&`, requiring both ports to "
+            f"answer. Only one ever does — worker mode binds $DASHBOARD_PORT, "
+            f"REST mode binds $REST_PORT. Got:\n{directive}"
+        )
+
+    def test_healthcheck_start_period_covers_vlm_cold_load(self):
+        directive = _healthcheck_directive()
+        assert directive is not None
+        m = re.search(r"--start-period=(\d+)([smh])", directive)
+        assert m, f"HEALTHCHECK has no parseable `--start-period=<n>[smh]`. Got:\n{directive}"
+        seconds = int(m.group(1)) * {"s": 1, "m": 60, "h": 3600}[m.group(2)]
+        assert seconds >= self.MIN_START_PERIOD_S, (
+            f"--start-period={m.group(0)} ({seconds}s) is shorter than the "
+            f"~2 min VLM cold load observed in production. /healthz returns "
+            f"503 until the model is ready, so a short start period turns "
+            f"every cold start into a failing-streak burst. Need >= "
+            f"{self.MIN_START_PERIOD_S}s."
+        )
+
+    def test_rest_port_env_default_matches_exposed_port(self):
+        """The probe's ``${REST_PORT:-...}`` fallback is only correct if the
+        image also declares the same default the REST server binds."""
+        text = GPU_SERVICE_DOCKERFILE.read_text()
+        env_match = re.search(r"\bREST_PORT\s*=\s*(\d+)", text)
+        assert env_match, (
+            "gpu-service/Dockerfile has no `REST_PORT=<port>` env assignment — "
+            "the HEALTHCHECK and rest_server.py both read it."
+        )
+        assert re.search(rf"EXPOSE[^\n]*\b{env_match.group(1)}\b", text), (
+            f"ENV REST_PORT={env_match.group(1)} is not in the EXPOSE list — "
+            f"the healthcheck would probe a port the image never advertises."
+        )
+
+
 class TestGpuServiceDockerfileBundlesReidModel:
     """The OSNet Re-ID model must ship in the image too (issue #32).
 
