@@ -1,0 +1,98 @@
+{
+	"fixture": "hala-prawe-v1",
+	"created": "2026-08-28",
+	"purpose": "Ground truth for the seven-category process-activity vocabulary on the client's rebar hall. Gates C.0 in docs/prd/slice-chronometraz.md (gpu-exchange).",
+	"annotation_shape": "per-track interval timeline",
+	"pass_bar": {
+		"metric": "correct classifications per activity",
+		"threshold": 0.85,
+		"measured_on": "manually annotated material held out of the training set",
+		"source": "client, 2026-08-28 (assumption A11)"
+	},
+	"camera": {
+		"id": "c88d18d9-cda0-4c88-b76c-b475a45cbeb8",
+		"name": "hala prawe skrzydlo",
+		"tenant_id": "ryjUroVDl3H0xVhlh4pjqXZfcRuo8dTd",
+		"source_frame": [3840, 2160],
+		"framing": "whole-hall 4K fisheye, NOT station-framed - the client declined to reframe (assumption A2, falsified 2026-08-28)",
+		"pose": { "input_size": "1280x736", "mode": "full_frame" },
+		"pose_rationale": "640x640 resolves nobody under 360 native px and reports recall_risk=high; 1280x736 halves the floor to 180 px and flips the verdict to normal. Activity accuracy is capped by detection recall, so annotating 640 footage would measure the wrong thing."
+	},
+	"shift": {
+		"timezone": "Europe/Warsaw",
+		"windows": [["07:00", "15:00"], ["17:00", "23:00"]],
+		"breaks": [["13:00", "13:30"]]
+	},
+	"activities": [
+		{ "id": "spawanie", "name_pl": "Spawanie", "category": "produktywna", "value_adding": true },
+		{
+			"id": "ukladanie_pretow",
+			"name_pl": "Układanie prętów",
+			"category": "produktywna",
+			"value_adding": true
+		},
+		{
+			"id": "sciaganie_elementu",
+			"name_pl": "Ściąganie elementu",
+			"category": "produktywna",
+			"value_adding": true
+		},
+		{
+			"id": "inna_czynnosc",
+			"name_pl": "Inna czynność / praca pomocnicza",
+			"category": "pomocnicza",
+			"value_adding": false
+		},
+		{ "id": "postoj", "name_pl": "Postój", "category": "przestoj", "value_adding": false },
+		{
+			"id": "brak_na_stanowisku",
+			"name_pl": "Brak na stanowisku",
+			"category": "przestoj",
+			"value_adding": false
+		},
+		{
+			"id": "nierozpoznane",
+			"name_pl": "Nierozpoznane",
+			"category": null,
+			"value_adding": null,
+			"note": "Not an activity. The annotator's and the classifier's honest 'cannot tell'. Never counted as work or downtime."
+		}
+	],
+	"clips": [
+		{
+			"slot": "W1",
+			"task_id": "83be1a30-600d-4869-97d9-aa69379e8958",
+			"window_utc": ["2026-08-28T07:00:07Z", "2026-08-28T07:20:07Z"],
+			"window_local": "2026-08-28 09:00-09:20 Europe/Warsaw",
+			"duration_s": 1200,
+			"shift_position": "morning, pre-break",
+			"r2_key_original": "tenants/ryjUroVDl3H0xVhlh4pjqXZfcRuo8dTd/appliance-uploads/83be1a30-600d-4869-97d9-aa69379e8958/chunk_000.mp4",
+			"r2_key_preserved": "benchmarks/hala-prawe-v1/W1-2026-08-28T0700Z.mp4",
+			"annotated": false
+		},
+		{
+			"slot": "W2",
+			"task_id": "11fd80c5-1c62-4290-8292-4a8f6542bc61",
+			"window_utc": ["2026-08-28T08:20:01Z", "2026-08-28T08:40:01Z"],
+			"window_local": "2026-08-28 10:20-10:40 Europe/Warsaw",
+			"duration_s": 1200,
+			"shift_position": "late morning, pre-break",
+			"r2_key_original": "tenants/ryjUroVDl3H0xVhlh4pjqXZfcRuo8dTd/appliance-uploads/11fd80c5-1c62-4290-8292-4a8f6542bc61/chunk_000.mp4",
+			"r2_key_preserved": "benchmarks/hala-prawe-v1/W2-2026-08-28T0820Z.mp4",
+			"annotated": false
+		},
+		{
+			"slot": "W3",
+			"task_id": null,
+			"window_utc": null,
+			"window_local": "2026-08-28 ~13:45-14:05 Europe/Warsaw - PENDING, submit after 14:05 local",
+			"duration_s": 1200,
+			"shift_position": "afternoon, post-break",
+			"r2_key_original": null,
+			"r2_key_preserved": "benchmarks/hala-prawe-v1/W3-pending.mp4",
+			"annotated": false,
+			"note": "Afternoon material. W1 and W2 are both pre-break; without W3 the fixture only represents the first half of a shift."
+		}
+	],
+	"retention_note": "r2_key_original points into the appliance-uploads prefix, which the C-5 retention reaper deletes on task completion (gpu-exchange, feat(retention) 3e2d8e8). r2_key_preserved is a copy outside that prefix with no uploads row, so findReapableTaskInputs cannot select it. Preserve BEFORE deploying the reaper to production, or this fixture loses its source material permanently."
+}

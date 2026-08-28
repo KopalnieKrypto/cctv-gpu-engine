@@ -1,0 +1,6 @@
+# Source clips + regenerated artifacts — never committed.
+# Clips live in R2 (see manifest.source.json -> clips[].r2_key_preserved).
+*.mp4
+crops/
+index.html
+review.html
