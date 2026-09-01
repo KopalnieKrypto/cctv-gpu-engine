@@ -81,9 +81,9 @@
   "separability": {
     "spawanie": {
       "support": 272,
-      "recall": 0.7058823529411765,
-      "precision": 0.8847926267281107,
-      "time_ratio": 0.7977941176470589,
+      "recall": 0.7132352941176471,
+      "precision": 0.8858447488584474,
+      "time_ratio": 0.8051470588235294,
       "thin": false
     },
     "ukladanie_pretow": {
@@ -103,8 +103,8 @@
     "inna_czynnosc": {
       "support": 42,
       "recall": 0.5238095238095238,
-      "precision": 0.19298245614035087,
-      "time_ratio": 2.7142857142857144,
+      "precision": 0.19642857142857142,
+      "time_ratio": 2.6666666666666665,
       "thin": false
     },
     "postoj": {
@@ -128,6 +128,3610 @@
       "time_ratio": 0.0,
       "thin": false
     }
+  },
+  "timeline": {
+    "W2": [
+      {
+        "t_s": 0,
+        "truth": "ukladanie_pretow",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 2,
+        "truth": "postoj",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 4,
+        "truth": "inna_czynnosc",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 6,
+        "truth": "sciaganie_elementu",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 8,
+        "truth": "sciaganie_elementu",
+        "pred": "sciaganie_elementu",
+        "hit": true
+      },
+      {
+        "t_s": 10,
+        "truth": "sciaganie_elementu",
+        "pred": "spawanie",
+        "hit": false
+      },
+      {
+        "t_s": 12,
+        "truth": "sciaganie_elementu",
+        "pred": "sciaganie_elementu",
+        "hit": true
+      },
+      {
+        "t_s": 14,
+        "truth": "postoj",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 16,
+        "truth": "postoj",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 18,
+        "truth": "postoj",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 20,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 22,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 24,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 26,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 28,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 30,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 32,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 34,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 36,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 38,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 40,
+        "truth": "spawanie",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 42,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 44,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 46,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 48,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 50,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 52,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 54,
+        "truth": "spawanie",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 56,
+        "truth": "sciaganie_elementu",
+        "pred": "sciaganie_elementu",
+        "hit": true
+      },
+      {
+        "t_s": 58,
+        "truth": "sciaganie_elementu",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 60,
+        "truth": "sciaganie_elementu",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 62,
+        "truth": "sciaganie_elementu",
+        "pred": "sciaganie_elementu",
+        "hit": true
+      },
+      {
+        "t_s": 64,
+        "truth": "sciaganie_elementu",
+        "pred": "sciaganie_elementu",
+        "hit": true
+      },
+      {
+        "t_s": 66,
+        "truth": "nierozpoznane",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 68,
+        "truth": "nierozpoznane",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 70,
+        "truth": "nierozpoznane",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 72,
+        "truth": "nierozpoznane",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 74,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 76,
+        "truth": "ukladanie_pretow",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 78,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 80,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 82,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 84,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 86,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 88,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 90,
+        "truth": "inna_czynnosc",
+        "pred": "inna_czynnosc",
+        "hit": true
+      },
+      {
+        "t_s": 92,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 94,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 96,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 98,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 100,
+        "truth": "ukladanie_pretow",
+        "pred": "spawanie",
+        "hit": false
+      },
+      {
+        "t_s": 102,
+        "truth": "inna_czynnosc",
+        "pred": "inna_czynnosc",
+        "hit": true
+      },
+      {
+        "t_s": 104,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 106,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 108,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 110,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 112,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 114,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 116,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 118,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 120,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 122,
+        "truth": "spawanie",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 124,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 126,
+        "truth": "spawanie",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 128,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 130,
+        "truth": "spawanie",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 132,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 134,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 136,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 138,
+        "truth": "inna_czynnosc",
+        "pred": "inna_czynnosc",
+        "hit": true
+      },
+      {
+        "t_s": 140,
+        "truth": "sciaganie_elementu",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 142,
+        "truth": "nierozpoznane",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 144,
+        "truth": "nierozpoznane",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 146,
+        "truth": "postoj",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 148,
+        "truth": "postoj",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 150,
+        "truth": "postoj",
+        "pred": "postoj",
+        "hit": true
+      },
+      {
+        "t_s": 152,
+        "truth": "postoj",
+        "pred": "__brak_detekcji__",
+        "hit": false
+      },
+      {
+        "t_s": 154,
+        "truth": "postoj",
+        "pred": "postoj",
+        "hit": true
+      },
+      {
+        "t_s": 156,
+        "truth": "postoj",
+        "pred": "__brak_detekcji__",
+        "hit": false
+      },
+      {
+        "t_s": 158,
+        "truth": "postoj",
+        "pred": "postoj",
+        "hit": true
+      },
+      {
+        "t_s": 160,
+        "truth": "postoj",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 162,
+        "truth": "nierozpoznane",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 164,
+        "truth": "nierozpoznane",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 166,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 168,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 170,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 172,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 174,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 176,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 178,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 180,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 182,
+        "truth": "ukladanie_pretow",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 184,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 186,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 188,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 190,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 192,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 194,
+        "truth": "inna_czynnosc",
+        "pred": "inna_czynnosc",
+        "hit": true
+      },
+      {
+        "t_s": 196,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 198,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 200,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 202,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 204,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 206,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 208,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 210,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 212,
+        "truth": "spawanie",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 214,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 216,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 218,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 220,
+        "truth": "spawanie",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 222,
+        "truth": "spawanie",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 224,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 226,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 228,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 230,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 232,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 234,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 236,
+        "truth": "inna_czynnosc",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 238,
+        "truth": "sciaganie_elementu",
+        "pred": "sciaganie_elementu",
+        "hit": true
+      },
+      {
+        "t_s": 240,
+        "truth": "sciaganie_elementu",
+        "pred": "sciaganie_elementu",
+        "hit": true
+      },
+      {
+        "t_s": 242,
+        "truth": "nierozpoznane",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 244,
+        "truth": "nierozpoznane",
+        "pred": "__brak_detekcji__",
+        "hit": false
+      },
+      {
+        "t_s": 246,
+        "truth": "nierozpoznane",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 248,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 250,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 252,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 254,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 256,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 258,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 260,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 262,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 264,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 266,
+        "truth": "ukladanie_pretow",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 268,
+        "truth": "ukladanie_pretow",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 270,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 272,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 274,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 276,
+        "truth": "ukladanie_pretow",
+        "pred": "spawanie",
+        "hit": false
+      },
+      {
+        "t_s": 278,
+        "truth": "inna_czynnosc",
+        "pred": "inna_czynnosc",
+        "hit": true
+      },
+      {
+        "t_s": 280,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 282,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 284,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 286,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 288,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 290,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 292,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 294,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 296,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 298,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 300,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 302,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 304,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 306,
+        "truth": "spawanie",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 308,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 310,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 312,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 314,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 316,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 318,
+        "truth": "spawanie",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 320,
+        "truth": "inna_czynnosc",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 322,
+        "truth": "sciaganie_elementu",
+        "pred": "sciaganie_elementu",
+        "hit": true
+      },
+      {
+        "t_s": 324,
+        "truth": "inna_czynnosc",
+        "pred": "inna_czynnosc",
+        "hit": true
+      },
+      {
+        "t_s": 326,
+        "truth": "nierozpoznane",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 328,
+        "truth": "nierozpoznane",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 330,
+        "truth": "nierozpoznane",
+        "pred": "spawanie",
+        "hit": false
+      },
+      {
+        "t_s": 332,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 334,
+        "truth": "ukladanie_pretow",
+        "pred": "spawanie",
+        "hit": false
+      },
+      {
+        "t_s": 336,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 338,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 340,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 342,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 344,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 346,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 348,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 350,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 352,
+        "truth": "ukladanie_pretow",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 354,
+        "truth": "ukladanie_pretow",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 356,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 358,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 360,
+        "truth": "ukladanie_pretow",
+        "pred": "spawanie",
+        "hit": false
+      },
+      {
+        "t_s": 362,
+        "truth": "ukladanie_pretow",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 364,
+        "truth": "ukladanie_pretow",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 366,
+        "truth": "inna_czynnosc",
+        "pred": "inna_czynnosc",
+        "hit": true
+      },
+      {
+        "t_s": 368,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 370,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 372,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 374,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 376,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 378,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 380,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 382,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 384,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 386,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 388,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 390,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 392,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 394,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 396,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 398,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 400,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 402,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 404,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 406,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 408,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 410,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 412,
+        "truth": "inna_czynnosc",
+        "pred": "inna_czynnosc",
+        "hit": true
+      },
+      {
+        "t_s": 414,
+        "truth": "sciaganie_elementu",
+        "pred": "sciaganie_elementu",
+        "hit": true
+      },
+      {
+        "t_s": 416,
+        "truth": "sciaganie_elementu",
+        "pred": "sciaganie_elementu",
+        "hit": true
+      },
+      {
+        "t_s": 418,
+        "truth": "nierozpoznane",
+        "pred": "__brak_detekcji__",
+        "hit": false
+      },
+      {
+        "t_s": 420,
+        "truth": "nierozpoznane",
+        "pred": "__brak_detekcji__",
+        "hit": false
+      },
+      {
+        "t_s": 422,
+        "truth": "nierozpoznane",
+        "pred": "__brak_detekcji__",
+        "hit": false
+      },
+      {
+        "t_s": 424,
+        "truth": "nierozpoznane",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 426,
+        "truth": "nierozpoznane",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 428,
+        "truth": "nierozpoznane",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 430,
+        "truth": "nierozpoznane",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 432,
+        "truth": "nierozpoznane",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 434,
+        "truth": "nierozpoznane",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 436,
+        "truth": "nierozpoznane",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 438,
+        "truth": "nierozpoznane",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 440,
+        "truth": "nierozpoznane",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 442,
+        "truth": "nierozpoznane",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 444,
+        "truth": "nierozpoznane",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 446,
+        "truth": "brak_na_stanowisku",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 448,
+        "truth": "brak_na_stanowisku",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 450,
+        "truth": "ukladanie_pretow",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 452,
+        "truth": "ukladanie_pretow",
+        "pred": "brak_na_stanowisku",
+        "hit": false
+      },
+      {
+        "t_s": 454,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 456,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 458,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 460,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 462,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 464,
+        "truth": "ukladanie_pretow",
+        "pred": "spawanie",
+        "hit": false
+      },
+      {
+        "t_s": 466,
+        "truth": "ukladanie_pretow",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 468,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 470,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 472,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 474,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 476,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 478,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 480,
+        "truth": "ukladanie_pretow",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 482,
+        "truth": "ukladanie_pretow",
+        "pred": "spawanie",
+        "hit": false
+      },
+      {
+        "t_s": 484,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 486,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 488,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 490,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 492,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 494,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 496,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 498,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 500,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 502,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 504,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 506,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 508,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 510,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 512,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 514,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 516,
+        "truth": "inna_czynnosc",
+        "pred": "inna_czynnosc",
+        "hit": true
+      },
+      {
+        "t_s": 518,
+        "truth": "postoj",
+        "pred": "__brak_detekcji__",
+        "hit": false
+      },
+      {
+        "t_s": 520,
+        "truth": "postoj",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 522,
+        "truth": "inna_czynnosc",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 524,
+        "truth": "inna_czynnosc",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 526,
+        "truth": "inna_czynnosc",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 528,
+        "truth": "inna_czynnosc",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 530,
+        "truth": "inna_czynnosc",
+        "pred": "inna_czynnosc",
+        "hit": true
+      },
+      {
+        "t_s": 532,
+        "truth": "inna_czynnosc",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 534,
+        "truth": "inna_czynnosc",
+        "pred": "inna_czynnosc",
+        "hit": true
+      },
+      {
+        "t_s": 536,
+        "truth": "inna_czynnosc",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 538,
+        "truth": "inna_czynnosc",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 540,
+        "truth": "inna_czynnosc",
+        "pred": "inna_czynnosc",
+        "hit": true
+      },
+      {
+        "t_s": 542,
+        "truth": "inna_czynnosc",
+        "pred": "inna_czynnosc",
+        "hit": true
+      },
+      {
+        "t_s": 544,
+        "truth": "inna_czynnosc",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 546,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 548,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 550,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 552,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 554,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 556,
+        "truth": "spawanie",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 558,
+        "truth": "spawanie",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 560,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 562,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 564,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 566,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 568,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 570,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 572,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 574,
+        "truth": "inna_czynnosc",
+        "pred": "inna_czynnosc",
+        "hit": true
+      },
+      {
+        "t_s": 576,
+        "truth": "sciaganie_elementu",
+        "pred": "sciaganie_elementu",
+        "hit": true
+      },
+      {
+        "t_s": 578,
+        "truth": "inna_czynnosc",
+        "pred": "inna_czynnosc",
+        "hit": true
+      },
+      {
+        "t_s": 580,
+        "truth": "nierozpoznane",
+        "pred": "__brak_detekcji__",
+        "hit": false
+      },
+      {
+        "t_s": 582,
+        "truth": "nierozpoznane",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 584,
+        "truth": "nierozpoznane",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 586,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 588,
+        "truth": "ukladanie_pretow",
+        "pred": "spawanie",
+        "hit": false
+      },
+      {
+        "t_s": 590,
+        "truth": "ukladanie_pretow",
+        "pred": "spawanie",
+        "hit": false
+      },
+      {
+        "t_s": 592,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 594,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 596,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 598,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 600,
+        "truth": "ukladanie_pretow",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 602,
+        "truth": "ukladanie_pretow",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 604,
+        "truth": "ukladanie_pretow",
+        "pred": "spawanie",
+        "hit": false
+      },
+      {
+        "t_s": 606,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 608,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 610,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 612,
+        "truth": "spawanie",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 614,
+        "truth": "spawanie",
+        "pred": "__brak_detekcji__",
+        "hit": false
+      },
+      {
+        "t_s": 616,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 618,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 620,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 622,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 624,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 626,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 628,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 630,
+        "truth": "spawanie",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 632,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 634,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 636,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 638,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 640,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 642,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 644,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 646,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 648,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 650,
+        "truth": "inna_czynnosc",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 652,
+        "truth": "inna_czynnosc",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 654,
+        "truth": "inna_czynnosc",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 656,
+        "truth": "sciaganie_elementu",
+        "pred": "sciaganie_elementu",
+        "hit": true
+      },
+      {
+        "t_s": 658,
+        "truth": "sciaganie_elementu",
+        "pred": "spawanie",
+        "hit": false
+      },
+      {
+        "t_s": 660,
+        "truth": "nierozpoznane",
+        "pred": "__brak_detekcji__",
+        "hit": false
+      },
+      {
+        "t_s": 662,
+        "truth": "nierozpoznane",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 664,
+        "truth": "nierozpoznane",
+        "pred": "__brak_detekcji__",
+        "hit": false
+      },
+      {
+        "t_s": 666,
+        "truth": "nierozpoznane",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 668,
+        "truth": "nierozpoznane",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 670,
+        "truth": "ukladanie_pretow",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 672,
+        "truth": "ukladanie_pretow",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 674,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 676,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 678,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 680,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 682,
+        "truth": "ukladanie_pretow",
+        "pred": "spawanie",
+        "hit": false
+      },
+      {
+        "t_s": 684,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 686,
+        "truth": "ukladanie_pretow",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 688,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 690,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 692,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 694,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 696,
+        "truth": "ukladanie_pretow",
+        "pred": "spawanie",
+        "hit": false
+      },
+      {
+        "t_s": 698,
+        "truth": "inna_czynnosc",
+        "pred": "inna_czynnosc",
+        "hit": true
+      },
+      {
+        "t_s": 700,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 702,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 704,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 706,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 708,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 710,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 712,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 714,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 716,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 718,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 720,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 722,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 724,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 726,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 728,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 730,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 732,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 734,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 736,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 738,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 740,
+        "truth": "inna_czynnosc",
+        "pred": "inna_czynnosc",
+        "hit": true
+      },
+      {
+        "t_s": 742,
+        "truth": "sciaganie_elementu",
+        "pred": "spawanie",
+        "hit": false
+      },
+      {
+        "t_s": 744,
+        "truth": "inna_czynnosc",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 746,
+        "truth": "nierozpoznane",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 748,
+        "truth": "nierozpoznane",
+        "pred": "__brak_detekcji__",
+        "hit": false
+      },
+      {
+        "t_s": 750,
+        "truth": "nierozpoznane",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 752,
+        "truth": "nierozpoznane",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 754,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 756,
+        "truth": "ukladanie_pretow",
+        "pred": "spawanie",
+        "hit": false
+      },
+      {
+        "t_s": 758,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 760,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 762,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 764,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 766,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 768,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 770,
+        "truth": "ukladanie_pretow",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 772,
+        "truth": "ukladanie_pretow",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 774,
+        "truth": "ukladanie_pretow",
+        "pred": "spawanie",
+        "hit": false
+      },
+      {
+        "t_s": 776,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 778,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 780,
+        "truth": "ukladanie_pretow",
+        "pred": "spawanie",
+        "hit": false
+      },
+      {
+        "t_s": 782,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 784,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 786,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 788,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 790,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 792,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 794,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 796,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 798,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 800,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 802,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 804,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 806,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 808,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 810,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 812,
+        "truth": "spawanie",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 814,
+        "truth": "spawanie",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 816,
+        "truth": "spawanie",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 818,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 820,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 822,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 824,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 826,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 828,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 830,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 832,
+        "truth": "inna_czynnosc",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 834,
+        "truth": "sciaganie_elementu",
+        "pred": "sciaganie_elementu",
+        "hit": true
+      },
+      {
+        "t_s": 836,
+        "truth": "postoj",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 838,
+        "truth": "nierozpoznane",
+        "pred": "__brak_detekcji__",
+        "hit": false
+      },
+      {
+        "t_s": 840,
+        "truth": "nierozpoznane",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 842,
+        "truth": "nierozpoznane",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 844,
+        "truth": "nierozpoznane",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 846,
+        "truth": "nierozpoznane",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 848,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 850,
+        "truth": "ukladanie_pretow",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 852,
+        "truth": "ukladanie_pretow",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 854,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 856,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 858,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 860,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 862,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 864,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 866,
+        "truth": "ukladanie_pretow",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 868,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 870,
+        "truth": "ukladanie_pretow",
+        "pred": "spawanie",
+        "hit": false
+      },
+      {
+        "t_s": 872,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 874,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 876,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 878,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 880,
+        "truth": "inna_czynnosc",
+        "pred": "inna_czynnosc",
+        "hit": true
+      },
+      {
+        "t_s": 882,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 884,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 886,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 888,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 890,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 892,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 894,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 896,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 898,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 900,
+        "truth": "spawanie",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 902,
+        "truth": "spawanie",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 904,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 906,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 908,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 910,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 912,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 914,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 916,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 918,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 920,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 922,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 924,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 926,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 928,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 930,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 932,
+        "truth": "spawanie",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 934,
+        "truth": "sciaganie_elementu",
+        "pred": "sciaganie_elementu",
+        "hit": true
+      },
+      {
+        "t_s": 936,
+        "truth": "sciaganie_elementu",
+        "pred": "sciaganie_elementu",
+        "hit": true
+      },
+      {
+        "t_s": 938,
+        "truth": "inna_czynnosc",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 940,
+        "truth": "nierozpoznane",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 942,
+        "truth": "nierozpoznane",
+        "pred": "__brak_detekcji__",
+        "hit": false
+      },
+      {
+        "t_s": 944,
+        "truth": "nierozpoznane",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 946,
+        "truth": "ukladanie_pretow",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 948,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 950,
+        "truth": "ukladanie_pretow",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 952,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 954,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 956,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 958,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 960,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 962,
+        "truth": "ukladanie_pretow",
+        "pred": "spawanie",
+        "hit": false
+      },
+      {
+        "t_s": 964,
+        "truth": "ukladanie_pretow",
+        "pred": "__brak_detekcji__",
+        "hit": false
+      },
+      {
+        "t_s": 966,
+        "truth": "ukladanie_pretow",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 968,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 970,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 972,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 974,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 976,
+        "truth": "inna_czynnosc",
+        "pred": "inna_czynnosc",
+        "hit": true
+      },
+      {
+        "t_s": 978,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 980,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 982,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 984,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 986,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 988,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 990,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 992,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 994,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 996,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 998,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1000,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1002,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1004,
+        "truth": "spawanie",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 1006,
+        "truth": "spawanie",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 1008,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1010,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1012,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1014,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1016,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1018,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 1020,
+        "truth": "sciaganie_elementu",
+        "pred": "sciaganie_elementu",
+        "hit": true
+      },
+      {
+        "t_s": 1022,
+        "truth": "sciaganie_elementu",
+        "pred": "spawanie",
+        "hit": false
+      },
+      {
+        "t_s": 1024,
+        "truth": "inna_czynnosc",
+        "pred": "inna_czynnosc",
+        "hit": true
+      },
+      {
+        "t_s": 1026,
+        "truth": "nierozpoznane",
+        "pred": "__brak_detekcji__",
+        "hit": false
+      },
+      {
+        "t_s": 1028,
+        "truth": "nierozpoznane",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 1030,
+        "truth": "nierozpoznane",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 1032,
+        "truth": "nierozpoznane",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 1034,
+        "truth": "nierozpoznane",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 1036,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 1038,
+        "truth": "ukladanie_pretow",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 1040,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 1042,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 1044,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 1046,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 1048,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 1050,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 1052,
+        "truth": "ukladanie_pretow",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 1054,
+        "truth": "inna_czynnosc",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 1056,
+        "truth": "inna_czynnosc",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 1058,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 1060,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 1062,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 1064,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 1066,
+        "truth": "inna_czynnosc",
+        "pred": "spawanie",
+        "hit": false
+      },
+      {
+        "t_s": 1068,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 1070,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1072,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 1074,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1076,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 1078,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 1080,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 1082,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 1084,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1086,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1088,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1090,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1092,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1094,
+        "truth": "spawanie",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 1096,
+        "truth": "spawanie",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 1098,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1100,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1102,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1104,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1106,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1108,
+        "truth": "sciaganie_elementu",
+        "pred": "sciaganie_elementu",
+        "hit": true
+      },
+      {
+        "t_s": 1110,
+        "truth": "sciaganie_elementu",
+        "pred": "sciaganie_elementu",
+        "hit": true
+      },
+      {
+        "t_s": 1112,
+        "truth": "sciaganie_elementu",
+        "pred": "sciaganie_elementu",
+        "hit": true
+      },
+      {
+        "t_s": 1114,
+        "truth": "nierozpoznane",
+        "pred": "sciaganie_elementu",
+        "hit": false
+      },
+      {
+        "t_s": 1116,
+        "truth": "nierozpoznane",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 1118,
+        "truth": "nierozpoznane",
+        "pred": "ukladanie_pretow",
+        "hit": false
+      },
+      {
+        "t_s": 1120,
+        "truth": "nierozpoznane",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 1122,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 1124,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 1126,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 1128,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 1130,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 1132,
+        "truth": "ukladanie_pretow",
+        "pred": "spawanie",
+        "hit": false
+      },
+      {
+        "t_s": 1134,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 1136,
+        "truth": "ukladanie_pretow",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 1138,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 1140,
+        "truth": "ukladanie_pretow",
+        "pred": "postoj",
+        "hit": false
+      },
+      {
+        "t_s": 1142,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 1144,
+        "truth": "ukladanie_pretow",
+        "pred": "ukladanie_pretow",
+        "hit": true
+      },
+      {
+        "t_s": 1146,
+        "truth": "ukladanie_pretow",
+        "pred": "spawanie",
+        "hit": false
+      },
+      {
+        "t_s": 1148,
+        "truth": "inna_czynnosc",
+        "pred": "inna_czynnosc",
+        "hit": true
+      },
+      {
+        "t_s": 1150,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1152,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 1154,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1156,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1158,
+        "truth": "spawanie",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 1160,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1162,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1164,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1166,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1168,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1170,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1172,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1174,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1176,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1178,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1180,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1182,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1184,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1186,
+        "truth": "spawanie",
+        "pred": "spawanie",
+        "hit": true
+      },
+      {
+        "t_s": 1188,
+        "truth": "inna_czynnosc",
+        "pred": "inna_czynnosc",
+        "hit": true
+      },
+      {
+        "t_s": 1190,
+        "truth": "sciaganie_elementu",
+        "pred": "sciaganie_elementu",
+        "hit": true
+      },
+      {
+        "t_s": 1192,
+        "truth": "sciaganie_elementu",
+        "pred": "sciaganie_elementu",
+        "hit": true
+      },
+      {
+        "t_s": 1194,
+        "truth": "sciaganie_elementu",
+        "pred": "spawanie",
+        "hit": false
+      },
+      {
+        "t_s": 1196,
+        "truth": "postoj",
+        "pred": "inna_czynnosc",
+        "hit": false
+      },
+      {
+        "t_s": 1198,
+        "truth": "nierozpoznane",
+        "pred": "__brak_detekcji__",
+        "hit": false
+      }
+    ]
   },
   "note": "Deliberately the weakest test that could still show signal: one frame, no temporal context, a linear model. A positive result means arms 2/3 are worth building. A negative one means per-frame pose features carry nothing on their own - it does NOT by itself kill a sequence model, which has the station's ~85 s cycle that this probe cannot see."
 }
