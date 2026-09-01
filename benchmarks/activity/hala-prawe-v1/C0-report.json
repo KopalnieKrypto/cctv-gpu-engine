@@ -1,6 +1,155 @@
 {
   "generated": "2026-09-01",
-  "arms": [],
+  "arms": [
+    {
+      "name": "vlm-qwen2.5-vl-3b",
+      "windows": [
+        "W1",
+        "W2"
+      ],
+      "scores": {
+        "spawanie": {
+          "support": 497,
+          "tp": 472,
+          "predicted": 979,
+          "recall": 0.9496981891348089,
+          "precision": 0.4821246169560776,
+          "time_ratio": 1.9698189134808852,
+          "inflated": true,
+          "granularity_pp": 0.2012072434607646,
+          "passes": true,
+          "usable": false
+        },
+        "ukladanie_pretow": {
+          "support": 359,
+          "tp": 2,
+          "predicted": 2,
+          "recall": 0.005571030640668524,
+          "precision": 1.0,
+          "time_ratio": 0.005571030640668524,
+          "inflated": false,
+          "granularity_pp": 0.2785515320334262,
+          "passes": false,
+          "usable": false
+        },
+        "sciaganie_elementu": {
+          "support": 52,
+          "tp": 5,
+          "predicted": 62,
+          "recall": 0.09615384615384616,
+          "precision": 0.08064516129032258,
+          "time_ratio": 1.1923076923076923,
+          "inflated": false,
+          "granularity_pp": 1.9230769230769231,
+          "passes": false,
+          "usable": false
+        },
+        "inna_czynnosc": {
+          "support": 107,
+          "tp": 21,
+          "predicted": 154,
+          "recall": 0.19626168224299065,
+          "precision": 0.13636363636363635,
+          "time_ratio": 1.439252336448598,
+          "inflated": true,
+          "granularity_pp": 0.9345794392523364,
+          "passes": false,
+          "usable": false
+        },
+        "postoj": {
+          "support": 58,
+          "tp": 2,
+          "predicted": 2,
+          "recall": 0.034482758620689655,
+          "precision": 1.0,
+          "time_ratio": 0.034482758620689655,
+          "inflated": false,
+          "granularity_pp": 1.7241379310344827,
+          "passes": false,
+          "usable": false
+        },
+        "brak_na_stanowisku": {
+          "support": 68,
+          "tp": 0,
+          "predicted": 0,
+          "recall": 0.0,
+          "precision": null,
+          "time_ratio": 0.0,
+          "inflated": false,
+          "granularity_pp": 1.4705882352941178,
+          "passes": false,
+          "usable": false
+        },
+        "nierozpoznane": {
+          "support": 58,
+          "tp": 0,
+          "predicted": 0,
+          "recall": 0.0,
+          "precision": null,
+          "time_ratio": 0.0,
+          "inflated": false,
+          "granularity_pp": 1.7241379310344827,
+          "passes": false,
+          "usable": false
+        }
+      },
+      "confusion": {
+        "spawanie": {
+          "spawanie": 472,
+          "inna_czynnosc": 3,
+          "sciaganie_elementu": 22
+        },
+        "inna_czynnosc": {
+          "spawanie": 80,
+          "inna_czynnosc": 21,
+          "sciaganie_elementu": 6
+        },
+        "postoj": {
+          "spawanie": 23,
+          "inna_czynnosc": 33,
+          "postoj": 2
+        },
+        "sciaganie_elementu": {
+          "spawanie": 45,
+          "sciaganie_elementu": 5,
+          "inna_czynnosc": 2
+        },
+        "ukladanie_pretow": {
+          "spawanie": 333,
+          "sciaganie_elementu": 20,
+          "inna_czynnosc": 4,
+          "ukladanie_pretow": 2
+        },
+        "brak_na_stanowisku": {
+          "inna_czynnosc": 66,
+          "sciaganie_elementu": 2
+        },
+        "nierozpoznane": {
+          "spawanie": 26,
+          "inna_czynnosc": 25,
+          "sciaganie_elementu": 7
+        }
+      },
+      "boundaries": {
+        "n": 175,
+        "truth_boundaries": 175,
+        "pred_boundaries": 196,
+        "median_s": 4.0,
+        "p90_s": 28.0,
+        "max_s": 62.0,
+        "within_2s_frac": 0.4858058608058608,
+        "spurious": 82
+      },
+      "hardware": {
+        "verdict": "OK",
+        "reason": "7542 MiB peak on one card"
+      },
+      "gpu_seconds_per_video_hour": 701.068447412354,
+      "box": "cctv-vps",
+      "abstention": 0.0,
+      "unpredicted": 0
+    }
+  ],
   "baseline": {
     "points": {
       "conservative": {

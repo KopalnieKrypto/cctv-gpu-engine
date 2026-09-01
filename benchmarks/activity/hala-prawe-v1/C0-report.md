@@ -14,6 +14,49 @@ Protocol: **2-fold cross-validation over the two windows**, declared 2026-09-01.
 
 Per-activity accuracy is computed on the UNION of the two folds' held-out predictions - every labelled sample is predicted exactly once, by a model that never saw it. One confusion matrix per arm over that union, plus the per-fold matrices so a fold-specific collapse is visible.
 
+## Arm: `vlm-qwen2.5-vl-3b`
+
+**Hardware verdict: OK** — 7542 MiB peak on one card
+
+**Cost: 701 GPU-seconds per video-hour**, measured on **cctv-vps**.
+
+Abstention (`nierozpoznane` predicted): 0.0% of samples.
+
+### Per-activity accuracy (held-out union)
+
+| Activity | Support | Recall (the bar) | Precision | Time reported | 1 error = | Verdict |
+|---|---:|---:|---:|---:|---:|:---:|
+| `spawanie` | 497 | 95.0% | 48.2% | 1.97× | 0.2 pp | ⚠️ gamed |
+| `ukladanie_pretow` | 359 | 0.6% | 100.0% | 0.01× | 0.3 pp | ❌ |
+| `sciaganie_elementu` | 52 | 9.6% | 8.1% | 1.19× | 1.9 pp | ❌ |
+| `inna_czynnosc` | 107 | 19.6% | 13.6% | 1.44× | 0.9 pp | ❌ |
+| `postoj` | 58 | 3.4% | 100.0% | 0.03× | 1.7 pp | ❌ |
+| `brak_na_stanowisku` | 68 | 0.0% | n/a | 0.00× | 1.5 pp | ❌ |
+| `nierozpoznane` | 58 | 0.0% | n/a | 0.00× | 1.7 pp | — |
+
+*Time reported* is predicted seconds over true seconds for the activity — the number a chronometraż client feels. Above 1.25× a passing recall is marked **gamed**: the class was bought by over-calling it, and a work-study that over-reports productive time is worse than one that under-reports it.
+
+**Fails the bar on:** `ukladanie_pretow`, `sciaganie_elementu`, `inna_czynnosc`, `postoj`, `brak_na_stanowisku`. An 84% class fails even if the average clears.
+**Passes but unusable on:** `spawanie` — recall bought by over-calling the class.
+
+### Confusion matrix
+
+| truth ↓ / pred → | `inna_czynnosc` | `postoj` | `sciaganie_elementu` | `spawanie` | `ukladanie_pretow` |
+|---|---|---|---|---|---|
+| `brak_na_stanowisku` | 66 | 0 | 2 | 0 | 0 |
+| `inna_czynnosc` | 21 | 0 | 6 | 80 | 0 |
+| `nierozpoznane` | 25 | 0 | 7 | 26 | 0 |
+| `postoj` | 33 | 2 | 0 | 23 | 0 |
+| `sciaganie_elementu` | 2 | 0 | 5 | 45 | 0 |
+| `spawanie` | 3 | 0 | 22 | 472 | 0 |
+| `ukladanie_pretow` | 4 | 0 | 20 | 333 | 2 |
+
+### Boundary timing error
+
+175 real activity changes, 196 predicted. Median error **4.0 s**, p90 28.0 s, max 62.0 s; 48.6% land within 2 s. Spurious boundaries (no real change within 4 s): **82**.
+
+The annotation's own boundaries are only accurate to ±1 s (2 s stride, boundary at the sample midpoint), so error below 1 s is not resolvable by this fixture and should not be read as precision.
+
 ## Arc-flash baseline on `spawanie`
 
 Reported at **two operating points**, because a single threshold tells a misleading story about this signal. *Conservative* is the clip-relative cut-off the annotation hints used. *Oracle F1* is the best threshold available in hindsight on that same clip — in-sample, unavailable in production, and deliberately generous: an arm that costs a GPU should have to beat the baseline's best day, not a strawman.
