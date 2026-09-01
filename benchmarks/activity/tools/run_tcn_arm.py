@@ -63,6 +63,9 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+sys.path.insert(0, str(Path(__file__).parent))
+
+from run_vlm_arm import VramSampler  # noqa: E402  (sibling tool, same fleet-VRAM method)
 
 # --- fixed before the run, not tuned against results ---
 WINDOW = 64  # frames per training window (128 s at a 2 s stride)
@@ -281,9 +284,16 @@ def main() -> int:
     manifest = json.loads(args.manifest.read_text())
     folds = manifest["split"]["folds"]
 
+    # Sample the whole process from nvidia-smi, not torch.cuda.max_memory_allocated.
+    # The torch allocator sees only the TCN - about 17 MiB - and misses the ONNX
+    # pose session entirely, which is the arm's real memory cost. Reporting the
+    # torch figure as the hardware verdict would understate it by ~40x.
+    vram = VramSampler()
+    vram.__enter__()
     t0 = time.monotonic()
     data = build_sequences(args.manifest, args.pose_model, args.out_dir / "cache")
     pose_seconds = time.monotonic() - t0
+    pose_cached = pose_seconds < 5
     classes, windows = data["classes"], data["windows"]
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -299,7 +309,11 @@ def main() -> int:
             windows[tr]["x"], windows[tr]["y"], windows[te]["x"], len(classes), device
         )
         fit_seconds = time.monotonic() - t1
-        peak = torch.cuda.max_memory_allocated() // (1024 * 1024)
+        torch_peak = torch.cuda.max_memory_allocated() // (1024 * 1024)
+        # A cache hit never loads the pose session, so the sampled peak would
+        # cover the TCN alone. Report it as unmeasured rather than as a real
+        # end-to-end figure - the harness then refuses to call the arm a pass.
+        peak = None if pose_cached else (vram.peak_mib or None)
 
         stride = windows[te]["stride"]
         doc = {
@@ -332,13 +346,21 @@ def main() -> int:
                 "fit_seconds": round(fit_seconds, 1),
                 "video_seconds": windows[te]["duration"],
                 "peak_vram_mib": int(peak) if peak else None,
+                "peak_vram_note": (
+                    "pose session not loaded (cache hit) - end-to-end peak unmeasured"
+                    if pose_cached
+                    else "whole process, nvidia-smi per PID: ONNX pose session + TCN"
+                ),
+                "torch_allocator_peak_mib": int(torch_peak),
             },
         }
         out = args.out_dir / f"{te}.json"
         out.write_text(json.dumps(doc, indent=2, ensure_ascii=False))
         print(f"wrote {out}  (fit {fit_seconds:.0f}s, peak {peak} MiB)")
 
+    vram.__exit__()
     print(f"\npose pass: {pose_seconds:.0f}s for {total_video:.0f}s of video")
+    print(f"peak VRAM (proces): {vram.peak_mib or 'UNMEASURED'} MiB")
     return 0
 
 
