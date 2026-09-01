@@ -166,7 +166,7 @@ def build_sequences(manifest: Path, pose_model: Path, cache: Path) -> dict:
         labels = [s["activity_id"] for s in truth["samples"]]
         n = min(len(crops), len(labels))
 
-        feats = np.zeros((n, 55), dtype=np.float32)
+        feats = np.zeros((n, 56), dtype=np.float32)
         for i in range(n):
             img = cv2.imread(str(crops[i]))
             dets = detector.detect(img)
@@ -174,8 +174,8 @@ def build_sequences(manifest: Path, pose_model: Path, cache: Path) -> dict:
             if best is not None:
                 # Last channel is the detected flag: absence is information here,
                 # not a row to drop. See the module docstring.
-                feats[i, :54] = pose_features(best, img.shape[1], img.shape[0])
-                feats[i, 54] = 1.0
+                feats[i, :55] = pose_features(best, img.shape[1], img.shape[0])
+                feats[i, 55] = 1.0
             if (i + 1) % 150 == 0:
                 print(f"  [{slot}] {i + 1}/{n}", file=sys.stderr)
         windows[slot] = {
