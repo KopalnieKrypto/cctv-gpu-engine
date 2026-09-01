@@ -68,7 +68,10 @@
 			"shift_position": "morning, pre-break",
 			"r2_key_original": "tenants/ryjUroVDl3H0xVhlh4pjqXZfcRuo8dTd/appliance-uploads/83be1a30-600d-4869-97d9-aa69379e8958/chunk_000.mp4",
 			"r2_key_preserved": "benchmarks/hala-prawe-v1/W1-2026-08-28T0700Z.mp4",
-			"annotated": false
+			"annotated": true,
+			"annotation_file": "W1.intervals.json",
+			"annotated_at": "2026-09-01",
+			"annotation_coverage": { "labelled": 599, "total": 599, "stride_s": 2 }
 		},
 		{
 			"slot": "W2",
@@ -95,6 +98,15 @@
 			"note": "Afternoon window deliberately not captured - decision 2026-09-01, proceed on two windows. The cost is accepted and must be carried forward, not rediscovered: W1 and W2 are both pre-break, so this fixture represents the FIRST HALF OF A SHIFT ONLY and every accuracy figure derived from it inherits that bias. Any figure quoted to the client says so."
 		}
 	],
+	"split": {
+		"declared": "2026-09-01",
+		"declared_before_any_model_run": true,
+		"train_dev": ["W1"],
+		"held_out": ["W2"],
+		"rationale": "W2 is the denser window - 25.9% arc vs 11.7%, avg 4.28 persons vs 3.18 - so it carries more support per activity, and the pass bar is per-activity: a rare class needs enough held-out seconds for its row of the confusion matrix to mean anything. W1 was annotated first so spike arms can be built on it while W2 is still being labelled.",
+		"rule": "No spike arm is tuned, prompted, thresholded or trained on W2. W2 is opened once per arm, for the final measurement. Any arm that has seen W2 during development reports on W1 instead and says so.",
+		"caveat": "Two windows, one station, one operator, both pre-break. This is a feasibility gate, not a generalisation estimate - the split bounds overfitting to W1, it does not establish that the result transfers to another shift, station or worker."
+	},
 	"station_roi": {
 		"activity": "spawanie",
 		"space": "native source pixels (3840x2160)",

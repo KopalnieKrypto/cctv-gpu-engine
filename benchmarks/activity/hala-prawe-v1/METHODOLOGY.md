@@ -103,8 +103,43 @@ source material is gone permanently.**
   (25.9%)**, measured at 1 fps by saturated-pixel fraction (`Y>235`) inside
   `station_roi`. W2 is the denser of the two. Person counts: W1 avg 3.18 / peak 6,
   W2 avg 4.28 / peak 7, `recall_risk: normal` on both.
-- **No clip is annotated yet.** `annotated: false` throughout — this is the one
-  remaining C.0 input with no shortcut.
+- **W1 is annotated** (2026-09-01, `W1.intervals.json`): 599/599 samples at a 2 s
+  stride, 85 intervals, no unlabelled gap on the timeline. **W2 is not** — it is the
+  one remaining C.0 input with no shortcut.
+- **The split is declared** (`manifest.source.json` → `split`): W1 train/dev, W2
+  held out, recorded before any spike arm ran.
+
+### W1 annotation, cross-checked against the arc signal
+
+The arc-flash timeline is an independent machine measurement, so it audits the hand
+labels for free. Of the 196 arc-seconds proposed on W1, **82.7% (162 s) fall inside
+hand-labelled `spawanie`**, the rest in `ukladanie_pretow` (28 s) and
+`inna_czynnosc` (6 s) — consistent with ±1 s boundary slop and spatter visible while
+the operator handles rods. That agreement also confirms the annotation is indexed by
+`pts_time`: had W1's bogus `r_frame_rate=120/1` been trusted anywhere in the chain,
+the two timelines would not line up at all.
+
+Two numbers fall out of it that the C.0 report needs:
+
+- **The arc-flash baseline's recall ceiling on `spawanie` is 36.2%.** Hand-labelled
+  welding *work* totals 447 s on W1; arc fires on 162 s of it. The gap is real
+  welding — positioning, tacking, chipping slag, the pauses between beads. So the
+  free baseline cannot reach the 85% bar on `spawanie` **by construction**, not by
+  being badly tuned. That converts "the baseline is not a solution" from an argument
+  into a measurement.
+- **The station runs a regular ~82 s production cycle.** Long welding blocks start at
+  219, 303, 391, 477 … 1139 s — gaps of 84, 88, 86, 80, 78, 86, 82, 78 s, with one
+  258 s outlier that is exactly the 132 s `brak_na_stanowisku` absence at 539–671 s.
+  A temporal model therefore has real periodic structure to exploit here, which is an
+  argument for the sequence-segmentation arm over per-frame classification.
+
+**Zero `nierozpoznane` on W1**, which the rule above says to distrust. Here it is
+defensible and the report must say why rather than leave it implied: the labels were
+made inside the 900×800 native-pixel station crop, where the operator stands ~500 px
+tall and helmet, gloves, torch and rebar jig are individually legible — not on the
+fisheye hall view the rule was written for. The honest-uncertainty check still has to
+be re-applied to W2 independently; if W2 also comes back with zero, that is worth a
+second look at whether the crop is simply easy or the annotator settled.
 
 ## What the fixture already proves
 
