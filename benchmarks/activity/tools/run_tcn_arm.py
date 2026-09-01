@@ -1,4 +1,40 @@
-"""C.0 arm 2: temporal segmentation over pose sequences.
+"""C.0 arms 2 and 3: temporal segmentation over pose sequences.
+
+Both arms live here on purpose. They share the detector, the cache, the model and
+every hyperparameter, and differ only in `--features`, so any gap between their
+results is attributable to the encoding and to nothing else. Running them as two
+scripts would have made that claim unverifiable.
+
+    --features pose   arm 2: posture only (55 + a found flag)
+    --features rich   arm 3: posture + placement, motion at two lags, stillness,
+                      and the arc-flash metric
+
+## Why arm 3 exists, and what informed its design
+
+Arm 2's failures were not spread evenly. `spawanie` and `ukladanie_pretow`
+cleared the bar at 94.6% and 96.4%; `postoj` managed 12.1%, `inna_czynnosc`
+26.2%, `sciaganie_elementu` 73.1%.
+
+Arm 2 normalises every frame by its own bounding box. That makes posture
+comparable across distances, and it also erases position - and therefore erases
+motion entirely. For the two activities with distinctive silhouettes that costs
+nothing. For `postoj` it is fatal, because the vocabulary defines that class by
+what the body is *not* doing: "in the zone, not moving, nothing in the hands"
+(`METHODOLOGY.md`). A representation with no notion of movement cannot express
+it, however much temporal context sits on top.
+
+**Stated plainly, because it matters for how these numbers are read:** arm 3's
+feature set was chosen after seeing arm 2's per-class results on held-out
+material. The justification is definitional rather than numerical - `postoj` is
+defined by stillness, so stillness features follow from the vocabulary and not
+from the scores - but the ordering is what it is, and pretending otherwise would
+be the kind of quiet retrofit this fixture's split exists to prevent. Model and
+hyperparameters are unchanged from arm 2 precisely to keep the comparison to one
+variable.
+
+---
+
+Arm 2's original rationale follows.
 
 The pose probe (`pose_separability.py`) established that per-frame pose carries
 real signal - 73.0% on `ukladanie_pretow` where the VLM arm managed 0.6% - and
@@ -105,17 +141,126 @@ def extract_native_crops(clip: Path, roi: dict, stride: int, out_dir: Path) -> l
     return sorted(out_dir.glob("t*.jpg"))
 
 
-def pose_features(det, crop_w: int, crop_h: int) -> np.ndarray:
-    """Same translation- and scale-free encoding the probe used, so the two
-    results differ by the model and not by the representation."""
-    x1, y1, x2, y2 = det.bbox
-    bw, bh = max(x2 - x1, 1e-6), max(y2 - y1, 1e-6)
-    kp = np.asarray([[k.x, k.y, k.vis] for k in det.keypoints], dtype=np.float32)
-    xs = (kp[:, 0] - x1) / bw
-    ys = (kp[:, 1] - y1) / bh
+# bbox 4 | conf 1 | keypoints 51 | crop w,h 2 | found flag 1
+RAW_WIDTH = 59
+FOUND = 58
+
+
+def raw_detection(det, crop_w: int, crop_h: int) -> np.ndarray:
+    """Everything the detector said, in crop pixels, before any encoding choice.
+
+    Cached in this form so a new feature set costs seconds instead of a five
+    minute pose pass over both windows - and so the two arms are provably built
+    from identical detections rather than from two runs that might differ.
+    """
+    kp = np.asarray([[k.x, k.y, k.vis] for k in det.keypoints], dtype=np.float32).reshape(-1)
     return np.concatenate(
-        [xs, ys, kp[:, 2], [bh / max(bw, 1e-6), bh / crop_h, bw / crop_w, det.confidence]]
+        [np.asarray(det.bbox, dtype=np.float32), [det.confidence], kp, [crop_w, crop_h], [1.0]]
     ).astype(np.float32)
+
+
+def _posture(raw: np.ndarray) -> np.ndarray:
+    """Arm 2's encoding: translation- and scale-free keypoints."""
+    x1, y1, x2, y2 = raw[0:4]
+    conf = raw[4]
+    kp = raw[5:56].reshape(17, 3)
+    crop_w, crop_h = raw[56], raw[57]
+    bw, bh = max(x2 - x1, 1e-6), max(y2 - y1, 1e-6)
+    return np.concatenate(
+        [
+            (kp[:, 0] - x1) / bw,
+            (kp[:, 1] - y1) / bh,
+            kp[:, 2],
+            [bh / max(bw, 1e-6), bh / max(crop_h, 1e-6), bw / max(crop_w, 1e-6), conf],
+        ]
+    ).astype(np.float32)
+
+
+def _placement(raw: np.ndarray) -> np.ndarray:
+    """Where in the station the body actually is, in crop coordinates.
+
+    Arm 2 threw this away on purpose - normalising every frame by its own bbox
+    makes posture comparable but erases position and therefore erases motion.
+    That is defensible for `spawanie` and `ukladanie_pretow`, which have
+    distinctive shapes, and fatal for `postoj`, which the vocabulary defines by
+    what the body is NOT doing: "in the zone, not moving, nothing in the hands".
+    """
+    x1, y1, x2, y2 = raw[0:4]
+    crop_w, crop_h = max(raw[56], 1e-6), max(raw[57], 1e-6)
+    kp = raw[5:56].reshape(17, 3)
+    cx, cy = (x1 + x2) / 2 / crop_w, (y1 + y2) / 2 / crop_h
+    # Wrists relative to the hip midpoint: hands are what separates carrying,
+    # placing and doing nothing, and hip-relative keeps that readable when the
+    # operator moves around the bench.
+    hip = (kp[11, :2] + kp[12, :2]) / 2
+    wl = (kp[9, :2] - hip) / crop_h
+    wr = (kp[10, :2] - hip) / crop_h
+    return np.concatenate(
+        [[cx, cy, (x2 - x1) / crop_w, (y2 - y1) / crop_h], wl, wr, [kp[9, 2], kp[10, 2]]]
+    ).astype(np.float32)
+
+
+def build_feature_matrix(raw: np.ndarray, mode: str, arc: np.ndarray | None) -> np.ndarray:
+    """Per-frame features for a whole window, from cached raw detections."""
+    n = len(raw)
+    found = raw[:, FOUND : FOUND + 1]
+    posture = np.stack([_posture(r) if r[FOUND] else np.zeros(55, np.float32) for r in raw])
+    if mode == "pose":
+        return np.concatenate([posture, found], axis=1)
+
+    place = np.stack([_placement(r) if r[FOUND] else np.zeros(12, np.float32) for r in raw])
+
+    # Motion, at two time scales. A frame where nothing moved for six seconds is
+    # `postoj`; a brief large displacement is `sciaganie_elementu` lifting the
+    # finished element clear of the bench.
+    def deltas(a: np.ndarray, lag: int) -> np.ndarray:
+        d = np.zeros_like(a)
+        d[lag:] = a[lag:] - a[:-lag]
+        # A frame either side of a detection gap has a meaningless delta.
+        gap = (found[:, 0] == 0) | (np.roll(found[:, 0], lag) == 0)
+        d[gap] = 0.0
+        return d
+
+    d1, d3 = deltas(place, 1), deltas(place, 3)
+    speed1 = np.linalg.norm(d1, axis=1, keepdims=True)
+    speed3 = np.linalg.norm(d3, axis=1, keepdims=True)
+    # Stillness over +/-2 frames (a 10 s window at a 2 s stride).
+    still = np.zeros((n, 1), np.float32)
+    for i in range(n):
+        lo, hi = max(0, i - 2), min(n, i + 3)
+        still[i] = place[lo:hi].std(axis=0).mean()
+
+    arc_col = (arc if arc is not None else np.zeros(n, np.float32)).reshape(n, 1)
+    return np.concatenate(
+        [posture, place, d1, d3, speed1, speed3, still, arc_col, found], axis=1
+    ).astype(np.float32)
+
+
+def arc_series(arc_csv: Path, window: str, stride: int, n: int) -> np.ndarray | None:
+    """Per-sample arc-flash metric, normalised WITHIN the clip.
+
+    The raw metric is clip-relative - W1 and W2 differ ~3x at the median on the
+    identical crop - so a shared absolute scale would feed the model a different
+    quantity per window. Normalising per clip is what makes it portable.
+    """
+    if not arc_csv.exists():
+        return None
+    import csv as _csv
+
+    per_second: dict[int, float] = {}
+    with arc_csv.open() as fh:
+        for row in _csv.DictReader(fh):
+            if row.get("window") == window:
+                per_second[int(row["t_s"])] = float(row["arc_metric"])
+    if not per_second:
+        return None
+    vals = np.asarray([per_second.get(t, 0.0) for t in range(0, n * stride)], dtype=np.float32)
+    hi = float(np.percentile(vals, 99)) or 1.0
+    out = np.zeros(n, dtype=np.float32)
+    for i in range(n):
+        seg = vals[i * stride : (i + 1) * stride]
+        out[i] = float(seg.max()) / hi if len(seg) else 0.0
+    return np.clip(out, 0.0, 2.0)
 
 
 def build_sequences(manifest: Path, pose_model: Path, cache: Path) -> dict:
@@ -125,9 +270,9 @@ def build_sequences(manifest: Path, pose_model: Path, cache: Path) -> dict:
     roi = m["station_roi"]["crop"]
     classes = [a["id"] for a in m["activities"]]
 
-    key = hashlib.sha256((pose_model.name + str(pose_model.stat().st_size)).encode()).hexdigest()[
-        :12
-    ]
+    key = hashlib.sha256(
+        f"{pose_model.name}:{pose_model.stat().st_size}:raw{RAW_WIDTH}".encode()
+    ).hexdigest()[:12]
     cache_file = cache / f"pose-seq-{key}.npz"
     meta_file = cache / f"pose-seq-{key}.json"
     # Plain arrays plus a JSON sidecar rather than one pickled object array. The
@@ -169,16 +314,15 @@ def build_sequences(manifest: Path, pose_model: Path, cache: Path) -> dict:
         labels = [s["activity_id"] for s in truth["samples"]]
         n = min(len(crops), len(labels))
 
-        feats = np.zeros((n, 56), dtype=np.float32)
+        feats = np.zeros((n, RAW_WIDTH), dtype=np.float32)
         for i in range(n):
             img = cv2.imread(str(crops[i]))
             dets = detector.detect(img)
             best = max(dets, key=lambda d: d.confidence) if dets else None
             if best is not None:
-                # Last channel is the detected flag: absence is information here,
+                # The found flag stays 0 on a miss: absence is information here,
                 # not a row to drop. See the module docstring.
-                feats[i, :55] = pose_features(best, img.shape[1], img.shape[0])
-                feats[i, 55] = 1.0
+                feats[i] = raw_detection(best, img.shape[1], img.shape[0])
             if (i + 1) % 150 == 0:
                 print(f"  [{slot}] {i + 1}/{n}", file=sys.stderr)
         windows[slot] = {
@@ -273,6 +417,12 @@ def main() -> int:
     ap.add_argument("--out-dir", required=True, type=Path)
     ap.add_argument("--box", required=True)
     ap.add_argument("--gpu-index", type=int)
+    ap.add_argument(
+        "--features",
+        default="pose",
+        choices=("pose", "rich"),
+        help="pose = arm 2 (posture only); rich = arm 3 (posture + placement, motion, arc)",
+    )
     args = ap.parse_args()
 
     import torch
@@ -296,6 +446,20 @@ def main() -> int:
     pose_cached = pose_seconds < 5
     classes, windows = data["classes"], data["windows"]
 
+    # Both feature sets are derived from the same cached raw detections, so the
+    # two arms differ by their encoding and by nothing else.
+    feats = {
+        slot: build_feature_matrix(
+            w["x"],
+            args.features,
+            arc_series(args.manifest.parent / "arc-timeline.csv", slot, w["stride"], len(w["x"]))
+            if args.features == "rich"
+            else None,
+        )
+        for slot, w in windows.items()
+    }
+    print(f"features: {args.features}, {next(iter(feats.values())).shape[1]} per frame")
+
     args.out_dir.mkdir(parents=True, exist_ok=True)
     total_video = sum(w["duration"] for w in windows.values())
 
@@ -305,9 +469,7 @@ def main() -> int:
             continue
         print(f"\n=== fold {fold['id']}: train {tr} -> predict {te} ===", file=sys.stderr)
         t1 = time.monotonic()
-        pred = train_fold(
-            windows[tr]["x"], windows[tr]["y"], windows[te]["x"], len(classes), device
-        )
+        pred = train_fold(feats[tr], windows[tr]["y"], feats[te], len(classes), device)
         fit_seconds = time.monotonic() - t1
         torch_peak = torch.cuda.max_memory_allocated() // (1024 * 1024)
         # A cache hit never loads the pose session, so the sampled peak would
@@ -317,10 +479,11 @@ def main() -> int:
 
         stride = windows[te]["stride"]
         doc = {
-            "arm": "tcn-pose-seq",
+            "arm": f"tcn-{args.features}",
             "window": te,
             "fold": fold["id"],
-            "model": "dilated temporal CNN over YOLO-pose features",
+            "model": f"dilated temporal CNN, {args.features} features over YOLO-pose",
+            "feature_set": args.features,
             "hyperparameters": {
                 "window": WINDOW,
                 "channels": CHANNELS,
@@ -354,7 +517,7 @@ def main() -> int:
                 "torch_allocator_peak_mib": int(torch_peak),
             },
         }
-        out = args.out_dir / f"{te}.json"
+        out = args.out_dir / f"{args.features}-{te}.json"
         out.write_text(json.dumps(doc, indent=2, ensure_ascii=False))
         print(f"wrote {out}  (fit {fit_seconds:.0f}s, peak {peak} MiB)")
 
