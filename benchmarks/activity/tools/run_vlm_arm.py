@@ -14,17 +14,22 @@ to the ground truth and would quietly measure something else. W1's container
 reports `r_frame_rate=120/1` against a true ~20 fps, so frame-indexed sampling
 mis-maps every W1 timestamp - ffmpeg's `fps` filter is PTS-derived and correct.
 
-## The prompt is written from the vocabulary, not tuned on a window
+## Prompts are versioned, and their provenance is recorded
 
-Zero-shot, and deliberately so. The prompt is derived from the activity
-definitions in `manifest.source.json` and the two labelling rules in
-`METHODOLOGY.md`, without looking at either window's results. Both windows are
-therefore clean held-out material and the union figure is honest.
+`--prompt-version` selects one; the arm name carries it, so two versions never
+land in the same bucket in a report.
 
-If you DO tune the prompt against a window, you must record it: pass
-`--tuned-on W1`, which stamps the prediction file so the harness and the report
-can mark that window's figures in-sample. An untracked prompt edit is
-indistinguishable from training on the test set.
+- **v1** was written from the activity definitions in `manifest.source.json` and
+  METHODOLOGY's two labelling rules, without looking at either window. Both
+  windows were therefore clean, and it failed on both.
+- **v2** was written after reading v1's confusion matrix on **W1**, so it is
+  tuned on W1. Run it as `--prompt-version v2 --tuned-on W1`: W1's figures are
+  then in-sample and only **W2 is a clean measurement of v2**.
+
+An untracked prompt edit is indistinguishable from training on the test set, so
+the stamp is not optional book-keeping. If v2 gets iterated again against W2,
+there is no clean window left in this fixture and the arm's figure stops meaning
+anything - stop and say so rather than quietly reporting the better number.
 
 ## Cost is measured, not estimated
 
@@ -54,10 +59,12 @@ import threading
 import time
 from pathlib import Path
 
-# Written from manifest.source.json -> activities and the two labelling rules in
-# METHODOLOGY.md ("postoj requires all three conditions", "inna_czynnosc is real
-# work"). Never adjusted against a window's results - see the module docstring.
-PROMPT = """You are watching a fixed camera view of a single welding bench in a \
+# v1: written from manifest.source.json -> activities and METHODOLOGY's two
+# labelling rules, never adjusted against a window. Measured 2026-09-01 and it
+# fails: the model answers `spawanie` to almost everything and never once emits
+# `brak_na_stanowisku`, including on frames where the bench is verifiably empty.
+# Kept so that run is reproducible, and because v2 only means something next to it.
+PROMPT_V1 = """You are watching a fixed camera view of a single welding bench in a \
 rebar fabrication hall. One frame is shown. Decide what is happening AT THIS BENCH \
 right now, and answer with exactly one label from this list:
 
@@ -74,6 +81,46 @@ brak_na_stanowisku - no worker is at the bench.
 nierozpoznane - the frame genuinely does not show enough to tell.
 
 Answer with the label only, no explanation."""
+
+# v2: TUNED ON W1 ONLY (--tuned-on W1), so W1's figures are in-sample and W2 stays
+# clean held-out. Three changes, each aimed at a specific v1 failure:
+#
+#   1. An ordered decision procedure instead of a flat list. v1 let the model
+#      reach for a plausible activity without first asking whether anyone is
+#      there; the empty bench at t=540s came back `inna_czynnosc`.
+#   2. "Is anyone at the bench?" is forced FIRST and given its own hard rule,
+#      because `brak_na_stanowisku` was never emitted once in 1199 samples.
+#   3. `spawanie` now requires positive visual evidence (arc glare, sparks, or
+#      helmet down with the torch on the work). v1 called 333 of 359
+#      `ukladanie_pretow` samples `spawanie`.
+PROMPT_V2 = """A fixed overhead camera watches ONE welding bench in a rebar \
+fabrication hall. Look at this frame and answer the questions in order.
+
+STEP 1. Is there a person at the bench?
+If you see no person at all - only the bench, the jig, rods, cables or the floor - \
+answer `brak_na_stanowisku` and stop. An empty bench is common and normal; do not \
+invent a worker.
+
+STEP 2. If a person is there, is there direct visual evidence of welding RIGHT NOW: \
+a bright arc glare, visible sparks, or the welding helmet lowered over the face with \
+the torch held against the workpiece?
+If yes, answer `spawanie`. If the person is merely near the bench, holding something, \
+or wearing a helmet raised, this is NOT `spawanie`.
+
+STEP 3. Otherwise, what are their hands doing?
+- placing, positioning or arranging steel rods or bars in the jig -> `ukladanie_pretow`
+- lifting or pulling a finished element off the bench -> `sciaganie_elementu`
+- other real work: carrying wire, grinding, measuring, adjusting equipment, cleaning \
+-> `inna_czynnosc`
+- nothing at all: standing still, empty hands, not working -> `postoj`. If anything \
+is in their hands, it is not `postoj`.
+
+STEP 4. If the frame is too blurred, too dark, or too occluded to tell, answer \
+`nierozpoznane`. This is a real answer, not a failure - use it rather than guessing.
+
+Answer with one label only, no explanation."""
+
+PROMPTS = {"v1": PROMPT_V1, "v2": PROMPT_V2}
 
 LABELS = [
     "spawanie",
@@ -160,7 +207,7 @@ class VramSampler:
             self._thread.join(timeout=2)
 
 
-def classify(crops: list[Path], stride: int) -> tuple[list[dict], float]:
+def classify(crops: list[Path], stride: int, prompt: str) -> tuple[list[dict], float]:
     """Label every crop. Returns samples and the seconds spent loading the model."""
     import torch
     from PIL import Image
@@ -183,7 +230,7 @@ def classify(crops: list[Path], stride: int) -> tuple[list[dict], float]:
         messages = [
             {
                 "role": "user",
-                "content": [{"type": "image", "image": img}, {"type": "text", "text": PROMPT}],
+                "content": [{"type": "image", "image": img}, {"type": "text", "text": prompt}],
             }
         ]
         text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
@@ -225,7 +272,8 @@ def main() -> int:
         "--tuned-on",
         help="window the prompt was tuned against, if any - stamps the run as in-sample",
     )
-    ap.add_argument("--arm", default="vlm-qwen2.5-vl-3b")
+    ap.add_argument("--prompt-version", default="v2", choices=sorted(PROMPTS))
+    ap.add_argument("--arm", default=None, help="default: vlm-qwen2.5-vl-3b-<prompt version>")
     args = ap.parse_args()
 
     manifest = json.loads(args.manifest.read_text())
@@ -249,13 +297,14 @@ def main() -> int:
 
     run_start = time.monotonic()
     with VramSampler() as vram:
-        samples, load_seconds = classify(crops, stride)
+        samples, load_seconds = classify(crops, stride, PROMPTS[args.prompt_version])
     wall_seconds = time.monotonic() - run_start
 
     doc = {
-        "arm": args.arm,
+        "arm": args.arm or f"vlm-qwen2.5-vl-3b-{args.prompt_version}",
         "window": args.slot,
         "model": "Qwen/Qwen2.5-VL-3B-Instruct",
+        "prompt_version": args.prompt_version,
         "prompt_tuning": args.tuned_on or "none - written from the vocabulary definition",
         "in_sample": bool(args.tuned_on and args.tuned_on == args.slot),
         "samples": samples,
