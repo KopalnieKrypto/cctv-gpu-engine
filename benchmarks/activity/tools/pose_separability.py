@@ -236,6 +236,35 @@ def main() -> int:
             "thin": support < THIN_CLASS,
         }
 
+    # Per-sample predictions on the held-out window, so the result can be read as
+    # a timeline against the video rather than only as aggregates. Frames where
+    # pose found nobody are emitted as `__brak_detekcji__` rather than dropped:
+    # that is a prediction ("the bench is empty"), and on W1 it is right 65 times
+    # out of 66, so hiding it would understate what the detector already does.
+    timeline: dict[str, list[dict]] = {}
+    cursor = 0  # `pred` is the test slots' detected frames, concatenated in order
+    for slot in test_slots:
+        if slot not in data:
+            continue
+        d = data[slot]
+        rows = []
+        for i, truth_label in enumerate(d["labels"]):
+            if d["found"][i]:
+                pred_label = classes[int(pred[cursor])] if cursor < len(pred) else None
+                cursor += 1
+            else:
+                pred_label = "__brak_detekcji__"
+            rows.append(
+                {
+                    "t_s": i * 2,
+                    "truth": truth_label,
+                    "pred": pred_label,
+                    "hit": pred_label == truth_label
+                    or (pred_label == "__brak_detekcji__" and truth_label == "brak_na_stanowisku"),
+                }
+            )
+        timeline[slot] = rows
+
     report = {
         "probe": "single-frame linear probe on YOLO-pose keypoints",
         "model": args.model.name,
@@ -243,6 +272,7 @@ def main() -> int:
         "test": test_slots,
         "detection_rate": detection,
         "separability": per_class,
+        "timeline": timeline,
         "note": (
             "Deliberately the weakest test that could still show signal: one frame, no "
             "temporal context, a linear model. A positive result means arms 2/3 are "
