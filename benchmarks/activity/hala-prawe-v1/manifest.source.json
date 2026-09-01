@@ -85,14 +85,37 @@
 			"slot": "W3",
 			"task_id": null,
 			"window_utc": null,
-			"window_local": "2026-08-28 ~13:45-14:05 Europe/Warsaw - PENDING, submit after 14:05 local",
-			"duration_s": 1200,
+			"window_local": null,
+			"duration_s": null,
 			"shift_position": "afternoon, post-break",
 			"r2_key_original": null,
-			"r2_key_preserved": "benchmarks/hala-prawe-v1/W3-pending.mp4",
+			"r2_key_preserved": null,
 			"annotated": false,
-			"note": "Afternoon material. W1 and W2 are both pre-break; without W3 the fixture only represents the first half of a shift."
+			"status": "DROPPED 2026-09-01",
+			"note": "Afternoon window deliberately not captured - decision 2026-09-01, proceed on two windows. The cost is accepted and must be carried forward, not rediscovered: W1 and W2 are both pre-break, so this fixture represents the FIRST HALF OF A SHIFT ONLY and every accuracy figure derived from it inherits that bias. Any figure quoted to the client says so."
 		}
 	],
-	"retention_note": "r2_key_original points into the appliance-uploads prefix, which the C-5 retention reaper deletes on task completion (gpu-exchange, feat(retention) 3e2d8e8). r2_key_preserved is a copy outside that prefix with no uploads row, so findReapableTaskInputs cannot select it. Preserve BEFORE deploying the reaper to production, or this fixture loses its source material permanently."
+	"station_roi": {
+		"activity": "spawanie",
+		"space": "native source pixels (3840x2160)",
+		"crop": { "w": 900, "h": 800, "x": 1700, "y": 1400 },
+		"ffmpeg": "crop=900:800:1700:1400",
+		"note": "The welding bench. C.0 is measured INSIDE this ROI, cropped from the native frame - not from the 1280x736 downscale, which would discard the 3x that makes station framing work. This is the software crop that discharges assumption A2 (client refused a physical reframe; nothing forbids cropping pixels we already receive)."
+	},
+	"verification": {
+		"date": "2026-09-01",
+		"method": "keyframe inspection + 1 fps saturated-pixel scan (Y>235) inside station_roi",
+		"welding_station_manned": true,
+		"same_operator_both_windows": true,
+		"arc_seconds": { "W1": 140, "W2": 310 },
+		"arc_fraction": { "W1": 0.117, "W2": 0.259 },
+		"arc_metric_percentiles": {
+			"W1": { "p50": 0.28, "p90": 1.09, "max": 4.91 },
+			"W2": { "p50": 0.62, "p90": 1.59, "max": 9.79 }
+		},
+		"arc_metric_caveat": "Clip-relative, not a portable constant - the two windows differ ~3x at the median, so ambient light drift alone moves a fixed cut-off. Detects ARC, not welding WORK: it cannot separate ukladanie_pretow from postoj. Use as a weak pre-label for spawanie and as the cost floor any GPU model must beat, never as ground truth.",
+		"vocabulary_gap_reproducible": "The operator mid-arc, sparks visible, is labelled `standing` by the shipped four-pose classifier, and `standing` maps to `Praca` in this camera's activity_label_map. Welding and standing idle are the same label today.",
+		"frame_rate_trap": "W1 reports r_frame_rate=120/1 in container metadata; the true rate is ~20 fps (23959 frames / 1198.03 s). W2 reports 20/1 correctly. Annotation tooling must index by pts_time, never by frame number, or every W1 timestamp is wrong."
+	},
+	"retention_note": "RESOLVED, and the near-miss is the lesson. r2_key_original pointed into the appliance-uploads prefix, which the C-5 retention reaper deletes on task completion (gpu-exchange, feat(retention) 3e2d8e8, committed 2026-08-28 09:51 CEST, deployed to production the same day 17:34 CEST). Both originals WERE reaped - verified 2026-09-01: the appliance-uploads keys are gone and both tasks read inputUploadIds: []. The r2_key_preserved copies were made by hand at 11:04 CEST, ~6.5 h before the reaper went live, and survive because they sit outside the prefix findReapableTaskInputs can select. There is no second copy and the appliance buffer is only 3 h deep, so this material is IRREPLACEABLE. Nothing in the repo automates the preserve step - it remains a manual action, and the platform has no retention-hold flag."
 }
