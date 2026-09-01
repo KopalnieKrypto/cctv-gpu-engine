@@ -57,6 +57,49 @@ Abstention (`nierozpoznane` predicted): 0.0% of samples.
 
 The annotation's own boundaries are only accurate to ±1 s (2 s stride, boundary at the sample midpoint), so error below 1 s is not resolvable by this fixture and should not be read as precision.
 
+## Arm: `vlm-qwen2.5-vl-3b-v2`
+
+**Hardware verdict: OK** — 7554 MiB peak on one card
+
+**Cost: 754 GPU-seconds per video-hour**, measured on **cctv-vps**.
+
+Abstention (`nierozpoznane` predicted): 0.0% of samples.
+
+### Per-activity accuracy (held-out union)
+
+| Activity | Support | Recall (the bar) | Precision | Time reported | 1 error = | Verdict |
+|---|---:|---:|---:|---:|---:|:---:|
+| `spawanie` | 273 | 98.9% | 52.3% | 1.89× | 0.4 pp | ⚠️ gamed |
+| `ukladanie_pretow` | 179 | 0.0% | n/a | 0.00× | 0.6 pp | ❌ |
+| `sciaganie_elementu` | 30 | 0.0% | n/a | 0.00× | 3.3 pp | ❌ |
+| `inna_czynnosc` | 42 | 0.0% | n/a | 0.00× | 2.4 pp | ❌ |
+| `postoj` | 16 | 0.0% | n/a | 0.00× | 6.2 pp | ❌ |
+| `brak_na_stanowisku` | 2 | 100.0% | 2.4% | 42.00× | 50.0 pp | ⚠️ gamed |
+| `nierozpoznane` | 58 | 0.0% | n/a | 0.00× | 1.7 pp | — |
+
+*Time reported* is predicted seconds over true seconds for the activity — the number a chronometraż client feels. Above 1.25× a passing recall is marked **gamed**: the class was bought by over-calling it, and a work-study that over-reports productive time is worse than one that under-reports it.
+
+**Fails the bar on:** `ukladanie_pretow`, `sciaganie_elementu`, `inna_czynnosc`, `postoj`. An 84% class fails even if the average clears.
+**Passes but unusable on:** `spawanie`, `brak_na_stanowisku` — recall bought by over-calling the class.
+
+### Confusion matrix
+
+| truth ↓ / pred → | `brak_na_stanowisku` | `spawanie` |
+|---|---|---|
+| `brak_na_stanowisku` | 2 | 0 |
+| `inna_czynnosc` | 10 | 32 |
+| `nierozpoznane` | 57 | 1 |
+| `postoj` | 6 | 10 |
+| `sciaganie_elementu` | 3 | 27 |
+| `spawanie` | 3 | 270 |
+| `ukladanie_pretow` | 3 | 176 |
+
+### Boundary timing error
+
+91 real activity changes, 45 predicted. Median error **4.0 s**, p90 32.0 s, max 64.0 s; 47.3% land within 2 s. Spurious boundaries (no real change within 4 s): **7**.
+
+The annotation's own boundaries are only accurate to ±1 s (2 s stride, boundary at the sample midpoint), so error below 1 s is not resolvable by this fixture and should not be read as precision.
+
 ## Arc-flash baseline on `spawanie`
 
 Reported at **two operating points**, because a single threshold tells a misleading story about this signal. *Conservative* is the clip-relative cut-off the annotation hints used. *Oracle F1* is the best threshold available in hindsight on that same clip — in-sample, unavailable in production, and deliberately generous: an arm that costs a GPU should have to beat the baseline's best day, not a strawman.

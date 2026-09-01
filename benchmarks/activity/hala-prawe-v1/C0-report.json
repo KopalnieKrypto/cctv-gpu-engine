@@ -148,6 +148,145 @@
       "box": "cctv-vps",
       "abstention": 0.0,
       "unpredicted": 0
+    },
+    {
+      "name": "vlm-qwen2.5-vl-3b-v2",
+      "windows": [
+        "W2"
+      ],
+      "scores": {
+        "spawanie": {
+          "support": 273,
+          "tp": 270,
+          "predicted": 516,
+          "recall": 0.989010989010989,
+          "precision": 0.5232558139534884,
+          "time_ratio": 1.89010989010989,
+          "inflated": true,
+          "granularity_pp": 0.3663003663003663,
+          "passes": true,
+          "usable": false
+        },
+        "ukladanie_pretow": {
+          "support": 179,
+          "tp": 0,
+          "predicted": 0,
+          "recall": 0.0,
+          "precision": null,
+          "time_ratio": 0.0,
+          "inflated": false,
+          "granularity_pp": 0.5586592178770949,
+          "passes": false,
+          "usable": false
+        },
+        "sciaganie_elementu": {
+          "support": 30,
+          "tp": 0,
+          "predicted": 0,
+          "recall": 0.0,
+          "precision": null,
+          "time_ratio": 0.0,
+          "inflated": false,
+          "granularity_pp": 3.3333333333333335,
+          "passes": false,
+          "usable": false
+        },
+        "inna_czynnosc": {
+          "support": 42,
+          "tp": 0,
+          "predicted": 0,
+          "recall": 0.0,
+          "precision": null,
+          "time_ratio": 0.0,
+          "inflated": false,
+          "granularity_pp": 2.380952380952381,
+          "passes": false,
+          "usable": false
+        },
+        "postoj": {
+          "support": 16,
+          "tp": 0,
+          "predicted": 0,
+          "recall": 0.0,
+          "precision": null,
+          "time_ratio": 0.0,
+          "inflated": false,
+          "granularity_pp": 6.25,
+          "passes": false,
+          "usable": false
+        },
+        "brak_na_stanowisku": {
+          "support": 2,
+          "tp": 2,
+          "predicted": 84,
+          "recall": 1.0,
+          "precision": 0.023809523809523808,
+          "time_ratio": 42.0,
+          "inflated": true,
+          "granularity_pp": 50.0,
+          "passes": true,
+          "usable": false
+        },
+        "nierozpoznane": {
+          "support": 58,
+          "tp": 0,
+          "predicted": 0,
+          "recall": 0.0,
+          "precision": null,
+          "time_ratio": 0.0,
+          "inflated": false,
+          "granularity_pp": 1.7241379310344827,
+          "passes": false,
+          "usable": false
+        }
+      },
+      "confusion": {
+        "ukladanie_pretow": {
+          "spawanie": 176,
+          "brak_na_stanowisku": 3
+        },
+        "postoj": {
+          "spawanie": 10,
+          "brak_na_stanowisku": 6
+        },
+        "inna_czynnosc": {
+          "spawanie": 32,
+          "brak_na_stanowisku": 10
+        },
+        "sciaganie_elementu": {
+          "spawanie": 27,
+          "brak_na_stanowisku": 3
+        },
+        "spawanie": {
+          "spawanie": 270,
+          "brak_na_stanowisku": 3
+        },
+        "nierozpoznane": {
+          "brak_na_stanowisku": 57,
+          "spawanie": 1
+        },
+        "brak_na_stanowisku": {
+          "brak_na_stanowisku": 2
+        }
+      },
+      "boundaries": {
+        "n": 91,
+        "median_s": 4.0,
+        "p90_s": 32.0,
+        "max_s": 64.0,
+        "within_2s_frac": 0.4725274725274725,
+        "spurious": 7,
+        "pred_boundaries": 45,
+        "truth_boundaries": 91
+      },
+      "hardware": {
+        "verdict": "OK",
+        "reason": "7554 MiB peak on one card"
+      },
+      "gpu_seconds_per_video_hour": 754.2285237698081,
+      "box": "cctv-vps",
+      "abstention": 0.0,
+      "unpredicted": 0
     }
   ],
   "baseline": {
