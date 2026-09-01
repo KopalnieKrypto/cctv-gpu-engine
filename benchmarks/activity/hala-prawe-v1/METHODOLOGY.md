@@ -254,3 +254,31 @@ There is no second copy, and the appliance buffer is 3 h deep, so nothing can re
 this footage. Note what that implies: **the preserve step is still manual**, nothing in
 either repo automates it, and the platform has no retention-hold flag. The next fixture
 captured without that hand-copy will be lost.
+
+### ⚠️ The preserved R2 copies could not be found (2026-09-01)
+
+Checked while staging the clips onto `cctv-vps` for the spike, and it did not go the
+way this document assumed. Using the GPU stack's own credentials (`.env.gpu`,
+bucket `surveillance-data`):
+
+- `benchmarks/hala-prawe-v1/W1-2026-08-28T0700Z.mp4` → **HeadObject 404**
+- the `benchmarks/` prefix → **0 objects**
+- the only top-level prefix in the bucket is `surveillance-jobs/`; there is no
+  `tenants/` prefix either
+- `list_buckets` → `AccessDenied`, so **other buckets could not be checked**
+
+So this is not proof the copies are gone — they may sit in the platform's own bucket,
+which these credentials cannot enumerate. It *is* proof that `r2_key_preserved` in
+`manifest.source.json` does not resolve with the credentials this repo has, and that
+nobody has actually verified the copies since they were made.
+
+**What is confirmed to exist right now:** the working copy on the dev Mac, and a copy
+staged onto `cctv-vps` at
+`/home/mvp/cctv-gpu-engine/benchmarks/activity/hala-prawe-v1/` (pushed over scp,
+because the clips are gitignored and cannot travel by `git pull` — the repo's
+"never rsync/scp" rule governs source, not fixture data).
+
+Two copies on two machines, neither of them object storage, for material this document
+calls irreplaceable. **Someone should confirm the R2 copies exist and record which
+bucket holds them**, or re-upload from the Mac and note the bucket in the manifest.
+Until then, do not treat `r2_key_preserved` as a backup that has been checked.
