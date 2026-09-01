@@ -2,6 +2,168 @@
   "generated": "2026-09-01",
   "arms": [
     {
+      "name": "tcn-pose-seq",
+      "windows": [
+        "W1",
+        "W2"
+      ],
+      "scores": {
+        "spawanie": {
+          "support": 497,
+          "tp": 470,
+          "predicted": 505,
+          "recall": 0.9456740442655935,
+          "precision": 0.9306930693069307,
+          "time_ratio": 1.0160965794768613,
+          "inflated": false,
+          "granularity_pp": 0.2012072434607646,
+          "passes": true,
+          "usable": true
+        },
+        "ukladanie_pretow": {
+          "support": 359,
+          "tp": 346,
+          "predicted": 378,
+          "recall": 0.9637883008356546,
+          "precision": 0.9153439153439153,
+          "time_ratio": 1.052924791086351,
+          "inflated": false,
+          "granularity_pp": 0.2785515320334262,
+          "passes": true,
+          "usable": true
+        },
+        "sciaganie_elementu": {
+          "support": 52,
+          "tp": 38,
+          "predicted": 54,
+          "recall": 0.7307692307692307,
+          "precision": 0.7037037037037037,
+          "time_ratio": 1.0384615384615385,
+          "inflated": false,
+          "granularity_pp": 1.9230769230769231,
+          "passes": false,
+          "usable": false
+        },
+        "inna_czynnosc": {
+          "support": 107,
+          "tp": 28,
+          "predicted": 86,
+          "recall": 0.2616822429906542,
+          "precision": 0.32558139534883723,
+          "time_ratio": 0.8037383177570093,
+          "inflated": false,
+          "granularity_pp": 0.9345794392523364,
+          "passes": false,
+          "usable": false
+        },
+        "postoj": {
+          "support": 58,
+          "tp": 7,
+          "predicted": 56,
+          "recall": 0.1206896551724138,
+          "precision": 0.125,
+          "time_ratio": 0.9655172413793104,
+          "inflated": false,
+          "granularity_pp": 1.7241379310344827,
+          "passes": false,
+          "usable": false
+        },
+        "brak_na_stanowisku": {
+          "support": 68,
+          "tp": 0,
+          "predicted": 1,
+          "recall": 0.0,
+          "precision": 0.0,
+          "time_ratio": 0.014705882352941176,
+          "inflated": false,
+          "granularity_pp": 1.4705882352941178,
+          "passes": false,
+          "usable": false
+        },
+        "nierozpoznane": {
+          "support": 58,
+          "tp": 0,
+          "predicted": 119,
+          "recall": 0.0,
+          "precision": 0.0,
+          "time_ratio": 2.0517241379310347,
+          "inflated": true,
+          "granularity_pp": 1.7241379310344827,
+          "passes": false,
+          "usable": false
+        }
+      },
+      "confusion": {
+        "spawanie": {
+          "spawanie": 470,
+          "ukladanie_pretow": 3,
+          "inna_czynnosc": 22,
+          "nierozpoznane": 1,
+          "sciaganie_elementu": 1
+        },
+        "inna_czynnosc": {
+          "ukladanie_pretow": 12,
+          "inna_czynnosc": 28,
+          "spawanie": 28,
+          "sciaganie_elementu": 11,
+          "postoj": 12,
+          "nierozpoznane": 16
+        },
+        "postoj": {
+          "ukladanie_pretow": 8,
+          "nierozpoznane": 34,
+          "spawanie": 1,
+          "postoj": 7,
+          "inna_czynnosc": 6,
+          "sciaganie_elementu": 2
+        },
+        "sciaganie_elementu": {
+          "ukladanie_pretow": 5,
+          "sciaganie_elementu": 38,
+          "inna_czynnosc": 6,
+          "nierozpoznane": 1,
+          "spawanie": 2
+        },
+        "ukladanie_pretow": {
+          "ukladanie_pretow": 346,
+          "inna_czynnosc": 6,
+          "spawanie": 4,
+          "nierozpoznane": 1,
+          "sciaganie_elementu": 1,
+          "postoj": 1
+        },
+        "brak_na_stanowisku": {
+          "nierozpoznane": 66,
+          "postoj": 2
+        },
+        "nierozpoznane": {
+          "postoj": 34,
+          "ukladanie_pretow": 4,
+          "inna_czynnosc": 18,
+          "brak_na_stanowisku": 1,
+          "sciaganie_elementu": 1
+        }
+      },
+      "boundaries": {
+        "n": 175,
+        "truth_boundaries": 175,
+        "pred_boundaries": 186,
+        "median_s": 0.0,
+        "p90_s": 8.0,
+        "max_s": 18.0,
+        "within_2s_frac": 0.8374542124542125,
+        "spurious": 17
+      },
+      "hardware": {
+        "verdict": "OK",
+        "reason": "710 MiB peak on one card"
+      },
+      "gpu_seconds_per_video_hour": 445.3422370617696,
+      "box": "cctv-vps",
+      "abstention": 0.09924937447873228,
+      "unpredicted": 0
+    },
+    {
       "name": "vlm-qwen2.5-vl-3b",
       "windows": [
         "W1",
