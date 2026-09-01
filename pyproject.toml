@@ -117,6 +117,7 @@ testpaths = [
     "client-agent",
     "client-appliance",
     "training/activity-mlp",
+    "benchmarks",
 ]
 pythonpath = [".", "gpu-service", "client-agent", "training/activity-mlp"]
 python_files = ["*_test.py"]

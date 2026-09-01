@@ -103,12 +103,45 @@ Three properties worth knowing before using it:
   and cannot separate `ukladanie_pretow` from `postoj`. A suggestion the
   annotator never confirms never becomes a label.
 
+## Scoring an arm (`hala-prawe-v1` / C.0)
+
+Once a spike arm has produced predictions, score every arm through the same tool
+so no two arms are graded by slightly different rules:
+
+```bash
+uv run benchmarks/activity/tools/evaluate_arms.py \
+  --manifest benchmarks/activity/hala-prawe-v1/manifest.source.json \
+  --predictions runs/vlm/W1.json runs/vlm/W2.json \
+  --out benchmarks/activity/hala-prawe-v1/C0-report.md \
+  --json-out benchmarks/activity/hala-prawe-v1/C0-report.json
+```
+
+It emits all five things `#117` asks of each arm — per-activity confusion matrix
+on the held-out union, boundary timing error, GPU-seconds per video-hour, the
+single-card hardware verdict, and the arc-flash comparison. Run with no
+`--predictions` to regenerate just the baseline section.
+
+Three rules worth knowing before reading its output:
+
+- **The folds come from the manifest**, never from the tool. It refuses to run
+  against a manifest with no `split` block, because a split chosen at scoring
+  time is exactly what the acceptance criterion forbids.
+- **An unanswered sample is an error, not a smaller denominator.** An arm that
+  declines to predict does not get an easier score for it.
+- **Recall is the client's bar, and the bar alone is not enough.** The free
+  arc-flash baseline, swept for best F1, hits 99.4% recall on `spawanie` by
+  reporting 2.18× the welding time that happened. So every class also reports
+  `time_ratio` (predicted seconds ÷ true seconds), and a class whose recall
+  passes above 1.25× is marked **gamed** rather than passed. Over-reporting
+  productive time is the direction of error a work-study client actually pays
+  for.
+
 ## Status
 
 - `magazyn-hall-v1` — scaffold generated (296 people, 264 posture-readable prior).
   Human labeling pass pending. Tracked as the ground-truth sub-issue of the
   activity-accuracy epic.
-- `hala-prawe-v1` — clips verified, station ROI fixed, interval scaffolds
-  generated for both windows (599 + 600 samples at 2 s). **Human labeling pass
-  pending** — it is the binding input on the C.0 feasibility gate
-  (`#117`).
+- `hala-prawe-v1` — **annotated** (2026-09-01): both windows labelled end to end,
+  599/599 and 600/600 samples at a 2 s stride, split declared as 2-fold CV, and
+  the scoring harness in place with the baseline measured. The remaining C.0
+  work is the classification spike itself — no arm has run yet (`#117`).

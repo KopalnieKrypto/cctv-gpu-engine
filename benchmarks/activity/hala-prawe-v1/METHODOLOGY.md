@@ -140,7 +140,7 @@ Same audit as W1, and it lands differently in a way the report has to carry:
 | of which hand-labelled `spawanie` | 162 (**82.7%**) | 242 (**56.3%**) |
 | leaked into `ukladanie_pretow` | 28 | **159** |
 | hand-labelled `spawanie` total | 447 s | 546 s |
-| arc-flash recall ceiling on `spawanie` | **36.2%** | **44.3%** |
+| arc-flash recall on `spawanie`, conservative cut-off | **36.2%** | **44.3%** |
 
 **The arc threshold's precision collapses from 82.7% to 56.3% between two windows of
 the same station on the same day** — 159 s of W2's arc time sits inside hand-labelled
@@ -150,9 +150,33 @@ not port to W2 an hour and twenty minutes later. Any arm compared against this b
 must be compared against a **per-clip re-tuned** baseline, or the comparison flatters
 the model.
 
-The recall ceiling holds on both windows (36.2% / 44.3%), so the conclusion is
-unchanged and now doubly evidenced: **arc-flash cannot clear the 85% bar on `spawanie`
-by construction.**
+### Correction: the "recall ceiling" was an artefact of one threshold
+
+An earlier version of this file concluded that arc-flash **cannot clear the 85% bar on
+`spawanie` by construction**. That is wrong, and the threshold sweep in
+`tools/evaluate_arms.py` is what falsified it. The 36.2% / 44.3% figures above are
+recall at *one conservative cut-off*, not a ceiling. Swept for best F1 per clip, the
+same signal reaches **99.4% recall on `spawanie`** — it clears the client's bar
+comfortably.
+
+It does so by calling **2.18× as much time `spawanie` as actually happened**, at 45.6%
+precision. The two operating points are the same signal read differently:
+
+| Operating point | Recall | Precision | Time reported |
+|---|---:|---:|---:|
+| conservative (annotation-hint cut-off) | 40.4% | 93.1% | 0.43× |
+| oracle F1 (in-sample, hindsight) | **99.4%** | 45.6% | **2.18×** |
+
+The real finding is therefore **about the bar, not about the baseline**: *a
+recall-only bar is gameable by any arm willing to over-call the common class.* A free
+brightness threshold clears 85% on `spawanie` while being useless, so no arm may be
+promoted on per-activity recall alone. `evaluate_arms.py` now reports `time_ratio`
+next to every class and marks a class **gamed** rather than passed above 1.25×.
+
+What survives unchanged is the reason arc-flash is not a candidate, and it never
+depended on the threshold: **it cannot separate `ukladanie_pretow` from `postoj` at
+all** — five of the seven activities, and all of the hard part. It remains the cost
+floor.
 
 **`nierozpoznane` on W2: 58 samples (9.7%, 116 s)** against zero on W1. The honest-
 uncertainty check that W1 could only argue, W2 now demonstrates.
@@ -169,12 +193,11 @@ the two timelines would not line up at all.
 
 Two numbers fall out of it that the C.0 report needs:
 
-- **The arc-flash baseline's recall ceiling on `spawanie` is 36.2%.** Hand-labelled
-  welding *work* totals 447 s on W1; arc fires on 162 s of it. The gap is real
-  welding — positioning, tacking, chipping slag, the pauses between beads. So the
-  free baseline cannot reach the 85% bar on `spawanie` **by construction**, not by
-  being badly tuned. That converts "the baseline is not a solution" from an argument
-  into a measurement.
+- **At the conservative cut-off, arc-flash recall on `spawanie` is 36.2%.**
+  Hand-labelled welding *work* totals 447 s on W1; arc fires on 162 s of it. The gap
+  is real welding — positioning, tacking, chipping slag, the pauses between beads.
+  This is a property of that operating point, **not a ceiling** — see the correction
+  above, where a swept threshold reaches 99.4% recall at 2.18× the true time.
 - **The station runs a regular ~82 s production cycle.** Long welding blocks start at
   219, 303, 391, 477 … 1139 s — gaps of 84, 88, 86, 80, 78, 86, 82, 78 s, with one
   258 s outlier that is exactly the 132 s `brak_na_stanowisku` absence at 539–671 s.

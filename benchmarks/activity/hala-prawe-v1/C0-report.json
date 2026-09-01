@@ -1,0 +1,94 @@
+{
+  "generated": "2026-09-01",
+  "arms": [],
+  "baseline": {
+    "points": {
+      "conservative": {
+        "W1": {
+          "threshold": 1.126175,
+          "support": 224,
+          "tp": 99,
+          "predicted": 110,
+          "recall": 0.4419642857142857,
+          "precision": 0.9,
+          "time_ratio": 0.49107142857142855,
+          "inflated": false,
+          "granularity_pp": 0.44642857142857145,
+          "passes": false,
+          "usable": false,
+          "f1": 0.592814371257485
+        },
+        "W2": {
+          "threshold": 1.6829,
+          "support": 273,
+          "tp": 102,
+          "predicted": 106,
+          "recall": 0.37362637362637363,
+          "precision": 0.9622641509433962,
+          "time_ratio": 0.3882783882783883,
+          "inflated": false,
+          "granularity_pp": 0.3663003663003663,
+          "passes": false,
+          "usable": false,
+          "f1": 0.5382585751978892
+        }
+      },
+      "oracle_f1": {
+        "W1": {
+          "threshold": 0.0517,
+          "support": 224,
+          "tp": 222,
+          "predicted": 497,
+          "recall": 0.9910714285714286,
+          "precision": 0.44668008048289737,
+          "time_ratio": 2.21875,
+          "inflated": true,
+          "granularity_pp": 0.44642857142857145,
+          "passes": true,
+          "usable": false,
+          "f1": 0.6158113730929264
+        },
+        "W2": {
+          "threshold": 0.119,
+          "support": 273,
+          "tp": 272,
+          "predicted": 587,
+          "recall": 0.9963369963369964,
+          "precision": 0.46337308347529815,
+          "time_ratio": 2.15018315018315,
+          "inflated": true,
+          "granularity_pp": 0.3663003663003663,
+          "passes": true,
+          "usable": false,
+          "f1": 0.6325581395348837
+        }
+      }
+    },
+    "union": {
+      "conservative": {
+        "support": 497,
+        "tp": 201,
+        "predicted": 216,
+        "recall": 0.4044265593561368,
+        "precision": 0.9305555555555556,
+        "time_ratio": 0.4346076458752515,
+        "inflated": false,
+        "granularity_pp": 0.2012072434607646,
+        "passes": false,
+        "usable": false
+      },
+      "oracle_f1": {
+        "support": 497,
+        "tp": 494,
+        "predicted": 1084,
+        "recall": 0.993963782696177,
+        "precision": 0.45571955719557194,
+        "time_ratio": 2.181086519114688,
+        "inflated": true,
+        "granularity_pp": 0.2012072434607646,
+        "passes": true,
+        "usable": false
+      }
+    }
+  }
+}

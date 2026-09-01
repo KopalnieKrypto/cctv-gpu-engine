@@ -1,0 +1,750 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = []
+# ///
+"""Score C.0 spike arms against the `hala-prawe-v1` ground truth.
+
+Issue #117 asks each arm for five things, and this tool produces all five from
+one command so that no arm gets scored by a slightly different rule than
+another:
+
+1. per-activity accuracy on held-out material, as a confusion matrix,
+2. boundary timing error against the human annotation,
+3. GPU-seconds per video-hour, measured on a named fleet box,
+4. a hardware verdict - anything over 12 GB on one card, or needing two, is
+   disqualified whatever its accuracy,
+5. a comparison against the arc-flash baseline on `spawanie`.
+
+## The split is read, never chosen
+
+Folds come from `manifest.source.json` -> `split`. The tool refuses to run if
+that block is missing, because a split invented at scoring time is exactly what
+the acceptance criterion forbids. Per-activity figures are computed on the
+UNION of the folds' held-out predictions, so every labelled sample is scored
+once, by a model that did not train on it.
+
+## Recall is the bar, and the bar alone is not enough
+
+The pass bar - 85% correct per activity - is scored as **recall**: of the
+seconds the human called `spawanie`, how many did the arm also call `spawanie`.
+That is what "correct classifications per activity" means for a work-study.
+
+A recall-only bar is gameable, and not hypothetically: the free arc-flash
+baseline, tuned for best F1, reaches **99.4% recall on `spawanie`** by calling
+2.18x as much time welding as actually happened, at 45.6% precision. It clears
+the client's bar while being useless.
+
+So every class also reports `time_ratio` - predicted seconds over true seconds -
+and a class whose recall passes above `INFLATION_LIMIT` is marked **gamed**
+rather than passed. That column is the one a chronometraz client feels: being
+told 900 s of welding when 447 s happened. Over-reporting productive time is the
+commercially dangerous direction of error, and it is worse than under-reporting.
+
+## `nierozpoznane` is scored, but not part of the bar
+
+It is the honest "cannot tell" and never counts as work or downtime, so it gets
+its own confusion row while the go/no-go verdict is taken over the six real
+activities. An arm that abstains its way to a good score is caught by the
+abstention rate, reported per arm.
+
+## The baseline is reported at two operating points
+
+The arc metric is clip-relative - the raw values differ ~3x between W1 and W2 on
+the identical crop - so any single threshold tells a partial story, and which
+partial story you get depends on where you put it:
+
+- **conservative** (the cut-off the annotation hints used): 40.4% recall at
+  93.1% precision. Reports 0.43x the real welding time.
+- **oracle F1** (best threshold in hindsight, in-sample, unavailable in
+  production): 99.4% recall at 45.6% precision. Reports 2.18x the real time.
+
+Both are the same signal. Quoting either alone is misleading, which is why the
+report prints both. The honest summary is that arc-flash trades recall against
+precision along one axis and never gets both, because it detects an **arc**
+while `spawanie` as an activity includes positioning, tacking, chipping slag and
+the pauses between beads.
+
+It stays the cost floor rather than a candidate for a reason that no threshold
+fixes: it cannot separate `ukladanie_pretow` from `postoj` at all - five of the
+seven activities, and all of the hard part.
+
+## Prediction file format
+
+One JSON per (arm, window). Either shape is accepted:
+
+    {
+      "arm": "vlm-qwen2.5-vl-3b",
+      "window": "W2",
+      "intervals": [{"activity_id": "spawanie", "start_s": 0, "end_s": 12}],
+      "gpu": {
+        "box": "cctv-vps", "gpu_index": 1,
+        "gpu_seconds": 412.0, "video_seconds": 1199,
+        "peak_vram_mib": 7866, "gpus_used": 1
+      }
+    }
+
+`samples: [{"t_s": 0, "activity_id": "..."}]` works in place of `intervals`.
+The `gpu` block may be omitted while an arm is still being developed; the tool
+then reports its cost as UNMEASURED and refuses to call it a pass.
+
+## Usage
+
+    uv run benchmarks/activity/tools/evaluate_arms.py \
+      --manifest benchmarks/activity/hala-prawe-v1/manifest.source.json \
+      --predictions runs/vlm/*.json \
+      --out benchmarks/activity/hala-prawe-v1/C0-report.md
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import statistics
+import sys
+from pathlib import Path
+
+# The single-card budget from #117. `cctv-vps` GPU 0 is held by SGLang, so the
+# real ceiling is one 12 GB card - never the sum of two.
+VRAM_BUDGET_MIB = 12 * 1024
+
+# The client's bar (assumption A11), applied per activity and never to an average.
+PASS_BAR = 0.85
+
+# Ground-truth boundaries are only accurate to +/- stride/2, so a predicted
+# boundary inside that window is exact as far as this fixture can tell.
+# Anything beyond `SPURIOUS_TOLERANCE_S` from any real boundary is an invented one.
+SPURIOUS_TOLERANCE_S = 4
+
+# `nierozpoznane` is not an activity (manifest: "never counted as work or
+# downtime"), so it is scored but held out of the go/no-go verdict.
+NON_ACTIVITY = "nierozpoznane"
+
+# A recall-only bar is gameable: an arm that calls everything `spawanie` scores
+# ~100% recall on it. The arc baseline does exactly this when tuned for F1 -
+# 99.4% recall at 45.6% precision - so the guard is not hypothetical.
+# `time_ratio` is predicted seconds over true seconds for an activity, which is
+# the number a chronometraz client actually feels: told 900 s of welding when
+# 447 s happened. Beyond this ratio a passing recall is reported as gamed.
+INFLATION_LIMIT = 1.25
+
+
+# --------------------------------------------------------------------------
+# loading
+# --------------------------------------------------------------------------
+
+
+def load_manifest(path: Path) -> dict:
+    manifest = json.loads(path.read_text())
+    if "split" not in manifest:
+        sys.exit(
+            f"{path} has no `split` block. Declare the split in the manifest before "
+            "scoring - a split chosen at scoring time is what the C.0 criterion forbids."
+        )
+    return manifest
+
+
+def _grid_from_intervals(intervals: list[dict], stride: int, count: int) -> dict[int, str]:
+    """Sample an interval list onto the annotation's own `t_s` grid."""
+    grid: dict[int, str] = {}
+    for x in intervals:
+        start, end = float(x["start_s"]), float(x["end_s"])
+        for i in range(count):
+            t = i * stride
+            if start <= t < end:
+                grid[t] = x["activity_id"]
+    return grid
+
+
+def load_annotation(path: Path) -> dict:
+    doc = json.loads(path.read_text())
+    stride = int(doc["stride_s"])
+    samples = {int(s["t_s"]): s["activity_id"] for s in doc["samples"]}
+    return {
+        "window": doc["window"],
+        "stride_s": stride,
+        "duration_s": float(doc["duration_s"]),
+        "grid": samples,
+        "intervals": doc["intervals"],
+        "count": len(doc["samples"]),
+    }
+
+
+def load_prediction(path: Path, truth: dict) -> dict:
+    doc = json.loads(path.read_text())
+    stride, count = truth["stride_s"], truth["count"]
+    if "samples" in doc:
+        grid = {int(s["t_s"]): s["activity_id"] for s in doc["samples"]}
+        intervals = doc.get("intervals") or _fold_to_intervals(grid, stride, truth["duration_s"])
+    elif "intervals" in doc:
+        intervals = doc["intervals"]
+        grid = _grid_from_intervals(intervals, stride, count)
+    else:
+        sys.exit(f"{path}: prediction needs `intervals` or `samples`")
+    return {
+        "arm": doc.get("arm") or path.stem,
+        "window": doc["window"],
+        "grid": grid,
+        "intervals": intervals,
+        "gpu": doc.get("gpu"),
+        "path": path,
+    }
+
+
+def _fold_to_intervals(grid: dict[int, str], stride: int, duration: float) -> list[dict]:
+    """Fold a per-sample grid into intervals, boundaries at sample midpoints."""
+    ts = sorted(grid)
+    out: list[dict] = []
+    for t in ts:
+        label = grid[t]
+        if out and out[-1]["activity_id"] == label:
+            out[-1]["end_s"] = min(duration, t + stride / 2)
+            continue
+        start = 0.0 if not out else max(0.0, t - stride / 2)
+        out.append({"activity_id": label, "start_s": start, "end_s": min(duration, t + stride / 2)})
+    if out:
+        out[-1]["end_s"] = duration
+    return out
+
+
+# --------------------------------------------------------------------------
+# arc-flash baseline
+# --------------------------------------------------------------------------
+
+
+def arc_metric_series(arc_csv: Path, window: str) -> dict[int, float]:
+    per_second: dict[int, float] = {}
+    with arc_csv.open() as fh:
+        for row in csv.DictReader(fh):
+            if row.get("window") == window:
+                per_second[int(row["t_s"])] = float(row["arc_metric"])
+    return per_second
+
+
+def arc_baseline_grid(
+    per_second: dict[int, float], truth: dict, threshold: float
+) -> dict[int, str]:
+    """Binary spawanie / not-spawanie on the annotation grid."""
+    stride, count = truth["stride_s"], truth["count"]
+    grid: dict[int, str] = {}
+    for i in range(count):
+        t = i * stride
+        # An arc is intermittent, so any arcing second inside the sample counts.
+        vals = [per_second.get(s, 0.0) for s in range(t, t + stride)]
+        grid[t] = "spawanie" if any(v >= threshold for v in vals) else "__nie_spawanie__"
+    return grid
+
+
+def conservative_arc_threshold(per_second: dict[int, float], fraction: float = 0.25) -> float:
+    """The cut-off `build_interval_annotation.py` used for annotation hints.
+
+    Clip-relative by construction — a fraction of the way from this clip's median
+    to its 99th percentile — because the raw metric differs ~3x between W1 and W2
+    on the identical crop.
+    """
+    if not per_second:
+        return 0.0
+    values = sorted(per_second.values())
+    median = statistics.median(values)
+    p99 = values[min(len(values) - 1, int(len(values) * 0.99))]
+    return median + (p99 - median) * fraction
+
+
+def tune_arc_threshold(per_second: dict[int, float], truth: dict) -> tuple[float, float]:
+    """Best-F1 threshold on `spawanie` for THIS clip. Oracle, in-sample, on purpose."""
+    if not per_second:
+        return 0.0, 0.0
+    candidates = sorted(set(per_second.values()))
+    best_f1, best_t = 0.0, candidates[0]
+    for t in candidates:
+        grid = arc_baseline_grid(per_second, truth, t)
+        tp = sum(
+            1 for k, v in truth["grid"].items() if v == "spawanie" and grid.get(k) == "spawanie"
+        )
+        fp = sum(
+            1 for k, v in truth["grid"].items() if v != "spawanie" and grid.get(k) == "spawanie"
+        )
+        fn = sum(
+            1 for k, v in truth["grid"].items() if v == "spawanie" and grid.get(k) != "spawanie"
+        )
+        if tp == 0:
+            continue
+        f1 = 2 * tp / (2 * tp + fp + fn)
+        if f1 > best_f1:
+            best_f1, best_t = f1, t
+    return best_t, best_f1
+
+
+# --------------------------------------------------------------------------
+# scoring
+# --------------------------------------------------------------------------
+
+
+def confusion(pairs: list[tuple[str, str]]) -> dict[str, dict[str, int]]:
+    matrix: dict[str, dict[str, int]] = {}
+    for truth_label, pred_label in pairs:
+        matrix.setdefault(truth_label, {})
+        matrix[truth_label][pred_label] = matrix[truth_label].get(pred_label, 0) + 1
+    return matrix
+
+
+def per_activity_scores(pairs: list[tuple[str, str]], classes: list[str]) -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    for c in classes:
+        support = sum(1 for t, _ in pairs if t == c)
+        tp = sum(1 for t, p in pairs if t == c and p == c)
+        predicted = sum(1 for _, p in pairs if p == c)
+        recall = tp / support if support else None
+        precision = tp / predicted if predicted else None
+        time_ratio = (predicted / support) if support else None
+        inflated = time_ratio is not None and time_ratio > INFLATION_LIMIT
+        passes = recall is not None and recall >= PASS_BAR
+        out[c] = {
+            "support": support,
+            "tp": tp,
+            "predicted": predicted,
+            "recall": recall,
+            "precision": precision,
+            "time_ratio": time_ratio,
+            "inflated": inflated,
+            # A class with few held-out samples cannot resolve an 85% bar; say so
+            # rather than printing a confident percentage over a handful of samples.
+            "granularity_pp": (100.0 / support) if support else None,
+            "passes": passes,
+            # The client's bar is recall, so `passes` reports it unchanged. But a
+            # pass bought by over-calling the class is not a usable measurement,
+            # and a work-study that over-reports productive time is worse than one
+            # that under-reports it.
+            "usable": passes and not inflated,
+        }
+    return out
+
+
+def boundary_errors(truth_intervals: list[dict], pred_intervals: list[dict]) -> dict:
+    """Distance from each real activity change to the nearest predicted one."""
+    truth_b = sorted({float(x["start_s"]) for x in truth_intervals if float(x["start_s"]) > 0})
+    pred_b = sorted({float(x["start_s"]) for x in pred_intervals if float(x["start_s"]) > 0})
+    if not truth_b:
+        return {"n": 0}
+    if not pred_b:
+        return {"n": len(truth_b), "matched": 0, "note": "arm emitted no boundaries"}
+
+    errors = [min(abs(t - p) for p in pred_b) for t in truth_b]
+    spurious = [p for p in pred_b if min(abs(p - t) for t in truth_b) > SPURIOUS_TOLERANCE_S]
+    ordered = sorted(errors)
+    return {
+        "n": len(errors),
+        "median_s": statistics.median(ordered),
+        "p90_s": ordered[min(len(ordered) - 1, int(len(ordered) * 0.9))],
+        "max_s": ordered[-1],
+        "within_2s_frac": sum(1 for e in errors if e <= 2) / len(errors),
+        "spurious": len(spurious),
+        "pred_boundaries": len(pred_b),
+        "truth_boundaries": len(truth_b),
+    }
+
+
+def hardware_verdict(gpu: dict | None) -> dict:
+    if not gpu:
+        return {"verdict": "UNMEASURED", "reason": "no `gpu` block in the prediction file"}
+    peak = gpu.get("peak_vram_mib")
+    used = gpu.get("gpus_used", 1)
+    if used and used > 1:
+        return {"verdict": "DISQUALIFIED", "reason": f"needs {used} cards; the budget is one"}
+    if peak is None:
+        return {"verdict": "UNMEASURED", "reason": "`peak_vram_mib` missing"}
+    if peak > VRAM_BUDGET_MIB:
+        return {
+            "verdict": "DISQUALIFIED",
+            "reason": f"{peak} MiB peak exceeds the {VRAM_BUDGET_MIB} MiB single-card budget",
+        }
+    return {"verdict": "OK", "reason": f"{peak} MiB peak on one card"}
+
+
+def gpu_seconds_per_video_hour(gpu: dict | None) -> float | None:
+    if not gpu or not gpu.get("video_seconds"):
+        return None
+    return gpu["gpu_seconds"] / gpu["video_seconds"] * 3600
+
+
+# --------------------------------------------------------------------------
+# reporting
+# --------------------------------------------------------------------------
+
+
+def _pct(x: float | None) -> str:
+    return "n/a" if x is None else f"{100 * x:.1f}%"
+
+
+def render(report: dict) -> str:
+    m = report["manifest"]
+    lines: list[str] = []
+    add = lines.append
+
+    add("# C.0 measurement report — `hala-prawe-v1`")
+    add("")
+    add(f"Generated {report['generated']} by `benchmarks/activity/tools/evaluate_arms.py`.")
+    add("")
+    add("## Pre-break bias")
+    add("")
+    add(
+        "**Both annotated windows are pre-break** (W1 09:00–09:20, W2 10:20–10:40, "
+        "both 2026-08-28; W3 was dropped by decision on 2026-09-01). Every figure in "
+        "this report therefore describes the first half of a shift only, and inherits "
+        "that bias permanently. Quote it with the caveat attached or do not quote it."
+    )
+    add("")
+    add("## Split")
+    add("")
+    split = m["split"]
+    add(f"Protocol: **{split.get('protocol', 'single split')}**, declared {split['declared']}.")
+    for fold in split.get("folds", []):
+        add(f"- fold {fold['id']}: train {fold['train_dev']} → held out {fold['held_out']}")
+    add("")
+    add(split.get("reporting", ""))
+    add("")
+
+    for arm in report["arms"]:
+        add(f"## Arm: `{arm['name']}`")
+        add("")
+        hw = arm["hardware"]
+        add(f"**Hardware verdict: {hw['verdict']}** — {hw['reason']}")
+        cost = arm["gpu_seconds_per_video_hour"]
+        box = arm.get("box") or "UNNAMED BOX"
+        if cost is None:
+            add("")
+            add(
+                "**Cost: UNMEASURED.** #117 requires GPU-seconds per video-hour measured "
+                "on `cctv-vps` GPU 1 or `cctv-vps-2`, not on a workstation. Without it "
+                "this arm cannot be recommended, whatever its accuracy."
+            )
+        else:
+            add("")
+            add(f"**Cost: {cost:.0f} GPU-seconds per video-hour**, measured on **{box}**.")
+        add("")
+        add(f"Abstention (`{NON_ACTIVITY}` predicted): {_pct(arm['abstention'])} of samples.")
+        if arm["unpredicted"]:
+            add("")
+            add(
+                f"⚠️ **{arm['unpredicted']} samples had no prediction** and are scored as "
+                "errors. An arm that declines to answer does not get a smaller denominator."
+            )
+        add("")
+        add("### Per-activity accuracy (held-out union)")
+        add("")
+        add(
+            "| Activity | Support | Recall (the bar) | Precision | Time reported | "
+            "1 error = | Verdict |"
+        )
+        add("|---|---:|---:|---:|---:|---:|:---:|")
+        for c, s in arm["scores"].items():
+            if s["support"] == 0:
+                continue
+            if c == NON_ACTIVITY:
+                bar = "—"
+            elif s["usable"]:
+                bar = "✅"
+            elif s["passes"]:
+                bar = "⚠️ gamed"
+            else:
+                bar = "❌"
+            gran = f"{s['granularity_pp']:.1f} pp"
+            ratio = "n/a" if s["time_ratio"] is None else f"{s['time_ratio']:.2f}×"
+            add(
+                f"| `{c}` | {s['support']} | {_pct(s['recall'])} | "
+                f"{_pct(s['precision'])} | {ratio} | {gran} | {bar} |"
+            )
+        add("")
+        add(
+            "*Time reported* is predicted seconds over true seconds for the activity — "
+            f"the number a chronometraż client feels. Above {INFLATION_LIMIT:.2f}× a "
+            "passing recall is marked **gamed**: the class was bought by over-calling "
+            "it, and a work-study that over-reports productive time is worse than one "
+            "that under-reports it."
+        )
+        add("")
+        failing = [
+            c
+            for c, s in arm["scores"].items()
+            if c != NON_ACTIVITY and s["support"] and not s["passes"]
+        ]
+        gamed = [
+            c
+            for c, s in arm["scores"].items()
+            if c != NON_ACTIVITY and s["support"] and s["passes"] and not s["usable"]
+        ]
+        if failing:
+            add(
+                f"**Fails the bar on:** {', '.join('`' + c + '`' for c in failing)}. "
+                "An 84% class fails even if the average clears."
+            )
+        if gamed:
+            add(
+                f"**Passes but unusable on:** {', '.join('`' + c + '`' for c in gamed)} — "
+                "recall bought by over-calling the class."
+            )
+        if not failing and not gamed:
+            add("**Every scored activity clears 85% without inflating its reported time.**")
+        add("")
+        add("### Confusion matrix")
+        add("")
+        preds = sorted({p for row in arm["confusion"].values() for p in row})
+        add("| truth ↓ / pred → | " + " | ".join(f"`{p}`" for p in preds) + " |")
+        add("|---" * (len(preds) + 1) + "|")
+        for truth_label in sorted(arm["confusion"]):
+            row = arm["confusion"][truth_label]
+            cells = " | ".join(str(row.get(p, 0)) for p in preds)
+            add(f"| `{truth_label}` | {cells} |")
+        add("")
+        add("### Boundary timing error")
+        add("")
+        b = arm["boundaries"]
+        if b.get("n"):
+            add(
+                f"{b['truth_boundaries']} real activity changes, {b.get('pred_boundaries', 0)} "
+                f"predicted. Median error **{b.get('median_s', 0):.1f} s**, p90 "
+                f"{b.get('p90_s', 0):.1f} s, max {b.get('max_s', 0):.1f} s; "
+                f"{_pct(b.get('within_2s_frac'))} land within 2 s. "
+                f"Spurious boundaries (no real change within {SPURIOUS_TOLERANCE_S} s): "
+                f"**{b.get('spurious', 0)}**."
+            )
+            add("")
+            add(
+                "The annotation's own boundaries are only accurate to ±1 s (2 s stride, "
+                "boundary at the sample midpoint), so error below 1 s is not resolvable "
+                "by this fixture and should not be read as precision."
+            )
+        else:
+            add("No boundaries to score.")
+        add("")
+
+    add("## Arc-flash baseline on `spawanie`")
+    add("")
+    base = report["baseline"]
+    add(
+        "Reported at **two operating points**, because a single threshold tells a "
+        "misleading story about this signal. *Conservative* is the clip-relative "
+        "cut-off the annotation hints used. *Oracle F1* is the best threshold "
+        "available in hindsight on that same clip — in-sample, unavailable in "
+        "production, and deliberately generous: an arm that costs a GPU should have "
+        "to beat the baseline's best day, not a strawman."
+    )
+    add("")
+    labels = {"conservative": "Conservative", "oracle_f1": "Oracle F1 (in-sample)"}
+    for point, per_window in base["points"].items():
+        if not per_window:
+            continue
+        add(f"**{labels.get(point, point)}**")
+        add("")
+        add("| Window | Threshold | Recall | Precision | Time reported | F1 |")
+        add("|---|---:|---:|---:|---:|---:|")
+        for w, s in per_window.items():
+            ratio = "n/a" if s.get("time_ratio") is None else f"{s['time_ratio']:.2f}×"
+            add(
+                f"| {w} | {s['threshold']:.2f} | {_pct(s['recall'])} | "
+                f"{_pct(s['precision'])} | {ratio} | {s['f1']:.3f} |"
+            )
+        u = base["union"][point]
+        ratio = "n/a" if u.get("time_ratio") is None else f"{u['time_ratio']:.2f}×"
+        add("")
+        add(
+            f"Union on `spawanie`: recall **{_pct(u['recall'])}**, precision "
+            f"{_pct(u['precision'])}, time reported {ratio}."
+        )
+        add("")
+    add("Cost: **0 GPU-seconds** at either point.")
+    add("")
+    oracle = base["union"].get("oracle_f1", {})
+    if oracle.get("recall") is not None and oracle["recall"] >= PASS_BAR:
+        add(
+            f"**The baseline clears the {PASS_BAR:.0%} recall bar on `spawanie` — and "
+            "that is a finding about the bar, not about the baseline.** It reaches "
+            f"{_pct(oracle['recall'])} recall by calling {oracle.get('time_ratio', 0):.2f}× "
+            "as much time `spawanie` as actually was, at "
+            f"{_pct(oracle['precision'])} precision. A recall-only bar is gameable by "
+            "any arm willing to over-call the common class, so no arm should be "
+            "promoted on recall alone. The `Time reported` column is what separates a "
+            "measurement from a guess that happens to overlap the truth."
+        )
+    else:
+        add(
+            f"The baseline does not clear the {PASS_BAR:.0%} bar on `spawanie` even "
+            "oracle-tuned, which is a property of the signal rather than of its tuning: "
+            "it detects an **arc**, while `spawanie` as an activity includes "
+            "positioning, tacking, chipping slag and the pauses between beads."
+        )
+    add("")
+    add(
+        "Either way the baseline is the **cost floor, not a candidate**: it cannot "
+        "distinguish `ukladanie_pretow` from `postoj` at all, which is five of the "
+        "seven activities and all of the hard part."
+    )
+    add("")
+    add("## Go / no-go")
+    add("")
+    add(
+        "_Not generated. The bar is numeric but the decision is human — "
+        "recorded as a comment on issue #117 by @tkowalczyk._"
+    )
+    return "\n".join(lines) + "\n"
+
+
+# --------------------------------------------------------------------------
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--manifest", required=True, type=Path)
+    ap.add_argument("--predictions", nargs="*", type=Path, default=[])
+    ap.add_argument("--arc-csv", type=Path)
+    ap.add_argument("--out", type=Path, help="markdown report (default: stdout)")
+    ap.add_argument("--json-out", type=Path, help="also write the raw numbers as JSON")
+    args = ap.parse_args()
+
+    manifest = load_manifest(args.manifest)
+    fixture_dir = args.manifest.parent
+    classes = [a["id"] for a in manifest["activities"]]
+
+    truths: dict[str, dict] = {}
+    for clip in manifest["clips"]:
+        if not clip.get("annotated"):
+            continue
+        truths[clip["slot"]] = load_annotation(fixture_dir / clip["annotation_file"])
+    if not truths:
+        sys.exit("no annotated clips in the manifest — nothing to score against")
+
+    # --- arms ---
+    by_arm: dict[str, list[dict]] = {}
+    for p in args.predictions:
+        head = json.loads(p.read_text())
+        window = head["window"]
+        if window not in truths:
+            sys.exit(f"{p}: window {window} is not annotated")
+        pred = load_prediction(p, truths[window])
+        by_arm.setdefault(pred["arm"], []).append(pred)
+
+    arms = []
+    for name, preds in sorted(by_arm.items()):
+        pairs: list[tuple[str, str]] = []
+        unpredicted = 0
+        boundary_stats: list[dict] = []
+        gpu_blocks = [p["gpu"] for p in preds if p["gpu"]]
+        for pred in preds:
+            truth = truths[pred["window"]]
+            for t, gt in truth["grid"].items():
+                got = pred["grid"].get(t)
+                if got is None:
+                    unpredicted += 1
+                    got = "__brak_predykcji__"
+                pairs.append((gt, got))
+            boundary_stats.append(boundary_errors(truth["intervals"], pred["intervals"]))
+
+        windows = sorted(p["window"] for p in preds)
+        held_out = {f["held_out"][0] for f in manifest["split"].get("folds", [])}
+        if held_out and set(windows) != held_out:
+            print(
+                f"warning: arm `{name}` covers {windows} but the split's held-out "
+                f"windows are {sorted(held_out)} — the union figure is incomplete",
+                file=sys.stderr,
+            )
+
+        merged_boundaries = (
+            boundary_stats[0]
+            if len(boundary_stats) == 1
+            else {
+                "n": sum(b.get("n", 0) for b in boundary_stats),
+                "truth_boundaries": sum(b.get("truth_boundaries", 0) for b in boundary_stats),
+                "pred_boundaries": sum(b.get("pred_boundaries", 0) for b in boundary_stats),
+                "median_s": statistics.median(
+                    [b["median_s"] for b in boundary_stats if "median_s" in b] or [0]
+                ),
+                "p90_s": max((b.get("p90_s", 0) for b in boundary_stats), default=0),
+                "max_s": max((b.get("max_s", 0) for b in boundary_stats), default=0),
+                "within_2s_frac": statistics.mean(
+                    [b["within_2s_frac"] for b in boundary_stats if "within_2s_frac" in b] or [0]
+                ),
+                "spurious": sum(b.get("spurious", 0) for b in boundary_stats),
+            }
+        )
+
+        gpu = gpu_blocks[0] if gpu_blocks else None
+        arms.append(
+            {
+                "name": name,
+                "windows": windows,
+                "scores": per_activity_scores(pairs, classes),
+                "confusion": confusion(pairs),
+                "boundaries": merged_boundaries,
+                "hardware": hardware_verdict(gpu),
+                "gpu_seconds_per_video_hour": gpu_seconds_per_video_hour(gpu),
+                "box": (gpu or {}).get("box"),
+                "abstention": sum(1 for _, p in pairs if p == NON_ACTIVITY) / len(pairs)
+                if pairs
+                else None,
+                "unpredicted": unpredicted,
+            }
+        )
+
+    # --- baseline ---
+    arc_csv = args.arc_csv or (fixture_dir / "arc-timeline.csv")
+    # Two operating points, because one threshold tells a misleading story. The
+    # conservative point is the cut-off the annotation hints used; the oracle point
+    # is the best F1 available in hindsight on that clip.
+    points: dict[str, dict] = {"conservative": {}, "oracle_f1": {}}
+    union_pairs: dict[str, list[tuple[str, str]]] = {"conservative": [], "oracle_f1": []}
+    if arc_csv.exists():
+        for slot, truth in truths.items():
+            series = arc_metric_series(arc_csv, slot)
+            thresholds = {
+                "conservative": conservative_arc_threshold(series),
+                "oracle_f1": tune_arc_threshold(series, truth)[0],
+            }
+            for point, threshold in thresholds.items():
+                grid = arc_baseline_grid(series, truth, threshold)
+                pairs = [(gt, grid.get(t, "__nie_spawanie__")) for t, gt in truth["grid"].items()]
+                union_pairs[point] += pairs
+                s = per_activity_scores(pairs, ["spawanie"])["spawanie"]
+                denom = s["support"] + s["predicted"]
+                points[point][slot] = {
+                    "threshold": threshold,
+                    **s,
+                    "f1": (2 * s["tp"] / denom) if denom else 0.0,
+                }
+    union = {
+        point: (
+            per_activity_scores(pairs, ["spawanie"])["spawanie"]
+            if pairs
+            else {"recall": None, "precision": None, "time_ratio": None}
+        )
+        for point, pairs in union_pairs.items()
+    }
+
+    report = {
+        "generated": manifest.get("verification", {}).get("date", "unknown"),
+        "manifest": manifest,
+        "arms": arms,
+        "baseline": {"points": points, "union": union},
+    }
+
+    text = render(report)
+    if args.out:
+        args.out.write_text(text)
+        print(f"report:  {args.out}")
+    else:
+        print(text)
+    if args.json_out:
+        slim = {k: v for k, v in report.items() if k != "manifest"}
+        args.json_out.write_text(json.dumps(slim, indent=2, ensure_ascii=False))
+        print(f"numbers: {args.json_out}")
+
+    if not arms:
+        print(
+            "\nNo arms scored — the baseline table above is the only content. "
+            "Pass --predictions once an arm has run.",
+            file=sys.stderr,
+        )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
