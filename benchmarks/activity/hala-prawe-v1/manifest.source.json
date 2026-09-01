@@ -82,7 +82,10 @@
 			"shift_position": "late morning, pre-break",
 			"r2_key_original": "tenants/ryjUroVDl3H0xVhlh4pjqXZfcRuo8dTd/appliance-uploads/11fd80c5-1c62-4290-8292-4a8f6542bc61/chunk_000.mp4",
 			"r2_key_preserved": "benchmarks/hala-prawe-v1/W2-2026-08-28T0820Z.mp4",
-			"annotated": false
+			"annotated": true,
+			"annotation_file": "W2.intervals.json",
+			"annotated_at": "2026-09-01",
+			"annotation_coverage": { "labelled": 600, "total": 600, "stride_s": 2 }
 		},
 		{
 			"slot": "W3",
@@ -101,11 +104,20 @@
 	"split": {
 		"declared": "2026-09-01",
 		"declared_before_any_model_run": true,
-		"train_dev": ["W1"],
-		"held_out": ["W2"],
-		"rationale": "W2 is the denser window - 25.9% arc vs 11.7%, avg 4.28 persons vs 3.18 - so it carries more support per activity, and the pass bar is per-activity: a rare class needs enough held-out seconds for its row of the confusion matrix to mean anything. W1 was annotated first so spike arms can be built on it while W2 is still being labelled.",
-		"rule": "No spike arm is tuned, prompted, thresholded or trained on W2. W2 is opened once per arm, for the final measurement. Any arm that has seen W2 during development reports on W1 instead and says so.",
-		"caveat": "Two windows, one station, one operator, both pre-break. This is a feasibility gate, not a generalisation estimate - the split bounds overfitting to W1, it does not establish that the result transfers to another shift, station or worker."
+		"protocol": "2-fold cross-validation over the two windows",
+		"folds": [
+			{ "id": "A", "train_dev": ["W1"], "held_out": ["W2"] },
+			{ "id": "B", "train_dev": ["W2"], "held_out": ["W1"] }
+		],
+		"reporting": "Per-activity accuracy is computed on the UNION of the two folds' held-out predictions - every labelled sample is predicted exactly once, by a model that never saw it. One confusion matrix per arm over that union, plus the per-fold matrices so a fold-specific collapse is visible.",
+		"rule": "Within a fold, no arm is tuned, prompted, thresholded or trained on that fold's held-out window. An arm that cannot honour fold isolation (e.g. a hand-tuned threshold fitted on both) is reported as such and its figure is marked in-sample.",
+		"amended": {
+			"date": "2026-09-01",
+			"was": "single split, W1 train / W2 held out",
+			"why": "The single split cannot measure the per-activity bar, which is the bar. Class support on W2 alone: brak_na_stanowisku n=2 (one error moves the score 50 pp - unmeasurable), postoj n=16 (6.2 pp per error), and nierozpoznane n=0 on W1 so a trained arm would have no examples of it at all. Under 2-fold every class clears 52 held-out samples: spawanie 497, ukladanie_pretow 359, inna_czynnosc 107, brak_na_stanowisku 68, nierozpoznane 58, postoj 58, sciaganie_elementu 52.",
+			"integrity": "Amended on ANNOTATION statistics only, before any spike arm ran - no model result informed it. That distinction is the whole point of declaring a split early, so it is recorded rather than quietly rewritten."
+		},
+		"caveat": "Two windows, one station, one operator, both pre-break. This is a feasibility gate, not a generalisation estimate - cross-validation bounds overfitting to one window, it does not establish that the result transfers to another shift, station or worker. With only two folds the variance on a small class stays wide; treat a 52-sample class as indicative, not settled."
 	},
 	"station_roi": {
 		"activity": "spawanie",

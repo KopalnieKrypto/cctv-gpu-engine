@@ -103,11 +103,59 @@ source material is gone permanently.**
   (25.9%)**, measured at 1 fps by saturated-pixel fraction (`Y>235`) inside
   `station_roi`. W2 is the denser of the two. Person counts: W1 avg 3.18 / peak 6,
   W2 avg 4.28 / peak 7, `recall_risk: normal` on both.
-- **W1 is annotated** (2026-09-01, `W1.intervals.json`): 599/599 samples at a 2 s
-  stride, 85 intervals, no unlabelled gap on the timeline. **W2 is not** — it is the
-  one remaining C.0 input with no shortcut.
-- **The split is declared** (`manifest.source.json` → `split`): W1 train/dev, W2
-  held out, recorded before any spike arm ran.
+- **Both windows are annotated** (2026-09-01): `W1.intervals.json` 599/599 samples /
+  85 intervals, `W2.intervals.json` 600/600 / 92 intervals, both at a 2 s stride with
+  no unlabelled gap on the timeline. The first C.0 acceptance criterion is met.
+- **The split is declared** (`manifest.source.json` → `split`): 2-fold
+  cross-validation, recorded before any spike arm ran. See "Why 2-fold" below.
+
+### Why 2-fold, and not the single split declared first
+
+The split was first written as W1 train / W2 held out, on the reasoning that W2 is the
+denser window. Annotating W2 falsified that reasoning — **not** by producing a result,
+but by revealing the class support, which is why the amendment is legitimate and is
+recorded rather than quietly applied.
+
+The bar is **per activity**. On W2 alone, three classes cannot carry it:
+
+| Class | W1 | W2 | Problem on a W2-only held-out set |
+|---|---|---|---|
+| `brak_na_stanowisku` | 66 | **2** | one error moves the score 50 pp — unmeasurable |
+| `postoj` | 42 | **16** | 6.2 pp per error; 85% is coarser than the granularity |
+| `nierozpoznane` | **0** | 58 | a trained arm would never see an example of it |
+
+Under 2-fold every class clears 52 held-out samples — `spawanie` 497,
+`ukladanie_pretow` 359, `inna_czynnosc` 107, `brak_na_stanowisku` 68, `nierozpoznane`
+58, `postoj` 58, `sciaganie_elementu` 52 — and every labelled sample is predicted
+exactly once by a model that never saw it. With two folds the variance on a 52-sample
+class is still wide; report it as indicative, not settled.
+
+### W2 annotation, cross-checked against the arc signal
+
+Same audit as W1, and it lands differently in a way the report has to carry:
+
+| | W1 | W2 |
+|---|---|---|
+| arc-seconds proposed | 196 | 430 |
+| of which hand-labelled `spawanie` | 162 (**82.7%**) | 242 (**56.3%**) |
+| leaked into `ukladanie_pretow` | 28 | **159** |
+| hand-labelled `spawanie` total | 447 s | 546 s |
+| arc-flash recall ceiling on `spawanie` | **36.2%** | **44.3%** |
+
+**The arc threshold's precision collapses from 82.7% to 56.3% between two windows of
+the same station on the same day** — 159 s of W2's arc time sits inside hand-labelled
+`ukladanie_pretow`. This is the clip-relative caveat in `manifest.source.json`
+demonstrated rather than asserted: the threshold was tuned on W1's brightness and does
+not port to W2 an hour and twenty minutes later. Any arm compared against this baseline
+must be compared against a **per-clip re-tuned** baseline, or the comparison flatters
+the model.
+
+The recall ceiling holds on both windows (36.2% / 44.3%), so the conclusion is
+unchanged and now doubly evidenced: **arc-flash cannot clear the 85% bar on `spawanie`
+by construction.**
+
+**`nierozpoznane` on W2: 58 samples (9.7%, 116 s)** against zero on W1. The honest-
+uncertainty check that W1 could only argue, W2 now demonstrates.
 
 ### W1 annotation, cross-checked against the arc signal
 
@@ -137,9 +185,10 @@ Two numbers fall out of it that the C.0 report needs:
 defensible and the report must say why rather than leave it implied: the labels were
 made inside the 900×800 native-pixel station crop, where the operator stands ~500 px
 tall and helmet, gloves, torch and rebar jig are individually legible — not on the
-fisheye hall view the rule was written for. The honest-uncertainty check still has to
-be re-applied to W2 independently; if W2 also comes back with zero, that is worth a
-second look at whether the crop is simply easy or the annotator settled.
+fisheye hall view the rule was written for. **Resolved by W2**, which came back with 58
+`nierozpoznane` samples from the same annotator on the same crop: the label was
+available and was used where the footage warranted it, so W1's zero reflects an easy
+window rather than an annotator who settled.
 
 ## What the fixture already proves
 
