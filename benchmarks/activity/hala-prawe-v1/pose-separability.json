@@ -1,0 +1,133 @@
+{
+  "probe": "single-frame linear probe on YOLO-pose keypoints",
+  "model": "yolo11s-pose-1280x736.onnx",
+  "train": [
+    "W1"
+  ],
+  "test": [
+    "W2"
+  ],
+  "detection_rate": {
+    "W1": {
+      "spawanie": {
+        "support": 224,
+        "detected": 222,
+        "rate": 0.9910714285714286
+      },
+      "ukladanie_pretow": {
+        "support": 180,
+        "detected": 175,
+        "rate": 0.9722222222222222
+      },
+      "sciaganie_elementu": {
+        "support": 22,
+        "detected": 22,
+        "rate": 1.0
+      },
+      "inna_czynnosc": {
+        "support": 65,
+        "detected": 59,
+        "rate": 0.9076923076923077
+      },
+      "postoj": {
+        "support": 42,
+        "detected": 35,
+        "rate": 0.8333333333333334
+      },
+      "brak_na_stanowisku": {
+        "support": 66,
+        "detected": 1,
+        "rate": 0.015151515151515152
+      }
+    },
+    "W2": {
+      "spawanie": {
+        "support": 273,
+        "detected": 272,
+        "rate": 0.9963369963369964
+      },
+      "ukladanie_pretow": {
+        "support": 179,
+        "detected": 178,
+        "rate": 0.994413407821229
+      },
+      "sciaganie_elementu": {
+        "support": 30,
+        "detected": 30,
+        "rate": 1.0
+      },
+      "inna_czynnosc": {
+        "support": 42,
+        "detected": 42,
+        "rate": 1.0
+      },
+      "postoj": {
+        "support": 16,
+        "detected": 13,
+        "rate": 0.8125
+      },
+      "brak_na_stanowisku": {
+        "support": 2,
+        "detected": 2,
+        "rate": 1.0
+      },
+      "nierozpoznane": {
+        "support": 58,
+        "detected": 46,
+        "rate": 0.7931034482758621
+      }
+    }
+  },
+  "separability": {
+    "spawanie": {
+      "support": 272,
+      "recall": 0.7058823529411765,
+      "precision": 0.8847926267281107,
+      "time_ratio": 0.7977941176470589,
+      "thin": false
+    },
+    "ukladanie_pretow": {
+      "support": 178,
+      "recall": 0.7303370786516854,
+      "precision": 0.7975460122699386,
+      "time_ratio": 0.9157303370786517,
+      "thin": false
+    },
+    "sciaganie_elementu": {
+      "support": 30,
+      "recall": 0.7,
+      "precision": 0.40384615384615385,
+      "time_ratio": 1.7333333333333334,
+      "thin": false
+    },
+    "inna_czynnosc": {
+      "support": 42,
+      "recall": 0.5238095238095238,
+      "precision": 0.19298245614035087,
+      "time_ratio": 2.7142857142857144,
+      "thin": false
+    },
+    "postoj": {
+      "support": 13,
+      "recall": 0.23076923076923078,
+      "precision": 0.08333333333333333,
+      "time_ratio": 2.769230769230769,
+      "thin": true
+    },
+    "brak_na_stanowisku": {
+      "support": 2,
+      "recall": 0.0,
+      "precision": 0.0,
+      "time_ratio": 0.5,
+      "thin": true
+    },
+    "nierozpoznane": {
+      "support": 46,
+      "recall": 0.0,
+      "precision": null,
+      "time_ratio": 0.0,
+      "thin": false
+    }
+  },
+  "note": "Deliberately the weakest test that could still show signal: one frame, no temporal context, a linear model. A positive result means arms 2/3 are worth building. A negative one means per-frame pose features carry nothing on their own - it does NOT by itself kill a sequence model, which has the station's ~85 s cycle that this probe cannot see."
+}
