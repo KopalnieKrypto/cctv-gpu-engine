@@ -2,7 +2,7 @@
   "generated": "2026-09-01",
   "arms": [
     {
-      "name": "tcn-pose-seq",
+      "name": "tcn-pose",
       "windows": [
         "W1",
         "W2"
@@ -161,6 +161,167 @@
       "gpu_seconds_per_video_hour": 445.3422370617696,
       "box": "cctv-vps",
       "abstention": 0.09924937447873228,
+      "unpredicted": 0
+    },
+    {
+      "name": "tcn-rich",
+      "windows": [
+        "W1",
+        "W2"
+      ],
+      "scores": {
+        "spawanie": {
+          "support": 497,
+          "tp": 474,
+          "predicted": 505,
+          "recall": 0.9537223340040242,
+          "precision": 0.9386138613861386,
+          "time_ratio": 1.0160965794768613,
+          "inflated": false,
+          "granularity_pp": 0.2012072434607646,
+          "passes": true,
+          "usable": true
+        },
+        "ukladanie_pretow": {
+          "support": 359,
+          "tp": 342,
+          "predicted": 382,
+          "recall": 0.9526462395543176,
+          "precision": 0.8952879581151832,
+          "time_ratio": 1.064066852367688,
+          "inflated": false,
+          "granularity_pp": 0.2785515320334262,
+          "passes": true,
+          "usable": true
+        },
+        "sciaganie_elementu": {
+          "support": 52,
+          "tp": 38,
+          "predicted": 51,
+          "recall": 0.7307692307692307,
+          "precision": 0.7450980392156863,
+          "time_ratio": 0.9807692307692307,
+          "inflated": false,
+          "granularity_pp": 1.9230769230769231,
+          "passes": false,
+          "usable": false
+        },
+        "inna_czynnosc": {
+          "support": 107,
+          "tp": 29,
+          "predicted": 91,
+          "recall": 0.27102803738317754,
+          "precision": 0.31868131868131866,
+          "time_ratio": 0.8504672897196262,
+          "inflated": false,
+          "granularity_pp": 0.9345794392523364,
+          "passes": false,
+          "usable": false
+        },
+        "postoj": {
+          "support": 58,
+          "tp": 4,
+          "predicted": 48,
+          "recall": 0.06896551724137931,
+          "precision": 0.08333333333333333,
+          "time_ratio": 0.8275862068965517,
+          "inflated": false,
+          "granularity_pp": 1.7241379310344827,
+          "passes": false,
+          "usable": false
+        },
+        "brak_na_stanowisku": {
+          "support": 68,
+          "tp": 0,
+          "predicted": 1,
+          "recall": 0.0,
+          "precision": 0.0,
+          "time_ratio": 0.014705882352941176,
+          "inflated": false,
+          "granularity_pp": 1.4705882352941178,
+          "passes": false,
+          "usable": false
+        },
+        "nierozpoznane": {
+          "support": 58,
+          "tp": 0,
+          "predicted": 121,
+          "recall": 0.0,
+          "precision": 0.0,
+          "time_ratio": 2.086206896551724,
+          "inflated": true,
+          "granularity_pp": 1.7241379310344827,
+          "passes": false,
+          "usable": false
+        }
+      },
+      "confusion": {
+        "spawanie": {
+          "spawanie": 474,
+          "ukladanie_pretow": 9,
+          "inna_czynnosc": 14
+        },
+        "inna_czynnosc": {
+          "ukladanie_pretow": 19,
+          "inna_czynnosc": 29,
+          "spawanie": 23,
+          "sciaganie_elementu": 9,
+          "nierozpoznane": 17,
+          "postoj": 10
+        },
+        "postoj": {
+          "ukladanie_pretow": 5,
+          "nierozpoznane": 36,
+          "spawanie": 2,
+          "inna_czynnosc": 9,
+          "postoj": 4,
+          "sciaganie_elementu": 2
+        },
+        "sciaganie_elementu": {
+          "ukladanie_pretow": 5,
+          "sciaganie_elementu": 38,
+          "inna_czynnosc": 6,
+          "nierozpoznane": 1,
+          "spawanie": 2
+        },
+        "ukladanie_pretow": {
+          "ukladanie_pretow": 342,
+          "inna_czynnosc": 10,
+          "spawanie": 4,
+          "nierozpoznane": 1,
+          "sciaganie_elementu": 1,
+          "postoj": 1
+        },
+        "brak_na_stanowisku": {
+          "nierozpoznane": 66,
+          "postoj": 1,
+          "inna_czynnosc": 1
+        },
+        "nierozpoznane": {
+          "sciaganie_elementu": 1,
+          "inna_czynnosc": 22,
+          "postoj": 32,
+          "ukladanie_pretow": 2,
+          "brak_na_stanowisku": 1
+        }
+      },
+      "boundaries": {
+        "n": 175,
+        "truth_boundaries": 175,
+        "pred_boundaries": 200,
+        "median_s": 0.0,
+        "p90_s": 8.0,
+        "max_s": 18.0,
+        "within_2s_frac": 0.8548534798534799,
+        "spurious": 25
+      },
+      "hardware": {
+        "verdict": "UNMEASURED",
+        "reason": "`peak_vram_mib` missing"
+      },
+      "gpu_seconds_per_video_hour": 5.409015025041736,
+      "box": "cctv-vps",
+      "abstention": 0.10091743119266056,
       "unpredicted": 0
     },
     {

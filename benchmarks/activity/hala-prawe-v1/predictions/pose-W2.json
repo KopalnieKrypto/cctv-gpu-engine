@@ -1,8 +1,9 @@
 {
-  "arm": "tcn-pose-seq",
+  "arm": "tcn-pose",
   "window": "W2",
   "fold": "A",
-  "model": "dilated temporal CNN over YOLO-pose features",
+  "model": "dilated temporal CNN, pose features over YOLO-pose",
+  "feature_set": "pose",
   "hyperparameters": {
     "window": 64,
     "channels": 96,
@@ -2425,7 +2426,7 @@
     "gpu_index": 1,
     "gpus_used": 1,
     "gpu_seconds": 150.8,
-    "pose_seconds_total": 293.1,
+    "pose_seconds_total": 293.0,
     "fit_seconds": 4.3,
     "video_seconds": 1199,
     "peak_vram_mib": 710,
