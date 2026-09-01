@@ -200,6 +200,9 @@ def _placement(raw: np.ndarray) -> np.ndarray:
     ).astype(np.float32)
 
 
+PLACE_WIDTH = 10  # cx, cy, w, h | left wrist xy | right wrist xy | both wrist confidences
+
+
 def build_feature_matrix(raw: np.ndarray, mode: str, arc: np.ndarray | None) -> np.ndarray:
     """Per-frame features for a whole window, from cached raw detections."""
     n = len(raw)
@@ -208,7 +211,9 @@ def build_feature_matrix(raw: np.ndarray, mode: str, arc: np.ndarray | None) -> 
     if mode == "pose":
         return np.concatenate([posture, found], axis=1)
 
-    place = np.stack([_placement(r) if r[FOUND] else np.zeros(12, np.float32) for r in raw])
+    place = np.stack(
+        [_placement(r) if r[FOUND] else np.zeros(PLACE_WIDTH, np.float32) for r in raw]
+    )
 
     # Motion, at two time scales. A frame where nothing moved for six seconds is
     # `postoj`; a brief large displacement is `sciaganie_elementu` lifting the
