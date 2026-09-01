@@ -42,6 +42,31 @@ Two rules that decide whether the resulting number means anything:
   bender. It exists so that the five client-named activities do not have to absorb
   everything else, which would inflate them. It is not a synonym for `nierozpoznane`.
 
+## How to run the pass
+
+```bash
+# clips must be present locally (see "The source material is irreplaceable")
+uv run benchmarks/activity/tools/build_interval_annotation.py \
+  --manifest benchmarks/activity/hala-prawe-v1/manifest.source.json --slot W1
+open benchmarks/activity/hala-prawe-v1/W1.timeline.html
+```
+
+Keys `1`–`7` label the current sample and advance; `←`/`→` navigate, `0` clears,
+`s` accepts an arc-flash suggestion. Progress is kept in the browser, so a
+partial pass survives a reload. "Eksportuj interwały" writes
+`W1.intervals.json` — **that** file is the fixture and gets committed. The
+crops, the scaffold and the HTML are regenerated artifacts and are gitignored.
+
+At the default 2 s stride each window is ~600 samples, so a full pass is roughly
+600 keystrokes per clip. The export carries both the folded `intervals` and the
+raw per-sample `samples`, so the fold can be re-derived and audited rather than
+taken on trust.
+
+Two things the tool will not do for you. It never guesses an activity — every
+sample starts `null`. And its arc hints cover only `spawanie`; the other six
+activities are entirely hand work, which is most of the vocabulary and all of
+the hard part.
+
 ## The bar
 
 **≥85% correct per activity**, on material held out of the training set — the client's
