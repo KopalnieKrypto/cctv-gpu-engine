@@ -68,6 +68,13 @@ DEFAULT_BUDGETS_MB: dict[str, int] = {
     # Left unchanged pending a deliberate call, since raising it makes the gate
     # stricter and could start rejecting boxes that currently run fine.
     "vlm": 7168,
+    # Issue #123, station chronometraż. Measured 754 MiB per-PID peak on
+    # cctv-vps GPU 1 running W1 end to end (20 min of 4K, 599 samples,
+    # 2026-09-02), rounded up with the ~20% headroom the rule at the top of this
+    # table asks for. Two ONNX sessions and nothing else: the frozen DINOv2
+    # backbone plus a 1.8 MB head, with no pose session, no OSNet and no VLM —
+    # which is why it lands beside the heuristic arm rather than near the VLM's.
+    "station": 1024,
 }
 
 QueryGpus = Callable[[], list[GpuInfo]]

@@ -61,6 +61,15 @@ POSE_MODEL_FILENAME_BY_INPUT_SIZE = {
 DEFAULT_POSE_MODE = "full_frame"
 POSE_MODES = frozenset({"full_frame", "hybrid"})
 
+# Classifiers a camera may select per-task via zones.json `classifier` (#123).
+# The third selector resolved at this boundary, after #109's model and #111's
+# mode. `station` is the per-zone chronometraż, which builds no pose session, no
+# OSNet embedder and no VLM. Kept in sync with `pipeline.analyze`'s CLI choices;
+# a test asserts the two allowlists are the same set, so a camera can never ask
+# for a mode the engine would reject at the argparse boundary instead.
+CLASSIFIERS = frozenset({"heuristic", "vlm", "mlp", "station"})
+CLASSIFIER_STATION = "station"
+
 
 def _read_pose_input_size(config_path: str | Path) -> str | None:
     """Read `pose.input_size` from a mounted zones.json, tolerantly (#109).
@@ -111,6 +120,32 @@ def resolve_pose_mode(config_path: str | Path) -> str:
         logger.warning("unknown pose mode %r in zones config; using %s", mode, DEFAULT_POSE_MODE)
         return DEFAULT_POSE_MODE
     return mode
+
+
+def resolve_classifier(env_default: str, config_path: str | Path) -> str:
+    """Pick the classifier at container startup from the task's zones.json (#123).
+
+    A camera opts into the station chronometraż with a top-level ``classifier:
+    "station"``; anything absent, malformed or outside the allowlist keeps
+    ``env_default``, so no camera changes behaviour by this landing. The
+    allowlist is enforced here even though the platform validates too — a
+    hand-written config must not be able to name a mode the engine does not
+    implement, and startup must not fail on a config issue the task runner will
+    surface per task anyway.
+    """
+    try:
+        data = json.loads(Path(config_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return env_default
+    if not isinstance(data, dict):
+        return env_default
+    classifier = data.get("classifier")
+    if not isinstance(classifier, str):
+        return env_default
+    if classifier not in CLASSIFIERS:
+        logger.warning("unknown classifier %r in zones config; using %s", classifier, env_default)
+        return env_default
+    return classifier
 
 
 def resolve_pose_model_path(env_default: str, config_path: str | Path) -> str:
@@ -183,7 +218,7 @@ def _warm_up_pipeline(
     activity_model_metadata_path: str,
     pose_mode: str = DEFAULT_POSE_MODE,
 ) -> PipelineFn:
-    """Load YOLO and return the zones-aware configured pipeline closure.
+    """Warm the mode's model and return the zones-aware pipeline closure.
 
     Imported lazily so unit tests on macOS never touch onnxruntime-gpu.
     """
@@ -209,8 +244,28 @@ def _warm_up_pipeline(
             pose_mode=pose_mode,
         )
 
-    # Touch the detector once to warm CUDA / cuDNN — fail fast if GPU is
-    # missing instead of letting the first /analyze 502 the agent.
+    # Touch the model once to warm CUDA / cuDNN — fail fast if the GPU is
+    # missing instead of letting the first /analyze 502 the agent. Which model
+    # depends on the mode: the station path never builds a detector, and warming
+    # one anyway would load ~700 MiB of weights the run never reads, which is
+    # exactly the cost that path exists to avoid. It has its own artefacts to
+    # fail fast on — a missing card or a mismatched digest is as fatal there as
+    # missing pose weights are here.
+    if classifier == CLASSIFIER_STATION:
+        from pipeline.station_classifier import load_station_classifier
+
+        load_station_classifier(
+            os.environ.get(
+                "STATION_HEAD_PATH", "/app/models/station-head-hala-prawe-v1-v1.0.0.onnx"
+            ),
+            os.environ.get(
+                "STATION_CARD_PATH",
+                "/app/models/station-head-hala-prawe-v1-v1.0.0.card.json",
+            ),
+            os.environ.get("BACKBONE_PATH", "/app/models/dinov2-base.onnx"),
+        )
+        return pipeline_fn
+
     from pipeline.pose_detector import load_pose_model
 
     load_pose_model(model_path)
@@ -237,7 +292,17 @@ def main() -> int:
     pose_mode = resolve_pose_mode(zones_config_path)
     if pose_mode != DEFAULT_POSE_MODE:
         logger.info("pose mode selected from zones config: %s", pose_mode)
-    classifier = os.environ.get("CLASSIFIER", "vlm")
+    # Per-camera classifier (#123), resolved at the same one-container-per-task
+    # boundary as the model and the mode. Absent/unknown → the env default, so no
+    # existing camera changes behaviour; `station` is opt-in per camera.
+    env_classifier = os.environ.get("CLASSIFIER", "vlm")
+    classifier = resolve_classifier(env_classifier, zones_config_path)
+    if classifier != env_classifier:
+        logger.info(
+            "classifier selected from zones config: %s (default was %s)",
+            classifier,
+            env_classifier,
+        )
     activity_model_path = os.environ.get(
         "ACTIVITY_MODEL_PATH", "/app/models/activity-mlp-v1.0.0.onnx"
     )

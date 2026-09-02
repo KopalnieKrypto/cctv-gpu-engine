@@ -214,3 +214,29 @@ class TestPreflightOrExit:
         )
         assert exit_calls == []
         assert environ["CUDA_VISIBLE_DEVICES"] == "GPU-tight"
+
+
+class TestStationBudget:
+    """#123: the station arm's gate comes from a measurement, not an estimate.
+
+    Every other entry in this table was measured the same way — per-PID
+    `nvidia-smi` peak on a real run — and the one entry that was *not* raised to
+    its measured peak carries a comment saying so. A budget guessed from model
+    sizes would let a busy GPU pass the gate and OOM mid-load, which is the exact
+    failure #43 added the gate to prevent.
+    """
+
+    def test_station_has_a_budget_at_all(self):
+        # Without an entry, `resolve_required_mb` raises KeyError and the REST
+        # entrypoint dies on startup with a traceback naming nothing useful.
+        assert resolve_required_mb("station", None) > 0
+
+    def test_the_budget_clears_the_measured_peak(self):
+        # Measured 754 MiB peak per-PID on cctv-vps GPU 1, W1 (20 min, 4K),
+        # 2026-09-02. Unlike the `vlm` entry, this one sits ABOVE its measurement.
+        assert resolve_required_mb("station", None) >= 754
+
+    def test_it_is_far_below_the_vlm_budget(self):
+        # The whole point of the arm: no VLM, no pose session, no OSNet. If this
+        # ever approached the VLM budget, something is loading that should not be.
+        assert resolve_required_mb("station", None) < resolve_required_mb("vlm", None) / 4

@@ -487,3 +487,113 @@ class TestResolvePoseMode:
 
         cfg = self._write(tmp_path, {"pose": {"mode": "quadtree"}})
         assert resolve_pose_mode(cfg) == "full_frame"
+
+
+class TestResolveClassifier:
+    """Per-camera classifier from the mounted zones.json (#123).
+
+    The third selector resolved at the one-container-per-task boundary, after
+    #109's model and #111's mode. A camera opts into the station chronometraż
+    with a top-level ``classifier: "station"``; everything else keeps the env
+    default, so no existing camera changes behaviour by this landing.
+
+    Tolerant like its siblings: an absent, malformed or unknown selector falls
+    back rather than failing startup, because the task runner re-parses and
+    validates the whole document per task and a shift or zones problem there must
+    not decide the classifier here.
+    """
+
+    DEFAULT = "vlm"
+
+    def _write(self, tmp_path, payload: object):
+        import json
+
+        cfg = tmp_path / "zones.json"
+        cfg.write_text(json.dumps(payload), encoding="utf-8")
+        return cfg
+
+    def test_station_is_selected_from_the_config(self, tmp_path):
+        from gpu_service.rest_server import resolve_classifier
+
+        cfg = self._write(tmp_path, {"classifier": "station", "zones": []})
+        assert resolve_classifier(self.DEFAULT, cfg) == "station"
+
+    def test_missing_config_returns_env_default(self, tmp_path):
+        from gpu_service.rest_server import resolve_classifier
+
+        assert resolve_classifier(self.DEFAULT, tmp_path / "nope.json") == self.DEFAULT
+
+    def test_config_without_a_classifier_returns_env_default(self, tmp_path):
+        from gpu_service.rest_server import resolve_classifier
+
+        cfg = self._write(tmp_path, {"zones": [], "pose": {"mode": "hybrid"}})
+        assert resolve_classifier(self.DEFAULT, cfg) == self.DEFAULT
+
+    def test_malformed_config_falls_back_to_default(self, tmp_path):
+        from gpu_service.rest_server import resolve_classifier
+
+        cfg = tmp_path / "zones.json"
+        cfg.write_text("{not valid json", encoding="utf-8")
+        assert resolve_classifier(self.DEFAULT, cfg) == self.DEFAULT
+
+    def test_an_unknown_classifier_falls_back_rather_than_starting_one(self, tmp_path):
+        # An allowlist even though the platform validates: a hand-written config
+        # must not be able to name a mode the engine does not implement.
+        from gpu_service.rest_server import resolve_classifier
+
+        cfg = self._write(tmp_path, {"classifier": "telepathy"})
+        assert resolve_classifier(self.DEFAULT, cfg) == self.DEFAULT
+
+    def test_every_classifier_the_cli_offers_is_selectable(self, tmp_path):
+        """The two allowlists have to agree, or a camera can ask for a mode the
+        engine refuses at the argparse boundary instead of at config load."""
+        from gpu_service.rest_server import CLASSIFIERS
+        from pipeline.analyze import _build_parser
+
+        cli_choices = next(
+            action.choices for action in _build_parser()._actions if action.dest == "classifier"
+        )
+        assert set(CLASSIFIERS) == set(cli_choices)
+
+
+class TestStationModeWarmsNoPoseModel:
+    """#123 AC 2 holds inside the container too, not only in the CLI.
+
+    `build_pipeline_fn` warms the detector on startup so a missing GPU fails fast
+    rather than 502-ing the agent's first /analyze. In station mode there is no
+    detector to warm, and warming one anyway would load ~700 MiB of weights the
+    run never touches — the exact cost this arm exists to avoid.
+    """
+
+    def test_it_does_not_load_the_pose_model(self, mocker):
+        from gpu_service.rest_server import _warm_up_pipeline
+
+        pose = mocker.patch("pipeline.pose_detector.load_pose_model", side_effect=AssertionError)
+        station = mocker.patch("pipeline.station_classifier.load_station_classifier")
+
+        _warm_up_pipeline(
+            model_path="/app/models/yolo11s-pose.onnx",
+            classifier="station",
+            activity_model_path="/app/models/activity-mlp-v1.0.0.onnx",
+            activity_model_metadata_path="/app/models/activity-mlp-v1.0.0.json",
+        )
+
+        assert pose.call_count == 0
+        assert station.call_count == 1, (
+            "station mode warmed nothing, so a missing GPU or a bad card would "
+            "surface as a 502 on the agent's first /analyze instead of at startup"
+        )
+
+    def test_the_other_classifiers_still_warm_the_detector(self, mocker):
+        from gpu_service.rest_server import _warm_up_pipeline
+
+        pose = mocker.patch("pipeline.pose_detector.load_pose_model")
+
+        _warm_up_pipeline(
+            model_path="/app/models/yolo11s-pose.onnx",
+            classifier="vlm",
+            activity_model_path="/app/models/activity-mlp-v1.0.0.onnx",
+            activity_model_metadata_path="/app/models/activity-mlp-v1.0.0.json",
+        )
+
+        assert pose.call_count == 1
