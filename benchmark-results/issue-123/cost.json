@@ -1,0 +1,50 @@
+{
+  "issue": 123,
+  "arm": "station",
+  "measured_at": "2026-09-02",
+  "box": "cctv-vps",
+  "gpu": {"index": 1, "name": "NVIDIA GeForce RTX 5070", "total_mib": 12227},
+  "image": "ghcr.io/kopalniekrypto/cctv-gpu-engine/gpu-service:latest",
+  "commit": "ef1e694",
+  "clip": {
+    "file": "benchmarks/activity/hala-prawe-v1/W1-2026-08-28T0700Z.mp4",
+    "source_frame": [3840, 2160],
+    "video_seconds": 1198.0,
+    "stride_s": 2,
+    "samples": 599
+  },
+  "end_to_end": {
+    "wall_seconds": 173.5,
+    "ratio": "6.9:1",
+    "gpu_seconds_per_video_hour": 521.3,
+    "peak_vram_mib": 754,
+    "vram_method": "per-PID nvidia-smi --query-compute-apps, 0.5 s sampling (the #86 method)"
+  },
+  "breakdown_seconds_per_video_hour": {
+    "ffmpeg_decode": 386,
+    "preprocess_resize_crop_normalise": 27,
+    "backbone_batch_1": 12,
+    "backbone_batched_64": 10,
+    "remainder": 96,
+    "remainder_note": "head sliding-window inference (536 ONNX calls at window 64) plus array handling; measured by difference, not directly",
+    "measured_directly": ["ffmpeg_decode", "preprocess_resize_crop_normalise", "backbone_batch_1", "backbone_batched_64"]
+  },
+  "comparison": {
+    "issue_claim_gpu_seconds_per_video_hour": 49,
+    "verdict": "confirmed for what it measured, and it is not the end-to-end figure",
+    "why": "The 49 is the benchmark arm's embedding pass over pre-extracted JPEG crops; it never decodes a video. The model work here is 27 + 12 = 39 s/video-hour, consistent with it. The pipeline additionally decodes 20 minutes of 4K, which costs 386 s/video-hour and is 74% of the total.",
+    "decode_is_not_avoidable_by_striding": "decode at 1 fps 386 s vs at the 2 s stride 381 s - ffmpeg decodes every frame regardless of the fps filter, so sampling less does not decode less",
+    "batching_the_backbone_is_not_the_lever": "12 -> 10 s/video-hour. The backbone is 2% of the run."
+  },
+  "output": {
+    "coverage": {"samples_predicted": 599, "samples_possible": 599, "fraction": 1.0},
+    "categories": [
+      {"category": "spawanie", "total_s": 479, "share": 0.3998, "time_ratio": 1.062},
+      {"category": "ukladanie_pretow", "total_s": 363, "share": 0.3030, "time_ratio": 1.100},
+      {"category": "pozostale", "total_s": 356, "share": 0.2972, "time_ratio": 0.841},
+      {"category": "nierozpoznane", "total_s": 0, "share": 0.0, "time_ratio": 0.500}
+    ],
+    "intervals": 56,
+    "caveat": "W1 is one of the three windows the shipped head trained on, so these totals are IN-SAMPLE and are evidence that the path runs end to end, not evidence of accuracy. Every accuracy figure belongs to the cross-validated folds and lives in the model card."
+  }
+}

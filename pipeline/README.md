@@ -26,7 +26,10 @@ Useful switches:
 
 | Option | Meaning |
 |---|---|
-| `--classifier heuristic|vlm|mlp` | Activity mode; CLI default is heuristic, Docker default is VLM |
+| `--classifier heuristic|vlm|mlp|station` | Activity mode; CLI default is heuristic, Docker default is VLM. `station` is the per-zone chronometraż (#123) and needs `--zones` |
+| `--station-head PATH` | Station head ONNX (station mode only) |
+| `--station-card PATH` | Its generated model card — the rectangle the run gates on, and the time ratios it quotes |
+| `--backbone PATH` | Frozen DINOv2 backbone, shared by every station |
 | `--model PATH` | YOLO11-pose ONNX model (square or non-square, e.g. 640×640 or 1280×736) |
 | `--reid-model PATH` | OSNet model used by default tracking |
 | `--no-tracker` | Reproduce pre-#32 behavior; not for production |
@@ -87,6 +90,25 @@ The supported baseline uses geometric keypoint rules and displacement smoothing.
 ### Experimental MLP
 
 The MLP classifies each detection independently from a frozen feature schema, then smooths by `track_id`. The loader verifies artifact checksum, metadata, feature schema, class order, and CUDA provider.
+
+### Station (issue #123)
+
+`--classifier station` answers a different question from the other three: not who is in the hall and what they are doing, but how much of the session at one workstation went on each category of work. The client accepted the **zone** as the unit of measurement rather than a person, so the path is the person pipeline with three components removed rather than a fourth added:
+
+```
+zone crop from the native frame at a fixed stride
+  → frozen DINOv2 backbone
+  → ~1 MB station-specific temporal head
+  → per-sample category → intervals → totals
+```
+
+No pose model, no OSNet, no VLM — asserted by test, because a stray import costs the VRAM and load time the mode exists to avoid rather than failing anything visible.
+
+Requires `--zones` naming exactly one zone with `rules.type: "station"`. The zone polygon's bounding box **is** the crop, taken from the native frame and never from a downscaled copy, and it must equal the card's `station.zone_native_px` — a head fed a rectangle it was not fitted on returns confident logits over pixels it has never seen, and nothing downstream would report that.
+
+Three artefacts, all pinned in `setup-models.sh` and baked into the image: the backbone (identical at every station, shipped once), the head, and its generated model card. The card is load-bearing, not documentation: it carries the rectangle above, the sampling stride, the collapse from the head's seven classes to the four delivered ones, and the **measured time ratio** printed beside every total. A card whose time ratios have a hole in them stops the run rather than yielding a total that looks exact.
+
+Selected per camera by `classifier: "station"` in the mounted `zones.json`, resolved at container start exactly like `pose.mode`.
 
 It is not production-approved. The frozen #33 test measured 62.67% for MLP versus 93.33% for VLM, with regressions on both held-out geometries and Film 1. See [the full evaluation](../docs/mlp-classifier-eval.md).
 
@@ -167,9 +189,24 @@ Top-level fields:
 - annotated base64-JPEG `keyframes`;
 - `zones[]` with posture totals, presence/work/absence, and conversation;
 - `shift` windows/breaks/excluded duration or `null`;
-- classifier/model `diagnostics`.
+- classifier/model `diagnostics`;
+- `station_activity` — **present only in station mode** (issue #123).
 
 Presentation strings and layout are deliberately absent; the platform owns rendering.
+
+### `station_activity`
+
+Additive: the key is absent, not `null`, in every other mode, and a golden-file test holds those modes byte-identical. `schema_version` stays at 6 for the same reason — the key can only appear from a mode that did not exist at 6, so nothing an existing consumer reads changes, and the platform renders the section on its presence rather than on a version (gpu-exchange#210).
+
+Per zone: the `intervals`, a `categories[]` entry per delivered category, `coverage`, `session_s`, the `stride_s` and `boundary` convention, the `abstention` name, and the `model` block naming the station, the version, the head's sha256 and the recordings it was trained on.
+
+Three things make it hard to read the totals as more exact than they are, and none are optional:
+
+- **`time_ratio` sits inside each category object**, beside its `total_s`. Not a parallel map: a renderer can drop a key from a map without noticing, and this fixture already produced a baseline that met a 99.4% recall bar while reporting 2.18× the real welding time.
+- **`coverage` is samples predicted over samples possible**, and every `share` divides by what the session *could* have produced. A gap that silently leaves the denominator flatters every number above it.
+- **`nierozpoznane` keeps its own category row** at whatever value it has, including zero. It is neither work nor downtime; folding it into the collective bucket would convert unknown time into measured time.
+
+Interval boundaries land at the **sample midpoint**, the convention `benchmarks/activity/tools/evaluate_arms.py` folds the annotation under — checked against that implementation by test, because every quoted `time_ratio` was measured against intervals folded that way.
 
 ## Detection audit archive
 
