@@ -126,17 +126,29 @@ Own repo, module in `cctv-gpu-engine`, or a page in the `gpu-exchange` platform.
 Depends on whether it is ever meant to stand alone as a product. Prior art and
 every lesson above live in this repo.
 
-### 3. Frames or clips — this is a one-way door
+### 3. Frames or clips, and what the export physically ships
 
 The export shape decides which model families are reachable:
 
-- **Per-sample labels + cropped stills** → pose-sequence models (the winner
-  here), temporal action segmentation (MS-TCN, ASFormer), MLP heads, frame
+- **Per-sample labels + cropped stills** → the current winner, pose-sequence
+  models, temporal action segmentation (MS-TCN, ASFormer), MLP heads, frame
   classifiers.
 - **Short clip windows around each sample** → also video models (VideoMAE, X3D,
   TimeSformer, VideoSwin).
 
-Cheaper to design for clips now than to retrofit. But it multiplies storage.
+**Two things this section used to get wrong, both now measured.**
+
+*It was framed as a one-way door.* It is not. On W1 of `hala-prawe-v1`, twenty
+minutes of the 900x800 station zone costs **130 MB** as 599 stills, **432 MB** as
+full-motion H.264, against a 776 MB untouched 4K source. Clips are about 3x
+stills at full motion and at or below them once subsampled to the ~10 fps a video
+model consumes, because inter-frame compression beats independent JPEGs. Adding
+clips later is cheap.
+
+*It treated shipping the crops as optional.* It is not. The winning arm consumes
+pixels directly and runs no pose detector, so **an export of labels alone trains
+nothing.** The crop files are part of the deliverable, not a side artefact. This
+also removes the exporter's dependency on a pose model.
 
 **This was measured, not guessed** (`#120`, rungs 1 and 2, both complete as of
 2026-09-02). Same folds, same scorer as everything else. Rung 2 is the decisive
@@ -227,6 +239,16 @@ pre-labelling? Note lesson 3 above binds either way: assisted labels must be
 flagged as such in the export, or you end up evaluating a model against its own
 output.
 
+### 11. What "the zone is too small to label" actually means now
+
+Before someone spends two hours labelling, the tool should say how large a person
+is inside the chosen zone and warn when nothing can be told apart. The number
+behind that warning is open. It used to be inherited from the pose detector's
+floor (`diagnostics.detection_scale`, `recall_risk`, #113), and the winning arm no
+longer runs a pose detector, so that basis is gone. A replacement has to come from
+what a human annotator can see and what an image model needs, and nobody has
+measured either. Do not let the old threshold be shipped as if it still applied.
+
 ---
 
 ## What a good outcome looks like
@@ -238,13 +260,16 @@ Specifically, these should be settled by the end:
 
 - [ ] Deployment shape (static tool / local app / hosted) and who uses it
 - [ ] Repo location
-- [ ] Export contract: frames or clips, and what the schema carries beyond labels
+- [ ] Export contract: what the schema carries beyond labels, and how the crop
+      files travel with it (they are required, see section 3)
 - [ ] Blocking vs warning on each integrity rule
 - [ ] Multi-clip project model and how conditions are recorded
 - [ ] Storage, retention and backup
 - [ ] Whether inter-annotator agreement is in v1
 - [ ] Personal-data position
 - [ ] Rough scale targets
+- [ ] What "too small to label" means, now that the pose detector's floor no
+      longer applies (section 11)
 
 ## One thing to check the design against at the end
 
