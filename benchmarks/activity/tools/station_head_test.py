@@ -10,6 +10,7 @@ missing measurement is an error rather than a blank.
 
 from __future__ import annotations
 
+import hashlib
 import sys
 from pathlib import Path
 
@@ -399,3 +400,66 @@ class TestCardMatchesTheArtifact:
         training.pop("image_size", None)
         with pytest.raises(SystemExit):
             sh.build_card(_manifest(), _report(), "tcn-pixel-518", training)
+
+
+class TestDescribingAnExistingArtefact:
+    """Regenerating a card for weights that already shipped (#123).
+
+    The trainer turns out not to be reproducible — `torch.manual_seed` does not
+    cover cuDNN's non-deterministic convolution atomics, so re-running it produces
+    a different head (measured: 20 of 25 tensors differ, up to ~15% relative). So
+    a card that has to be corrected for *already released* weights cannot be
+    obtained by training again; that would describe a different model.
+
+    This path regenerates the card from the manifest and the reports while taking
+    the artefact's identity from the file on disk. Every figure stays generated
+    rather than typed, which is the rule the card exists to enforce, and the
+    operator has to name the digest they mean — so a card can never be attached to
+    weights nobody checked.
+    """
+
+    def test_it_reads_the_identity_off_the_file(self, tmp_path):
+        head = tmp_path / "station-head-hala-prawe-v1-v1.0.0.onnx"
+        head.write_bytes(b"weights")
+        digest = hashlib.sha256(b"weights").hexdigest()
+
+        record = sh.artifact_record(
+            head, version="1.0.0", expect_sha256=digest, feature_width=768, n_class=7
+        )
+
+        assert record["name"] == "station-head-hala-prawe-v1-v1.0.0.onnx"
+        assert record["version"] == "1.0.0"
+        assert record["sha256"] == digest
+        assert record["bytes"] == len(b"weights")
+        assert record["input"].startswith("embeddings (batch, 768, time)")
+        assert record["output"] == "logits (batch, 7, time)"
+
+    def test_a_digest_that_does_not_match_is_refused(self, tmp_path):
+        """Otherwise the card would describe whatever happened to be at that path.
+
+        The whole point of correcting a card in place is to keep it attached to
+        one specific set of weights; a silent mismatch would defeat it exactly.
+        """
+        head = tmp_path / "station-head-hala-prawe-v1-v1.0.0.onnx"
+        head.write_bytes(b"other weights")
+
+        with pytest.raises(SystemExit) as exc:
+            sh.artifact_record(
+                head,
+                version="1.0.0",
+                expect_sha256="0" * 64,
+                feature_width=768,
+                n_class=7,
+            )
+
+        assert "0000000000000000" in str(exc.value)
+
+    def test_a_missing_artefact_is_refused(self, tmp_path):
+        with pytest.raises(SystemExit):
+            sh.artifact_record(
+                tmp_path / "absent.onnx",
+                version="1.0.0",
+                expect_sha256="0" * 64,
+                feature_width=768,
+                n_class=7,
+            )

@@ -24,6 +24,7 @@ the build fails rather than emitting a card with a blank or a hand-set value.
 
 from __future__ import annotations
 
+import hashlib
 import sys
 from pathlib import Path
 
@@ -290,3 +291,51 @@ def remap_labels(y: np.ndarray, classes: list[str], collapse: dict) -> tuple[np.
         ),
         delivered,
     )
+
+
+def artifact_record(
+    onnx_path: Path,
+    *,
+    version: str,
+    expect_sha256: str,
+    feature_width: int,
+    n_class: int,
+    opset: int = 18,
+    backbone: str = "facebook/dinov2-base",
+) -> dict:
+    """The `artifact` block for a head that already exists on disk (#123).
+
+    Exists because the trainer is not reproducible. `torch.manual_seed` fixes the
+    initialisation and the batch order, but not cuDNN's convolution algorithms,
+    whose atomics are non-deterministic unless `torch.use_deterministic_algorithms`
+    is set. Re-running the training therefore produces a *different* head — 20 of
+    25 tensors differ, by up to ~15% relative, measured 2026-09-02 on cctv-vps —
+    so a card that has to be corrected for weights that already shipped cannot be
+    obtained by training again. That would describe a different model.
+
+    This regenerates the card for the artefact as released: every figure still
+    comes from `C0-report.json` and the manifest, and the identity comes from the
+    file itself. `expect_sha256` is required rather than inferred, so a card can
+    never be silently attached to whatever happens to be sitting at that path.
+    """
+    if not onnx_path.exists():
+        sys.exit(
+            f"{onnx_path} does not exist. A card describes one specific set of "
+            "weights, so there is nothing here to describe."
+        )
+    digest = hashlib.sha256(onnx_path.read_bytes()).hexdigest()
+    if digest != expect_sha256:
+        sys.exit(
+            f"{onnx_path.name} is sha256 {digest}, not the {expect_sha256} you named. "
+            "Refusing to write a card for weights nobody checked — pass the digest "
+            "of the artefact you actually mean."
+        )
+    return {
+        "name": onnx_path.name,
+        "version": version,
+        "sha256": digest,
+        "bytes": onnx_path.stat().st_size,
+        "opset": opset,
+        "input": f"embeddings (batch, {feature_width}, time) - frozen {backbone} CLS vectors",
+        "output": f"logits (batch, {n_class}, time)",
+    }

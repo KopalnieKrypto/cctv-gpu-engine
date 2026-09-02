@@ -49,6 +49,19 @@ normalisation.
       --direct-report benchmarks/activity/hala-prawe-v1/C0-delivered-report.json \
       --arm tcn-pixel-518 --direct-arm tcn-pixel-518-delivered \
       --version 1.0.0 --out-dir models
+
+## Correcting a card without retraining
+
+The training is NOT reproducible - `torch.manual_seed` does not cover cuDNN's
+convolution atomics, and a re-run produces a different head (measured: 20 of 25
+tensors differ, up to ~15% relative). So a card that has to be corrected for
+weights which already shipped is regenerated against the file on disk instead,
+which needs no GPU. The digest is required, so a card can never be attached to
+weights nobody checked:
+
+    python benchmarks/activity/tools/train_station_head.py \
+      ... same arguments ... \
+      --card-only 38e678de782d887d59b50c2992820d0a862fcf7b528f1de955c1e439877e2c0e
 """
 
 from __future__ import annotations
@@ -61,7 +74,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from evaluate_arms import resolve_collapse  # noqa: E402
+from evaluate_arms import collapse_classes, resolve_collapse  # noqa: E402
 from run_pixel_probe_arm import BACKBONE, embed_windows  # noqa: E402
 from run_tcn_arm import (  # noqa: E402
     CHANNELS,
@@ -75,6 +88,7 @@ from run_tcn_arm import (  # noqa: E402
     fit_model,
 )
 from station_head import (  # noqa: E402
+    artifact_record,
     assert_single_file,
     build_card,
     choose_vocabulary,
@@ -82,6 +96,9 @@ from station_head import (  # noqa: E402
 )
 
 IMAGE_SIZE = 518
+# DINOv2-base CLS width. Named here so the card-only path can state it without
+# an embedding pass; the digest check is what ties it to the actual artefact.
+FEATURE_WIDTH = 768
 OPSET = 18
 
 
@@ -118,6 +135,107 @@ def build_exportable(model, mu, sd):
     return StationHead().eval()
 
 
+def _preprocessing_contract(image_size: int) -> dict:
+    """Discovered from the processor, never assumed from the flag.
+
+    `--image-size 518` is the *resize* target and DINOv2's processor then
+    centre-crops to 224, so the tensor the model receives is 224. The card has to
+    carry both numbers or a reader will feed it the size it never sees.
+    """
+    from PIL import Image
+    from transformers import AutoImageProcessor
+
+    probe = AutoImageProcessor.from_pretrained(BACKBONE)(
+        images=[Image.new("RGB", (900, 800))],
+        return_tensors="pt",
+        size={"height": image_size, "width": image_size},
+    )["pixel_values"]
+    return {"resize": image_size, "model_input": [int(probe.shape[-2]), int(probe.shape[-1])]}
+
+
+def _card_only(args, manifest: dict) -> int:
+    """Rewrite the card for a head that already exists, training nothing (#123).
+
+    ## Why this mode exists
+
+    The trainer is **not reproducible**. `torch.manual_seed` fixes the
+    initialisation and the batch order, but not cuDNN's convolution algorithms,
+    whose atomics are non-deterministic unless `torch.use_deterministic_algorithms`
+    is set. Measured on cctv-vps 2026-09-02: re-running this script on identical
+    cached embeddings produced a head differing from the released one in 20 of 25
+    tensors, by up to ~15% relative.
+
+    So when a card has to be *corrected* for weights that have already shipped —
+    as in #123, where the recorded zone rectangle was 40 px off the one every crop
+    was actually cut at — training again is not the fix. It would describe a
+    different model, and one whose equivalence on unseen footage cannot be shown,
+    since these weights have no held-out material by construction.
+
+    Every figure still comes from `C0-report.json` and the manifest; only the
+    artefact's identity comes from the file, and the caller has to name its digest.
+    Nothing here is typed.
+
+    ## What it cannot check
+
+    It takes the vocabulary and hyperparameters from this module's constants,
+    i.e. from the code that produced the artefact at this version. The digest
+    check is what ties the two together: if the file is not the one those
+    constants built, the run stops.
+    """
+    collapse = resolve_collapse(manifest, None)
+    if collapse is None:
+        sys.exit(f"{args.manifest} declares no `delivery_vocabulary` - nothing to deliver")
+
+    report = json.loads(args.report.read_text())
+    direct_report = json.loads(args.direct_report.read_text())
+    comparison = choose_vocabulary(
+        _scores(direct_report, args.direct_arm, str(args.direct_report)),
+        _scores(report, args.arm, str(args.report)),
+    )
+    classes = [a["id"] for a in manifest["activities"]]
+    output_classes = (
+        collapse_classes(classes, collapse) if comparison["ships"] == "direct" else classes
+    )
+
+    name = f"station-head-{manifest['fixture']}-v{args.version}.onnx"
+    onnx_path = args.out_dir / name
+    n_feat = FEATURE_WIDTH
+    training = {
+        "backbone": BACKBONE,
+        "preprocessing": _preprocessing_contract(args.image_size),
+        "output_classes": output_classes,
+        "trained_as": comparison["ships"],
+        "comparison": comparison,
+        "hyperparameters": {
+            "window": WINDOW,
+            "channels": CHANNELS,
+            "dilations": list(DILATIONS),
+            "kernel": KERNEL,
+            "epochs": EPOCHS,
+            "lr": LR,
+            "weight_decay": WEIGHT_DECAY,
+            "seed": SEED,
+            "receptive_field_frames": 1 + (KERNEL - 1) * sum(DILATIONS),
+            "feature_width": n_feat,
+            "normalisation": "baked into the exported graph as a leading layer",
+        },
+        "artifact": artifact_record(
+            onnx_path,
+            version=args.version,
+            expect_sha256=args.card_only,
+            feature_width=n_feat,
+            n_class=len(output_classes),
+            opset=OPSET,
+            backbone=BACKBONE,
+        ),
+    }
+    card = build_card(manifest, report, args.arm, training)
+    card_path = args.out_dir / f"station-head-{manifest['fixture']}-v{args.version}.card.json"
+    card_path.write_text(json.dumps(card, indent=2, ensure_ascii=False) + "\n")
+    print(f"wrote {card_path} for {name} (sha256 {args.card_only[:16]}…, weights untouched)")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--manifest", required=True, type=Path)
@@ -135,7 +253,22 @@ def main() -> int:
     ap.add_argument("--version", required=True)
     ap.add_argument("--out-dir", required=True, type=Path)
     ap.add_argument("--image-size", type=int, default=IMAGE_SIZE)
+    ap.add_argument(
+        "--card-only",
+        metavar="SHA256",
+        help=(
+            "Regenerate the card for the head ALREADY at --out-dir, whose sha256 "
+            "must equal this value, without training anything. For correcting a "
+            "card that describes weights which have already shipped: the trainer "
+            "is not reproducible (see below), so re-running it would describe a "
+            "different model. Needs no GPU."
+        ),
+    )
     args = ap.parse_args()
+
+    manifest = json.loads(args.manifest.read_text())
+    if args.card_only:
+        return _card_only(args, manifest)
 
     import torch
 
@@ -143,7 +276,6 @@ def main() -> int:
     if device != "cuda":
         sys.exit("no CUDA device - the backbone pass needs a fleet GPU")
 
-    manifest = json.loads(args.manifest.read_text())
     collapse = resolve_collapse(manifest, None)
     if collapse is None:
         sys.exit(f"{args.manifest} declares no `delivery_vocabulary` - nothing to deliver")
