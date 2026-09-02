@@ -180,8 +180,11 @@ def _analyze_station(
     """
     if zones is None:
         raise StationZoneError(
-            "--classifier station needs --zones: the station rectangle is read "
-            'from the zone that declares `"rules": {"type": "station"}`.'
+            "the station classifier has no zones config, so there is no rectangle "
+            "to measure. It reads the crop from the zone that declares "
+            '`"rules": {"type": "station"}` — pass --zones on the CLI, or mount a '
+            "zones.json for the task. (The R2 worker entrypoint passes no zones at "
+            "all, so it cannot run this mode.)"
         )
     classifier = load_station_classifier(station_head_path, station_card_path, backbone_path)
     card = classifier.card
