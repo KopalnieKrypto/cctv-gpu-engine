@@ -241,6 +241,47 @@ Not a rescoring of the same result. Three claims moved:
   that reached the client report was the detector's own W1 hit rate, not any arm's
   score. `empty_station_rule.py` measures the rule that number came from; see below.
 
+### The three-category vocabulary does not rescue the collective line (#121)
+
+The client accepted a three-category scope — `spawanie`, `ukladanie_pretow`, and
+everything else as one collective `pozostale`. Every figure published before #121
+came from a model scored on seven, so the delivered vocabulary had never actually
+been measured. The expectation was that it would score better, because the classes
+the model confused with each other were about to be merged.
+
+It scores better, and not nearly enough. `tcn-pixel-518` on the held-out union:
+
+| | seven categories | three categories |
+|---|---|---|
+| `spawanie` | 89% (1.06×) | **89% (1.06×)** ✅ |
+| `ukladanie_pretow` | 88% (1.10×) | **88% (1.10×)** ✅ |
+| `sciaganie_elementu` | 35% (0.55×) | |
+| `inna_czynnosc` | 18% (1.11×) | **45% (0.84×)** ❌ `pozostale` |
+| `postoj` | 27% (1.81×) | |
+| `brak_na_stanowisku` | 0% (0.02×) | |
+| `nierozpoznane` | 0% (0.50×) | 0% (0.50×) — own row, never merged |
+
+Support-weighting the four members' seven-category recalls gives 19.7% (87 of 441
+correct). The merge lifts that to 45.1% (199 of 441), so **25 points of the
+bucket's errors were confusions among its own members** — real, and exactly what
+the merge was expected to recover. The remaining 242 misses are out of its reach:
+115 are called `ukladanie_pretow`, 96 `spawanie`, and 31 are abstentions. 87% of
+what is left leaks into the two categories the client names, and no merge inside
+the bucket can pull those back. Merging classes recovers only the errors that stay
+inside the merge.
+
+So the delivered vocabulary clears the bar on two of three categories, not three.
+The two the client names are the two that pass; the collective line fails by 40
+points, and it is 441 of the 1,799 scored samples.
+
+The folds disagree on it more than on anything else, which is why the report prints
+both views: `pozostale` recall is **27.2% / 72.2% / 51.9%** on W1 / W2 / W3, and the
+45.1% union describes none of them. W1 also hides an inflation the union does not
+show — `ukladanie_pretow` reports **1.41×** there, past `INFLATION_LIMIT`, against
+1.10× pooled.
+
+Scored with no GPU work, on a laptop, from the committed predictions, in ~1 s.
+
 ### The empty-station rule: a dwell filter halves the inflation and still misses
 
 The naive rule (any single undetected sample means empty) scores **95.7% recall at

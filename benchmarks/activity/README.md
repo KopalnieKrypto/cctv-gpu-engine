@@ -121,11 +121,23 @@ on the held-out union, boundary timing error, GPU-seconds per video-hour, the
 single-card hardware verdict, and the arc-flash comparison. Run with no
 `--predictions` to regenerate just the baseline section.
 
-Three rules worth knowing before reading its output:
+Four rules worth knowing before reading its output:
 
 - **The folds come from the manifest**, never from the tool. It refuses to run
   against a manifest with no `split` block, because a split chosen at scoring
   time is exactly what the acceptance criterion forbids.
+- **So does the delivered vocabulary.** `manifest.source.json` →
+  `delivery_vocabulary` names one bucket and the activities it merges, and the
+  tool scores that vocabulary in its own section on top of the per-activity
+  one. `--collapse pozostale=sciaganie_elementu,inna_czynnosc` overrides the
+  block for exploration; the report header prints which of the two it used,
+  because an ad-hoc collapse and a declared one do not carry the same weight.
+  Three guards apply wherever the mapping came from: `nierozpoznane` cannot be
+  a member (it is neither work nor downtime, so bucketing it would convert
+  unknown time into measured time), a member that is not an activity in the
+  manifest is refused rather than silently dropped, and the bucket may not
+  reuse an activity's name. The two vocabularies never share a table — a merge
+  cannot be undone by reading harder.
 - **An unanswered sample is an error, not a smaller denominator.** An arm that
   declines to predict does not get an easier score for it.
 - **Recall is the client's bar, and the bar alone is not enough.** The free

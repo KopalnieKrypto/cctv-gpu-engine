@@ -47,6 +47,22 @@ its own confusion row while the go/no-go verdict is taken over the six real
 activities. An arm that abstains its way to a good score is caught by the
 abstention rate, reported per arm.
 
+## The delivered vocabulary is declared, never inferred
+
+The client accepted a three-category scope while every arm was scored on seven,
+so `manifest.source.json` -> `delivery_vocabulary` names one bucket and the
+activities it merges, and the tool scores that vocabulary in a section of its
+own. `--collapse bucket=a,b,c` overrides the block for exploration; the report
+header prints which source was used, because an ad-hoc collapse and a declared
+one do not carry the same weight. A collapse invented at scoring time is the
+same defect as a split invented at scoring time.
+
+`nierozpoznane` is refused as a member and keeps its own row - it is neither
+work nor downtime, so bucketing it would convert unknown time into measured
+time. The two vocabularies never share a table: a three-category figure must
+never be mistakable for a seven-category one, and a reader cannot undo a merge
+by reading harder.
+
 ## The baseline is reported at two operating points
 
 The arc metric is clip-relative - the raw values differ ~3x between W1 and W2 on
@@ -280,6 +296,84 @@ def tune_arc_threshold(per_second: dict[int, float], truth: dict) -> tuple[float
 
 
 # --------------------------------------------------------------------------
+# delivery vocabulary
+# --------------------------------------------------------------------------
+
+
+def parse_collapse_flag(spec: str) -> dict:
+    """`bucket=a,b,c` — the same mapping shape the manifest declares."""
+    bucket, _, members = spec.partition("=")
+    parts = [m.strip() for m in members.split(",") if m.strip()]
+    if not bucket.strip() or not parts:
+        sys.exit(
+            f"--collapse {spec!r}: expected `bucket=activity,activity,...`, e.g. "
+            "`--collapse pozostale=sciaganie_elementu,inna_czynnosc,postoj`"
+        )
+    return {"bucket": bucket.strip(), "members": parts, "source": "--collapse"}
+
+
+def resolve_collapse(manifest: dict, flag: str | None) -> dict | None:
+    """Resolve the delivery vocabulary and refuse an unusable one.
+
+    The flag wins over the declared block so a vocabulary can be explored
+    without editing the fixture, and `source` records which one was used —
+    the report header prints it, because an ad-hoc collapse and a declared
+    one do not carry the same weight.
+    """
+    declared = manifest.get("delivery_vocabulary")
+    if flag is not None:
+        collapse = parse_collapse_flag(flag)
+    elif declared is not None:
+        collapse = {**declared, "source": "manifest.source.json"}
+    else:
+        return None
+    known = {a["id"] for a in manifest["activities"]}
+    unknown = [m for m in collapse["members"] if m not in known]
+    if unknown:
+        sys.exit(
+            f"delivery vocabulary: {', '.join(repr(u) for u in unknown)} "
+            "is not an activity in the manifest. A typo would build a smaller "
+            "bucket and still print a confident three-category number."
+        )
+    if collapse["bucket"] in known:
+        sys.exit(
+            f"delivery vocabulary: `{collapse['bucket']}` is already an activity "
+            "id, so the name would mean both the activity and the bucket and no "
+            "reader could tell which figure a row reports. Pick another name."
+        )
+    if NON_ACTIVITY in collapse["members"]:
+        sys.exit(
+            f"delivery vocabulary: `{NON_ACTIVITY}` cannot be a member of "
+            f"`{collapse['bucket']}`. The manifest defines it as never work and "
+            "never downtime, so folding it into a bucket converts unknown time "
+            "into measured time. It keeps its own row."
+        )
+    return collapse
+
+
+def collapse_classes(classes: list[str], collapse: dict) -> list[str]:
+    """The class list under the collapsed vocabulary, in the manifest's order.
+
+    The bucket takes the position of its first member so the delivered
+    categories read in the order the fixture declares them.
+    """
+    members, bucket = set(collapse["members"]), collapse["bucket"]
+    out: list[str] = []
+    for c in classes:
+        if c not in members:
+            out.append(c)
+        elif bucket not in out:
+            out.append(bucket)
+    return out
+
+
+def collapse_pairs(pairs: list[tuple[str, str]], collapse: dict) -> list[tuple[str, str]]:
+    """Re-label (truth, predicted) pairs into the collapsed vocabulary."""
+    members, bucket = set(collapse["members"]), collapse["bucket"]
+    return [(bucket if t in members else t, bucket if p in members else p) for t, p in pairs]
+
+
+# --------------------------------------------------------------------------
 # scoring
 # --------------------------------------------------------------------------
 
@@ -380,6 +474,23 @@ def _pct(x: float | None) -> str:
     return "n/a" if x is None else f"{100 * x:.1f}%"
 
 
+def _score_row(c: str, s: dict) -> str:
+    """One row of the per-activity table — the same shape in either vocabulary."""
+    if c == NON_ACTIVITY:
+        bar = "—"
+    elif s["usable"]:
+        bar = "✅"
+    elif s["passes"]:
+        bar = "⚠️ gamed"
+    else:
+        bar = "❌"
+    ratio = "n/a" if s["time_ratio"] is None else f"{s['time_ratio']:.2f}×"
+    return (
+        f"| `{c}` | {s['support']} | {_pct(s['recall'])} | {_pct(s['precision'])} | "
+        f"{ratio} | {s['granularity_pp']:.1f} pp | {bar} |"
+    )
+
+
 def render(report: dict) -> str:
     m = report["manifest"]
     lines: list[str] = []
@@ -426,6 +537,73 @@ def render(report: dict) -> str:
     add(split.get("reporting", ""))
     add("")
 
+    collapse = report.get("collapse")
+    if collapse:
+        delivered = [c for c in collapse["classes"] if c != NON_ACTIVITY]
+        add(f"## Delivery vocabulary: {len(delivered)} categories")
+        add("")
+        members = " + ".join(f"`{m}`" for m in collapse["members"])
+        add(f"`{collapse['bucket']}` = {members} — declared in `{collapse['source']}`.")
+        add("")
+        add(
+            f"Every figure in this section is over {len(delivered)} categories and is "
+            f"**not comparable** with the per-arm sections below, which score all "
+            f"{len(m['activities'])} separately. A merge cannot be undone by reading "
+            "harder, so the two vocabularies never share a table."
+        )
+        add("")
+        add(
+            f"`{NON_ACTIVITY}` is **not** a member of the bucket and keeps its own row. "
+            'It is neither work nor downtime, and folding the honest "cannot tell" '
+            "into a work bucket would convert unknown time into measured time."
+        )
+        add("")
+
+        add("### Held-out union")
+        add("")
+        for arm in report["arms"]:
+            add(f"#### `{arm['name']}`")
+            add("")
+            add(
+                "| Category | Support | Recall (the bar) | Precision | Time reported | "
+                "1 error = | Verdict |"
+            )
+            add("|---|---:|---:|---:|---:|---:|:---:|")
+            for c, s in arm["collapsed"]["scores"].items():
+                if s["support"] == 0:
+                    continue
+                add(_score_row(c, s))
+            add("")
+
+        add("### Per held-out window")
+        add("")
+        add(
+            "The union above is one number over folds that held out different "
+            "material. Where those folds disagree, the mean describes neither — "
+            "and on this fixture they disagree. Cells are recall (time reported, n)."
+        )
+        add("")
+        for arm in report["arms"]:
+            pw = arm["collapsed"]["per_window_scores"]
+            cols = sorted(pw)
+            add(f"#### `{arm['name']}`")
+            add("")
+            add("| Category | " + " | ".join(cols) + " |")
+            add("|---|" + "---:|" * len(cols))
+            for c, s in arm["collapsed"]["scores"].items():
+                if s["support"] == 0:
+                    continue
+                cells = []
+                for w in cols:
+                    ws = pw[w].get(c)
+                    if not ws or not ws["support"]:
+                        cells.append("n/a")
+                        continue
+                    ratio = "n/a" if ws["time_ratio"] is None else f"{ws['time_ratio']:.2f}×"
+                    cells.append(f"{_pct(ws['recall'])} ({ratio}, n={ws['support']})")
+                add(f"| `{c}` | " + " | ".join(cells) + " |")
+            add("")
+
     for arm in report["arms"]:
         add(f"## Arm: `{arm['name']}`")
         add("")
@@ -465,20 +643,7 @@ def render(report: dict) -> str:
         for c, s in arm["scores"].items():
             if s["support"] == 0:
                 continue
-            if c == NON_ACTIVITY:
-                bar = "—"
-            elif s["usable"]:
-                bar = "✅"
-            elif s["passes"]:
-                bar = "⚠️ gamed"
-            else:
-                bar = "❌"
-            gran = f"{s['granularity_pp']:.1f} pp"
-            ratio = "n/a" if s["time_ratio"] is None else f"{s['time_ratio']:.2f}×"
-            add(
-                f"| `{c}` | {s['support']} | {_pct(s['recall'])} | "
-                f"{_pct(s['precision'])} | {ratio} | {gran} | {bar} |"
-            )
+            add(_score_row(c, s))
         add("")
         add(
             "*Time reported* is predicted seconds over true seconds for the activity — "
@@ -649,11 +814,19 @@ def main() -> int:
     ap.add_argument("--arc-csv", type=Path)
     ap.add_argument("--out", type=Path, help="markdown report (default: stdout)")
     ap.add_argument("--json-out", type=Path, help="also write the raw numbers as JSON")
+    ap.add_argument(
+        "--collapse",
+        metavar="BUCKET=a,b,c",
+        help="score an extra section under a collapsed vocabulary, overriding the "
+        "manifest's `delivery_vocabulary` block",
+    )
     args = ap.parse_args()
 
     manifest = load_manifest(args.manifest)
+    collapse = resolve_collapse(manifest, args.collapse)
     fixture_dir = args.manifest.parent
     classes = [a["id"] for a in manifest["activities"]]
+    delivered_classes = collapse_classes(classes, collapse) if collapse else []
 
     truths: dict[str, dict] = {}
     for clip in manifest["clips"]:
@@ -749,6 +922,22 @@ def main() -> int:
                     for w, wp in sorted(per_window_pairs.items())
                 },
                 "confusion": confusion(pairs),
+                # The delivered vocabulary, scored from the same held-out pairs.
+                # Kept in its own block rather than merged into `scores` so no
+                # renderer can put the two vocabularies in one table.
+                "collapsed": (
+                    {
+                        "scores": per_activity_scores(
+                            collapse_pairs(pairs, collapse), delivered_classes
+                        ),
+                        "per_window_scores": {
+                            w: per_activity_scores(collapse_pairs(wp, collapse), delivered_classes)
+                            for w, wp in sorted(per_window_pairs.items())
+                        },
+                    }
+                    if collapse
+                    else None
+                ),
                 "boundaries": merged_boundaries,
                 "hardware": hardware_verdict(gpu),
                 "gpu_seconds_per_video_hour": gpu_seconds_per_video_hour(gpu),
@@ -799,6 +988,7 @@ def main() -> int:
         "manifest": manifest,
         "arms": arms,
         "baseline": {"points": points, "union": union},
+        "collapse": {**collapse, "classes": delivered_classes} if collapse else None,
     }
 
     text = render(report)

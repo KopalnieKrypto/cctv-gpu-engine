@@ -444,6 +444,210 @@
           "nierozpoznane": 3
         }
       },
+      "collapsed": {
+        "scores": {
+          "spawanie": {
+            "support": 744,
+            "tp": 484,
+            "predicted": 528,
+            "recall": 0.6505376344086021,
+            "precision": 0.9166666666666666,
+            "time_ratio": 0.7096774193548387,
+            "inflated": false,
+            "granularity_pp": 0.13440860215053763,
+            "passes": false,
+            "usable": false
+          },
+          "ukladanie_pretow": {
+            "support": 552,
+            "tp": 417,
+            "predicted": 553,
+            "recall": 0.7554347826086957,
+            "precision": 0.7540687160940326,
+            "time_ratio": 1.0018115942028984,
+            "inflated": false,
+            "granularity_pp": 0.18115942028985507,
+            "passes": false,
+            "usable": false
+          },
+          "pozostale": {
+            "support": 441,
+            "tp": 163,
+            "predicted": 452,
+            "recall": 0.36961451247165533,
+            "precision": 0.3606194690265487,
+            "time_ratio": 1.0249433106575965,
+            "inflated": false,
+            "granularity_pp": 0.22675736961451248,
+            "passes": false,
+            "usable": false
+          },
+          "nierozpoznane": {
+            "support": 62,
+            "tp": 3,
+            "predicted": 266,
+            "recall": 0.04838709677419355,
+            "precision": 0.011278195488721804,
+            "time_ratio": 4.290322580645161,
+            "inflated": true,
+            "granularity_pp": 1.6129032258064515,
+            "passes": false,
+            "usable": false
+          }
+        },
+        "per_window_scores": {
+          "W1": {
+            "spawanie": {
+              "support": 224,
+              "tp": 194,
+              "predicted": 214,
+              "recall": 0.8660714285714286,
+              "precision": 0.9065420560747663,
+              "time_ratio": 0.9553571428571429,
+              "inflated": false,
+              "granularity_pp": 0.44642857142857145,
+              "passes": true,
+              "usable": true
+            },
+            "ukladanie_pretow": {
+              "support": 180,
+              "tp": 150,
+              "predicted": 160,
+              "recall": 0.8333333333333334,
+              "precision": 0.9375,
+              "time_ratio": 0.8888888888888888,
+              "inflated": false,
+              "granularity_pp": 0.5555555555555556,
+              "passes": false,
+              "usable": false
+            },
+            "pozostale": {
+              "support": 195,
+              "tp": 37,
+              "predicted": 59,
+              "recall": 0.18974358974358974,
+              "precision": 0.6271186440677966,
+              "time_ratio": 0.30256410256410254,
+              "inflated": false,
+              "granularity_pp": 0.5128205128205128,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 0,
+              "tp": 0,
+              "predicted": 166,
+              "recall": null,
+              "precision": 0.0,
+              "time_ratio": null,
+              "inflated": false,
+              "granularity_pp": null,
+              "passes": false,
+              "usable": false
+            }
+          },
+          "W2": {
+            "spawanie": {
+              "support": 273,
+              "tp": 210,
+              "predicted": 215,
+              "recall": 0.7692307692307693,
+              "precision": 0.9767441860465116,
+              "time_ratio": 0.7875457875457875,
+              "inflated": false,
+              "granularity_pp": 0.3663003663003663,
+              "passes": false,
+              "usable": false
+            },
+            "ukladanie_pretow": {
+              "support": 179,
+              "tp": 146,
+              "predicted": 219,
+              "recall": 0.8156424581005587,
+              "precision": 0.6666666666666666,
+              "time_ratio": 1.223463687150838,
+              "inflated": false,
+              "granularity_pp": 0.5586592178770949,
+              "passes": false,
+              "usable": false
+            },
+            "pozostale": {
+              "support": 90,
+              "tp": 55,
+              "predicted": 164,
+              "recall": 0.6111111111111112,
+              "precision": 0.3353658536585366,
+              "time_ratio": 1.8222222222222222,
+              "inflated": true,
+              "granularity_pp": 1.1111111111111112,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 58,
+              "tp": 0,
+              "predicted": 2,
+              "recall": 0.0,
+              "precision": 0.0,
+              "time_ratio": 0.034482758620689655,
+              "inflated": false,
+              "granularity_pp": 1.7241379310344827,
+              "passes": false,
+              "usable": false
+            }
+          },
+          "W3": {
+            "spawanie": {
+              "support": 247,
+              "tp": 80,
+              "predicted": 99,
+              "recall": 0.32388663967611336,
+              "precision": 0.8080808080808081,
+              "time_ratio": 0.4008097165991903,
+              "inflated": false,
+              "granularity_pp": 0.4048582995951417,
+              "passes": false,
+              "usable": false
+            },
+            "ukladanie_pretow": {
+              "support": 193,
+              "tp": 121,
+              "predicted": 174,
+              "recall": 0.6269430051813472,
+              "precision": 0.6954022988505747,
+              "time_ratio": 0.9015544041450777,
+              "inflated": false,
+              "granularity_pp": 0.5181347150259067,
+              "passes": false,
+              "usable": false
+            },
+            "pozostale": {
+              "support": 156,
+              "tp": 71,
+              "predicted": 229,
+              "recall": 0.4551282051282051,
+              "precision": 0.31004366812227074,
+              "time_ratio": 1.4679487179487178,
+              "inflated": true,
+              "granularity_pp": 0.6410256410256411,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 4,
+              "tp": 3,
+              "predicted": 98,
+              "recall": 0.75,
+              "precision": 0.030612244897959183,
+              "time_ratio": 24.5,
+              "inflated": true,
+              "granularity_pp": 25.0,
+              "passes": false,
+              "usable": false
+            }
+          }
+        }
+      },
       "boundaries": {
         "n": 249,
         "truth_boundaries": 249,
@@ -901,6 +1105,210 @@
           "ukladanie_pretow": 11,
           "postoj": 4,
           "sciaganie_elementu": 5
+        }
+      },
+      "collapsed": {
+        "scores": {
+          "spawanie": {
+            "support": 744,
+            "tp": 613,
+            "predicted": 711,
+            "recall": 0.8239247311827957,
+            "precision": 0.8621659634317862,
+            "time_ratio": 0.9556451612903226,
+            "inflated": false,
+            "granularity_pp": 0.13440860215053763,
+            "passes": false,
+            "usable": false
+          },
+          "ukladanie_pretow": {
+            "support": 552,
+            "tp": 436,
+            "predicted": 577,
+            "recall": 0.7898550724637681,
+            "precision": 0.755632582322357,
+            "time_ratio": 1.0452898550724639,
+            "inflated": false,
+            "granularity_pp": 0.18115942028985507,
+            "passes": false,
+            "usable": false
+          },
+          "pozostale": {
+            "support": 441,
+            "tp": 284,
+            "predicted": 503,
+            "recall": 0.6439909297052154,
+            "precision": 0.5646123260437376,
+            "time_ratio": 1.1405895691609977,
+            "inflated": false,
+            "granularity_pp": 0.22675736961451248,
+            "passes": false,
+            "usable": false
+          },
+          "nierozpoznane": {
+            "support": 62,
+            "tp": 0,
+            "predicted": 8,
+            "recall": 0.0,
+            "precision": 0.0,
+            "time_ratio": 0.12903225806451613,
+            "inflated": false,
+            "granularity_pp": 1.6129032258064515,
+            "passes": false,
+            "usable": false
+          }
+        },
+        "per_window_scores": {
+          "W1": {
+            "spawanie": {
+              "support": 224,
+              "tp": 219,
+              "predicted": 249,
+              "recall": 0.9776785714285714,
+              "precision": 0.8795180722891566,
+              "time_ratio": 1.1116071428571428,
+              "inflated": false,
+              "granularity_pp": 0.44642857142857145,
+              "passes": true,
+              "usable": true
+            },
+            "ukladanie_pretow": {
+              "support": 180,
+              "tp": 128,
+              "predicted": 131,
+              "recall": 0.7111111111111111,
+              "precision": 0.9770992366412213,
+              "time_ratio": 0.7277777777777777,
+              "inflated": false,
+              "granularity_pp": 0.5555555555555556,
+              "passes": false,
+              "usable": false
+            },
+            "pozostale": {
+              "support": 195,
+              "tp": 167,
+              "predicted": 212,
+              "recall": 0.8564102564102564,
+              "precision": 0.7877358490566038,
+              "time_ratio": 1.087179487179487,
+              "inflated": false,
+              "granularity_pp": 0.5128205128205128,
+              "passes": true,
+              "usable": true
+            },
+            "nierozpoznane": {
+              "support": 0,
+              "tp": 0,
+              "predicted": 7,
+              "recall": null,
+              "precision": 0.0,
+              "time_ratio": null,
+              "inflated": false,
+              "granularity_pp": null,
+              "passes": false,
+              "usable": false
+            }
+          },
+          "W2": {
+            "spawanie": {
+              "support": 273,
+              "tp": 244,
+              "predicted": 264,
+              "recall": 0.8937728937728938,
+              "precision": 0.9242424242424242,
+              "time_ratio": 0.967032967032967,
+              "inflated": false,
+              "granularity_pp": 0.3663003663003663,
+              "passes": true,
+              "usable": true
+            },
+            "ukladanie_pretow": {
+              "support": 179,
+              "tp": 156,
+              "predicted": 204,
+              "recall": 0.8715083798882681,
+              "precision": 0.7647058823529411,
+              "time_ratio": 1.1396648044692737,
+              "inflated": false,
+              "granularity_pp": 0.5586592178770949,
+              "passes": true,
+              "usable": true
+            },
+            "pozostale": {
+              "support": 90,
+              "tp": 46,
+              "predicted": 131,
+              "recall": 0.5111111111111111,
+              "precision": 0.3511450381679389,
+              "time_ratio": 1.4555555555555555,
+              "inflated": true,
+              "granularity_pp": 1.1111111111111112,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 58,
+              "tp": 0,
+              "predicted": 1,
+              "recall": 0.0,
+              "precision": 0.0,
+              "time_ratio": 0.017241379310344827,
+              "inflated": false,
+              "granularity_pp": 1.7241379310344827,
+              "passes": false,
+              "usable": false
+            }
+          },
+          "W3": {
+            "spawanie": {
+              "support": 247,
+              "tp": 150,
+              "predicted": 198,
+              "recall": 0.6072874493927125,
+              "precision": 0.7575757575757576,
+              "time_ratio": 0.8016194331983806,
+              "inflated": false,
+              "granularity_pp": 0.4048582995951417,
+              "passes": false,
+              "usable": false
+            },
+            "ukladanie_pretow": {
+              "support": 193,
+              "tp": 152,
+              "predicted": 242,
+              "recall": 0.7875647668393783,
+              "precision": 0.628099173553719,
+              "time_ratio": 1.2538860103626943,
+              "inflated": true,
+              "granularity_pp": 0.5181347150259067,
+              "passes": false,
+              "usable": false
+            },
+            "pozostale": {
+              "support": 156,
+              "tp": 71,
+              "predicted": 160,
+              "recall": 0.4551282051282051,
+              "precision": 0.44375,
+              "time_ratio": 1.0256410256410255,
+              "inflated": false,
+              "granularity_pp": 0.6410256410256411,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 4,
+              "tp": 0,
+              "predicted": 0,
+              "recall": 0.0,
+              "precision": null,
+              "time_ratio": 0.0,
+              "inflated": false,
+              "granularity_pp": 25.0,
+              "passes": false,
+              "usable": false
+            }
+          }
         }
       },
       "boundaries": {
@@ -1367,6 +1775,210 @@
           "nierozpoznane": 3
         }
       },
+      "collapsed": {
+        "scores": {
+          "spawanie": {
+            "support": 744,
+            "tp": 588,
+            "predicted": 710,
+            "recall": 0.7903225806451613,
+            "precision": 0.828169014084507,
+            "time_ratio": 0.9543010752688172,
+            "inflated": false,
+            "granularity_pp": 0.13440860215053763,
+            "passes": false,
+            "usable": false
+          },
+          "ukladanie_pretow": {
+            "support": 552,
+            "tp": 501,
+            "predicted": 643,
+            "recall": 0.907608695652174,
+            "precision": 0.7791601866251944,
+            "time_ratio": 1.164855072463768,
+            "inflated": false,
+            "granularity_pp": 0.18115942028985507,
+            "passes": true,
+            "usable": true
+          },
+          "pozostale": {
+            "support": 441,
+            "tp": 200,
+            "predicted": 382,
+            "recall": 0.45351473922902497,
+            "precision": 0.5235602094240838,
+            "time_ratio": 0.8662131519274376,
+            "inflated": false,
+            "granularity_pp": 0.22675736961451248,
+            "passes": false,
+            "usable": false
+          },
+          "nierozpoznane": {
+            "support": 62,
+            "tp": 3,
+            "predicted": 64,
+            "recall": 0.04838709677419355,
+            "precision": 0.046875,
+            "time_ratio": 1.032258064516129,
+            "inflated": false,
+            "granularity_pp": 1.6129032258064515,
+            "passes": false,
+            "usable": false
+          }
+        },
+        "per_window_scores": {
+          "W1": {
+            "spawanie": {
+              "support": 224,
+              "tp": 220,
+              "predicted": 259,
+              "recall": 0.9821428571428571,
+              "precision": 0.8494208494208494,
+              "time_ratio": 1.15625,
+              "inflated": false,
+              "granularity_pp": 0.44642857142857145,
+              "passes": true,
+              "usable": true
+            },
+            "ukladanie_pretow": {
+              "support": 180,
+              "tp": 161,
+              "predicted": 174,
+              "recall": 0.8944444444444445,
+              "precision": 0.9252873563218391,
+              "time_ratio": 0.9666666666666667,
+              "inflated": false,
+              "granularity_pp": 0.5555555555555556,
+              "passes": true,
+              "usable": true
+            },
+            "pozostale": {
+              "support": 195,
+              "tp": 100,
+              "predicted": 113,
+              "recall": 0.5128205128205128,
+              "precision": 0.8849557522123894,
+              "time_ratio": 0.5794871794871795,
+              "inflated": false,
+              "granularity_pp": 0.5128205128205128,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 0,
+              "tp": 0,
+              "predicted": 53,
+              "recall": null,
+              "precision": 0.0,
+              "time_ratio": null,
+              "inflated": false,
+              "granularity_pp": null,
+              "passes": false,
+              "usable": false
+            }
+          },
+          "W2": {
+            "spawanie": {
+              "support": 273,
+              "tp": 241,
+              "predicted": 257,
+              "recall": 0.8827838827838828,
+              "precision": 0.9377431906614786,
+              "time_ratio": 0.9413919413919414,
+              "inflated": false,
+              "granularity_pp": 0.3663003663003663,
+              "passes": true,
+              "usable": true
+            },
+            "ukladanie_pretow": {
+              "support": 179,
+              "tp": 172,
+              "predicted": 190,
+              "recall": 0.9608938547486033,
+              "precision": 0.9052631578947369,
+              "time_ratio": 1.0614525139664805,
+              "inflated": false,
+              "granularity_pp": 0.5586592178770949,
+              "passes": true,
+              "usable": true
+            },
+            "pozostale": {
+              "support": 90,
+              "tp": 62,
+              "predicted": 153,
+              "recall": 0.6888888888888889,
+              "precision": 0.40522875816993464,
+              "time_ratio": 1.7,
+              "inflated": true,
+              "granularity_pp": 1.1111111111111112,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 58,
+              "tp": 0,
+              "predicted": 0,
+              "recall": 0.0,
+              "precision": null,
+              "time_ratio": 0.0,
+              "inflated": false,
+              "granularity_pp": 1.7241379310344827,
+              "passes": false,
+              "usable": false
+            }
+          },
+          "W3": {
+            "spawanie": {
+              "support": 247,
+              "tp": 127,
+              "predicted": 194,
+              "recall": 0.5141700404858299,
+              "precision": 0.654639175257732,
+              "time_ratio": 0.7854251012145749,
+              "inflated": false,
+              "granularity_pp": 0.4048582995951417,
+              "passes": false,
+              "usable": false
+            },
+            "ukladanie_pretow": {
+              "support": 193,
+              "tp": 168,
+              "predicted": 279,
+              "recall": 0.8704663212435233,
+              "precision": 0.6021505376344086,
+              "time_ratio": 1.4455958549222798,
+              "inflated": true,
+              "granularity_pp": 0.5181347150259067,
+              "passes": true,
+              "usable": false
+            },
+            "pozostale": {
+              "support": 156,
+              "tp": 38,
+              "predicted": 116,
+              "recall": 0.24358974358974358,
+              "precision": 0.3275862068965517,
+              "time_ratio": 0.7435897435897436,
+              "inflated": false,
+              "granularity_pp": 0.6410256410256411,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 4,
+              "tp": 3,
+              "predicted": 11,
+              "recall": 0.75,
+              "precision": 0.2727272727272727,
+              "time_ratio": 2.75,
+              "inflated": true,
+              "granularity_pp": 25.0,
+              "passes": false,
+              "usable": false
+            }
+          }
+        }
+      },
       "boundaries": {
         "n": 249,
         "truth_boundaries": 249,
@@ -1830,6 +2442,210 @@
           "nierozpoznane": 2
         }
       },
+      "collapsed": {
+        "scores": {
+          "spawanie": {
+            "support": 744,
+            "tp": 624,
+            "predicted": 707,
+            "recall": 0.8387096774193549,
+            "precision": 0.8826025459688827,
+            "time_ratio": 0.9502688172043011,
+            "inflated": false,
+            "granularity_pp": 0.13440860215053763,
+            "passes": false,
+            "usable": false
+          },
+          "ukladanie_pretow": {
+            "support": 552,
+            "tp": 468,
+            "predicted": 576,
+            "recall": 0.8478260869565217,
+            "precision": 0.8125,
+            "time_ratio": 1.0434782608695652,
+            "inflated": false,
+            "granularity_pp": 0.18115942028985507,
+            "passes": false,
+            "usable": false
+          },
+          "pozostale": {
+            "support": 441,
+            "tp": 213,
+            "predicted": 399,
+            "recall": 0.48299319727891155,
+            "precision": 0.5338345864661654,
+            "time_ratio": 0.9047619047619048,
+            "inflated": false,
+            "granularity_pp": 0.22675736961451248,
+            "passes": false,
+            "usable": false
+          },
+          "nierozpoznane": {
+            "support": 62,
+            "tp": 2,
+            "predicted": 117,
+            "recall": 0.03225806451612903,
+            "precision": 0.017094017094017096,
+            "time_ratio": 1.8870967741935485,
+            "inflated": true,
+            "granularity_pp": 1.6129032258064515,
+            "passes": false,
+            "usable": false
+          }
+        },
+        "per_window_scores": {
+          "W1": {
+            "spawanie": {
+              "support": 224,
+              "tp": 223,
+              "predicted": 265,
+              "recall": 0.9955357142857143,
+              "precision": 0.8415094339622642,
+              "time_ratio": 1.1830357142857142,
+              "inflated": false,
+              "granularity_pp": 0.44642857142857145,
+              "passes": true,
+              "usable": true
+            },
+            "ukladanie_pretow": {
+              "support": 180,
+              "tp": 165,
+              "predicted": 171,
+              "recall": 0.9166666666666666,
+              "precision": 0.9649122807017544,
+              "time_ratio": 0.95,
+              "inflated": false,
+              "granularity_pp": 0.5555555555555556,
+              "passes": true,
+              "usable": true
+            },
+            "pozostale": {
+              "support": 195,
+              "tp": 64,
+              "predicted": 70,
+              "recall": 0.3282051282051282,
+              "precision": 0.9142857142857143,
+              "time_ratio": 0.358974358974359,
+              "inflated": false,
+              "granularity_pp": 0.5128205128205128,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 0,
+              "tp": 0,
+              "predicted": 93,
+              "recall": null,
+              "precision": 0.0,
+              "time_ratio": null,
+              "inflated": false,
+              "granularity_pp": null,
+              "passes": false,
+              "usable": false
+            }
+          },
+          "W2": {
+            "spawanie": {
+              "support": 273,
+              "tp": 204,
+              "predicted": 204,
+              "recall": 0.7472527472527473,
+              "precision": 1.0,
+              "time_ratio": 0.7472527472527473,
+              "inflated": false,
+              "granularity_pp": 0.3663003663003663,
+              "passes": false,
+              "usable": false
+            },
+            "ukladanie_pretow": {
+              "support": 179,
+              "tp": 179,
+              "predicted": 264,
+              "recall": 1.0,
+              "precision": 0.678030303030303,
+              "time_ratio": 1.4748603351955307,
+              "inflated": true,
+              "granularity_pp": 0.5586592178770949,
+              "passes": true,
+              "usable": false
+            },
+            "pozostale": {
+              "support": 90,
+              "tp": 52,
+              "predicted": 132,
+              "recall": 0.5777777777777777,
+              "precision": 0.3939393939393939,
+              "time_ratio": 1.4666666666666666,
+              "inflated": true,
+              "granularity_pp": 1.1111111111111112,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 58,
+              "tp": 0,
+              "predicted": 0,
+              "recall": 0.0,
+              "precision": null,
+              "time_ratio": 0.0,
+              "inflated": false,
+              "granularity_pp": 1.7241379310344827,
+              "passes": false,
+              "usable": false
+            }
+          },
+          "W3": {
+            "spawanie": {
+              "support": 247,
+              "tp": 197,
+              "predicted": 238,
+              "recall": 0.7975708502024291,
+              "precision": 0.8277310924369747,
+              "time_ratio": 0.9635627530364372,
+              "inflated": false,
+              "granularity_pp": 0.4048582995951417,
+              "passes": false,
+              "usable": false
+            },
+            "ukladanie_pretow": {
+              "support": 193,
+              "tp": 124,
+              "predicted": 141,
+              "recall": 0.6424870466321243,
+              "precision": 0.8794326241134752,
+              "time_ratio": 0.7305699481865285,
+              "inflated": false,
+              "granularity_pp": 0.5181347150259067,
+              "passes": false,
+              "usable": false
+            },
+            "pozostale": {
+              "support": 156,
+              "tp": 97,
+              "predicted": 197,
+              "recall": 0.6217948717948718,
+              "precision": 0.49238578680203043,
+              "time_ratio": 1.2628205128205128,
+              "inflated": true,
+              "granularity_pp": 0.6410256410256411,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 4,
+              "tp": 2,
+              "predicted": 24,
+              "recall": 0.5,
+              "precision": 0.08333333333333333,
+              "time_ratio": 6.0,
+              "inflated": true,
+              "granularity_pp": 25.0,
+              "passes": false,
+              "usable": false
+            }
+          }
+        }
+      },
       "boundaries": {
         "n": 249,
         "truth_boundaries": 249,
@@ -2285,6 +3101,210 @@
           "ukladanie_pretow": 4,
           "brak_na_stanowisku": 1,
           "sciaganie_elementu": 2
+        }
+      },
+      "collapsed": {
+        "scores": {
+          "spawanie": {
+            "support": 744,
+            "tp": 662,
+            "predicted": 790,
+            "recall": 0.8897849462365591,
+            "precision": 0.8379746835443038,
+            "time_ratio": 1.0618279569892473,
+            "inflated": false,
+            "granularity_pp": 0.13440860215053763,
+            "passes": true,
+            "usable": true
+          },
+          "ukladanie_pretow": {
+            "support": 552,
+            "tp": 487,
+            "predicted": 607,
+            "recall": 0.8822463768115942,
+            "precision": 0.8023064250411862,
+            "time_ratio": 1.0996376811594204,
+            "inflated": false,
+            "granularity_pp": 0.18115942028985507,
+            "passes": true,
+            "usable": true
+          },
+          "pozostale": {
+            "support": 441,
+            "tp": 199,
+            "predicted": 371,
+            "recall": 0.4512471655328798,
+            "precision": 0.5363881401617251,
+            "time_ratio": 0.8412698412698413,
+            "inflated": false,
+            "granularity_pp": 0.22675736961451248,
+            "passes": false,
+            "usable": false
+          },
+          "nierozpoznane": {
+            "support": 62,
+            "tp": 0,
+            "predicted": 31,
+            "recall": 0.0,
+            "precision": 0.0,
+            "time_ratio": 0.5,
+            "inflated": false,
+            "granularity_pp": 1.6129032258064515,
+            "passes": false,
+            "usable": false
+          }
+        },
+        "per_window_scores": {
+          "W1": {
+            "spawanie": {
+              "support": 224,
+              "tp": 220,
+              "predicted": 253,
+              "recall": 0.9821428571428571,
+              "precision": 0.8695652173913043,
+              "time_ratio": 1.1294642857142858,
+              "inflated": false,
+              "granularity_pp": 0.44642857142857145,
+              "passes": true,
+              "usable": true
+            },
+            "ukladanie_pretow": {
+              "support": 180,
+              "tp": 170,
+              "predicted": 253,
+              "recall": 0.9444444444444444,
+              "precision": 0.6719367588932806,
+              "time_ratio": 1.4055555555555554,
+              "inflated": true,
+              "granularity_pp": 0.5555555555555556,
+              "passes": true,
+              "usable": false
+            },
+            "pozostale": {
+              "support": 195,
+              "tp": 53,
+              "predicted": 62,
+              "recall": 0.2717948717948718,
+              "precision": 0.8548387096774194,
+              "time_ratio": 0.31794871794871793,
+              "inflated": false,
+              "granularity_pp": 0.5128205128205128,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 0,
+              "tp": 0,
+              "predicted": 31,
+              "recall": null,
+              "precision": 0.0,
+              "time_ratio": null,
+              "inflated": false,
+              "granularity_pp": null,
+              "passes": false,
+              "usable": false
+            }
+          },
+          "W2": {
+            "spawanie": {
+              "support": 273,
+              "tp": 253,
+              "predicted": 270,
+              "recall": 0.9267399267399268,
+              "precision": 0.937037037037037,
+              "time_ratio": 0.989010989010989,
+              "inflated": false,
+              "granularity_pp": 0.3663003663003663,
+              "passes": true,
+              "usable": true
+            },
+            "ukladanie_pretow": {
+              "support": 179,
+              "tp": 173,
+              "predicted": 187,
+              "recall": 0.9664804469273743,
+              "precision": 0.9251336898395722,
+              "time_ratio": 1.0446927374301676,
+              "inflated": false,
+              "granularity_pp": 0.5586592178770949,
+              "passes": true,
+              "usable": true
+            },
+            "pozostale": {
+              "support": 90,
+              "tp": 65,
+              "predicted": 143,
+              "recall": 0.7222222222222222,
+              "precision": 0.45454545454545453,
+              "time_ratio": 1.5888888888888888,
+              "inflated": true,
+              "granularity_pp": 1.1111111111111112,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 58,
+              "tp": 0,
+              "predicted": 0,
+              "recall": 0.0,
+              "precision": null,
+              "time_ratio": 0.0,
+              "inflated": false,
+              "granularity_pp": 1.7241379310344827,
+              "passes": false,
+              "usable": false
+            }
+          },
+          "W3": {
+            "spawanie": {
+              "support": 247,
+              "tp": 189,
+              "predicted": 267,
+              "recall": 0.7651821862348178,
+              "precision": 0.7078651685393258,
+              "time_ratio": 1.0809716599190284,
+              "inflated": false,
+              "granularity_pp": 0.4048582995951417,
+              "passes": false,
+              "usable": false
+            },
+            "ukladanie_pretow": {
+              "support": 193,
+              "tp": 144,
+              "predicted": 167,
+              "recall": 0.7461139896373057,
+              "precision": 0.8622754491017964,
+              "time_ratio": 0.8652849740932642,
+              "inflated": false,
+              "granularity_pp": 0.5181347150259067,
+              "passes": false,
+              "usable": false
+            },
+            "pozostale": {
+              "support": 156,
+              "tp": 81,
+              "predicted": 166,
+              "recall": 0.5192307692307693,
+              "precision": 0.4879518072289157,
+              "time_ratio": 1.064102564102564,
+              "inflated": false,
+              "granularity_pp": 0.6410256410256411,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 4,
+              "tp": 0,
+              "predicted": 0,
+              "recall": 0.0,
+              "precision": null,
+              "time_ratio": 0.0,
+              "inflated": false,
+              "granularity_pp": 25.0,
+              "passes": false,
+              "usable": false
+            }
+          }
         }
       },
       "boundaries": {
@@ -2744,6 +3764,210 @@
           "sciaganie_elementu": 1,
           "spawanie": 13,
           "ukladanie_pretow": 1
+        }
+      },
+      "collapsed": {
+        "scores": {
+          "spawanie": {
+            "support": 744,
+            "tp": 585,
+            "predicted": 722,
+            "recall": 0.7862903225806451,
+            "precision": 0.8102493074792244,
+            "time_ratio": 0.9704301075268817,
+            "inflated": false,
+            "granularity_pp": 0.13440860215053763,
+            "passes": false,
+            "usable": false
+          },
+          "ukladanie_pretow": {
+            "support": 552,
+            "tp": 474,
+            "predicted": 571,
+            "recall": 0.8586956521739131,
+            "precision": 0.830122591943958,
+            "time_ratio": 1.0344202898550725,
+            "inflated": false,
+            "granularity_pp": 0.18115942028985507,
+            "passes": true,
+            "usable": true
+          },
+          "pozostale": {
+            "support": 441,
+            "tp": 213,
+            "predicted": 448,
+            "recall": 0.48299319727891155,
+            "precision": 0.47544642857142855,
+            "time_ratio": 1.0158730158730158,
+            "inflated": false,
+            "granularity_pp": 0.22675736961451248,
+            "passes": false,
+            "usable": false
+          },
+          "nierozpoznane": {
+            "support": 62,
+            "tp": 0,
+            "predicted": 58,
+            "recall": 0.0,
+            "precision": 0.0,
+            "time_ratio": 0.9354838709677419,
+            "inflated": false,
+            "granularity_pp": 1.6129032258064515,
+            "passes": false,
+            "usable": false
+          }
+        },
+        "per_window_scores": {
+          "W1": {
+            "spawanie": {
+              "support": 224,
+              "tp": 214,
+              "predicted": 249,
+              "recall": 0.9553571428571429,
+              "precision": 0.8594377510040161,
+              "time_ratio": 1.1116071428571428,
+              "inflated": false,
+              "granularity_pp": 0.44642857142857145,
+              "passes": true,
+              "usable": true
+            },
+            "ukladanie_pretow": {
+              "support": 180,
+              "tp": 160,
+              "predicted": 202,
+              "recall": 0.8888888888888888,
+              "precision": 0.7920792079207921,
+              "time_ratio": 1.1222222222222222,
+              "inflated": false,
+              "granularity_pp": 0.5555555555555556,
+              "passes": true,
+              "usable": true
+            },
+            "pozostale": {
+              "support": 195,
+              "tp": 73,
+              "predicted": 90,
+              "recall": 0.37435897435897436,
+              "precision": 0.8111111111111111,
+              "time_ratio": 0.46153846153846156,
+              "inflated": false,
+              "granularity_pp": 0.5128205128205128,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 0,
+              "tp": 0,
+              "predicted": 58,
+              "recall": null,
+              "precision": 0.0,
+              "time_ratio": null,
+              "inflated": false,
+              "granularity_pp": null,
+              "passes": false,
+              "usable": false
+            }
+          },
+          "W2": {
+            "spawanie": {
+              "support": 273,
+              "tp": 262,
+              "predicted": 307,
+              "recall": 0.9597069597069597,
+              "precision": 0.8534201954397395,
+              "time_ratio": 1.1245421245421245,
+              "inflated": false,
+              "granularity_pp": 0.3663003663003663,
+              "passes": true,
+              "usable": true
+            },
+            "ukladanie_pretow": {
+              "support": 179,
+              "tp": 159,
+              "predicted": 167,
+              "recall": 0.888268156424581,
+              "precision": 0.9520958083832335,
+              "time_ratio": 0.9329608938547486,
+              "inflated": false,
+              "granularity_pp": 0.5586592178770949,
+              "passes": true,
+              "usable": true
+            },
+            "pozostale": {
+              "support": 90,
+              "tp": 60,
+              "predicted": 126,
+              "recall": 0.6666666666666666,
+              "precision": 0.47619047619047616,
+              "time_ratio": 1.4,
+              "inflated": true,
+              "granularity_pp": 1.1111111111111112,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 58,
+              "tp": 0,
+              "predicted": 0,
+              "recall": 0.0,
+              "precision": null,
+              "time_ratio": 0.0,
+              "inflated": false,
+              "granularity_pp": 1.7241379310344827,
+              "passes": false,
+              "usable": false
+            }
+          },
+          "W3": {
+            "spawanie": {
+              "support": 247,
+              "tp": 109,
+              "predicted": 166,
+              "recall": 0.44129554655870445,
+              "precision": 0.6566265060240963,
+              "time_ratio": 0.6720647773279352,
+              "inflated": false,
+              "granularity_pp": 0.4048582995951417,
+              "passes": false,
+              "usable": false
+            },
+            "ukladanie_pretow": {
+              "support": 193,
+              "tp": 155,
+              "predicted": 202,
+              "recall": 0.8031088082901554,
+              "precision": 0.7673267326732673,
+              "time_ratio": 1.0466321243523315,
+              "inflated": false,
+              "granularity_pp": 0.5181347150259067,
+              "passes": false,
+              "usable": false
+            },
+            "pozostale": {
+              "support": 156,
+              "tp": 80,
+              "predicted": 232,
+              "recall": 0.5128205128205128,
+              "precision": 0.3448275862068966,
+              "time_ratio": 1.4871794871794872,
+              "inflated": true,
+              "granularity_pp": 0.6410256410256411,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 4,
+              "tp": 0,
+              "predicted": 0,
+              "recall": 0.0,
+              "precision": null,
+              "time_ratio": 0.0,
+              "inflated": false,
+              "granularity_pp": 25.0,
+              "passes": false,
+              "usable": false
+            }
+          }
         }
       },
       "boundaries": {
@@ -3209,6 +4433,210 @@
           "nierozpoznane": 3
         }
       },
+      "collapsed": {
+        "scores": {
+          "spawanie": {
+            "support": 744,
+            "tp": 536,
+            "predicted": 757,
+            "recall": 0.7204301075268817,
+            "precision": 0.7080581241743725,
+            "time_ratio": 1.01747311827957,
+            "inflated": false,
+            "granularity_pp": 0.13440860215053763,
+            "passes": false,
+            "usable": false
+          },
+          "ukladanie_pretow": {
+            "support": 552,
+            "tp": 471,
+            "predicted": 676,
+            "recall": 0.8532608695652174,
+            "precision": 0.6967455621301775,
+            "time_ratio": 1.2246376811594204,
+            "inflated": false,
+            "granularity_pp": 0.18115942028985507,
+            "passes": true,
+            "usable": true
+          },
+          "pozostale": {
+            "support": 441,
+            "tp": 132,
+            "predicted": 266,
+            "recall": 0.29931972789115646,
+            "precision": 0.49624060150375937,
+            "time_ratio": 0.6031746031746031,
+            "inflated": false,
+            "granularity_pp": 0.22675736961451248,
+            "passes": false,
+            "usable": false
+          },
+          "nierozpoznane": {
+            "support": 62,
+            "tp": 3,
+            "predicted": 100,
+            "recall": 0.04838709677419355,
+            "precision": 0.03,
+            "time_ratio": 1.6129032258064515,
+            "inflated": true,
+            "granularity_pp": 1.6129032258064515,
+            "passes": false,
+            "usable": false
+          }
+        },
+        "per_window_scores": {
+          "W1": {
+            "spawanie": {
+              "support": 224,
+              "tp": 219,
+              "predicted": 329,
+              "recall": 0.9776785714285714,
+              "precision": 0.6656534954407295,
+              "time_ratio": 1.46875,
+              "inflated": true,
+              "granularity_pp": 0.44642857142857145,
+              "passes": true,
+              "usable": false
+            },
+            "ukladanie_pretow": {
+              "support": 180,
+              "tp": 169,
+              "predicted": 183,
+              "recall": 0.9388888888888889,
+              "precision": 0.9234972677595629,
+              "time_ratio": 1.0166666666666666,
+              "inflated": false,
+              "granularity_pp": 0.5555555555555556,
+              "passes": true,
+              "usable": true
+            },
+            "pozostale": {
+              "support": 195,
+              "tp": 31,
+              "predicted": 37,
+              "recall": 0.15897435897435896,
+              "precision": 0.8378378378378378,
+              "time_ratio": 0.18974358974358974,
+              "inflated": false,
+              "granularity_pp": 0.5128205128205128,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 0,
+              "tp": 0,
+              "predicted": 50,
+              "recall": null,
+              "precision": 0.0,
+              "time_ratio": null,
+              "inflated": false,
+              "granularity_pp": null,
+              "passes": false,
+              "usable": false
+            }
+          },
+          "W2": {
+            "spawanie": {
+              "support": 273,
+              "tp": 249,
+              "predicted": 262,
+              "recall": 0.9120879120879121,
+              "precision": 0.950381679389313,
+              "time_ratio": 0.9597069597069597,
+              "inflated": false,
+              "granularity_pp": 0.3663003663003663,
+              "passes": true,
+              "usable": true
+            },
+            "ukladanie_pretow": {
+              "support": 179,
+              "tp": 177,
+              "predicted": 195,
+              "recall": 0.9888268156424581,
+              "precision": 0.9076923076923077,
+              "time_ratio": 1.089385474860335,
+              "inflated": false,
+              "granularity_pp": 0.5586592178770949,
+              "passes": true,
+              "usable": true
+            },
+            "pozostale": {
+              "support": 90,
+              "tp": 65,
+              "predicted": 143,
+              "recall": 0.7222222222222222,
+              "precision": 0.45454545454545453,
+              "time_ratio": 1.5888888888888888,
+              "inflated": true,
+              "granularity_pp": 1.1111111111111112,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 58,
+              "tp": 0,
+              "predicted": 0,
+              "recall": 0.0,
+              "precision": null,
+              "time_ratio": 0.0,
+              "inflated": false,
+              "granularity_pp": 1.7241379310344827,
+              "passes": false,
+              "usable": false
+            }
+          },
+          "W3": {
+            "spawanie": {
+              "support": 247,
+              "tp": 68,
+              "predicted": 166,
+              "recall": 0.27530364372469635,
+              "precision": 0.40963855421686746,
+              "time_ratio": 0.6720647773279352,
+              "inflated": false,
+              "granularity_pp": 0.4048582995951417,
+              "passes": false,
+              "usable": false
+            },
+            "ukladanie_pretow": {
+              "support": 193,
+              "tp": 125,
+              "predicted": 298,
+              "recall": 0.6476683937823834,
+              "precision": 0.41946308724832215,
+              "time_ratio": 1.544041450777202,
+              "inflated": true,
+              "granularity_pp": 0.5181347150259067,
+              "passes": false,
+              "usable": false
+            },
+            "pozostale": {
+              "support": 156,
+              "tp": 36,
+              "predicted": 86,
+              "recall": 0.23076923076923078,
+              "precision": 0.4186046511627907,
+              "time_ratio": 0.5512820512820513,
+              "inflated": false,
+              "granularity_pp": 0.6410256410256411,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 4,
+              "tp": 3,
+              "predicted": 50,
+              "recall": 0.75,
+              "precision": 0.06,
+              "time_ratio": 12.5,
+              "inflated": true,
+              "granularity_pp": 25.0,
+              "passes": false,
+              "usable": false
+            }
+          }
+        }
+      },
       "boundaries": {
         "n": 249,
         "truth_boundaries": 249,
@@ -3670,6 +5098,210 @@
           "ukladanie_pretow": 1
         }
       },
+      "collapsed": {
+        "scores": {
+          "spawanie": {
+            "support": 744,
+            "tp": 586,
+            "predicted": 776,
+            "recall": 0.7876344086021505,
+            "precision": 0.7551546391752577,
+            "time_ratio": 1.043010752688172,
+            "inflated": false,
+            "granularity_pp": 0.13440860215053763,
+            "passes": false,
+            "usable": false
+          },
+          "ukladanie_pretow": {
+            "support": 552,
+            "tp": 437,
+            "predicted": 587,
+            "recall": 0.7916666666666666,
+            "precision": 0.7444633730834753,
+            "time_ratio": 1.0634057971014492,
+            "inflated": false,
+            "granularity_pp": 0.18115942028985507,
+            "passes": false,
+            "usable": false
+          },
+          "pozostale": {
+            "support": 441,
+            "tp": 153,
+            "predicted": 318,
+            "recall": 0.3469387755102041,
+            "precision": 0.4811320754716981,
+            "time_ratio": 0.7210884353741497,
+            "inflated": false,
+            "granularity_pp": 0.22675736961451248,
+            "passes": false,
+            "usable": false
+          },
+          "nierozpoznane": {
+            "support": 62,
+            "tp": 0,
+            "predicted": 118,
+            "recall": 0.0,
+            "precision": 0.0,
+            "time_ratio": 1.903225806451613,
+            "inflated": true,
+            "granularity_pp": 1.6129032258064515,
+            "passes": false,
+            "usable": false
+          }
+        },
+        "per_window_scores": {
+          "W1": {
+            "spawanie": {
+              "support": 224,
+              "tp": 218,
+              "predicted": 265,
+              "recall": 0.9732142857142857,
+              "precision": 0.8226415094339623,
+              "time_ratio": 1.1830357142857142,
+              "inflated": false,
+              "granularity_pp": 0.44642857142857145,
+              "passes": true,
+              "usable": true
+            },
+            "ukladanie_pretow": {
+              "support": 180,
+              "tp": 164,
+              "predicted": 177,
+              "recall": 0.9111111111111111,
+              "precision": 0.9265536723163842,
+              "time_ratio": 0.9833333333333333,
+              "inflated": false,
+              "granularity_pp": 0.5555555555555556,
+              "passes": true,
+              "usable": true
+            },
+            "pozostale": {
+              "support": 195,
+              "tp": 40,
+              "predicted": 50,
+              "recall": 0.20512820512820512,
+              "precision": 0.8,
+              "time_ratio": 0.2564102564102564,
+              "inflated": false,
+              "granularity_pp": 0.5128205128205128,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 0,
+              "tp": 0,
+              "predicted": 107,
+              "recall": null,
+              "precision": 0.0,
+              "time_ratio": null,
+              "inflated": false,
+              "granularity_pp": null,
+              "passes": false,
+              "usable": false
+            }
+          },
+          "W2": {
+            "spawanie": {
+              "support": 273,
+              "tp": 253,
+              "predicted": 257,
+              "recall": 0.9267399267399268,
+              "precision": 0.9844357976653697,
+              "time_ratio": 0.9413919413919414,
+              "inflated": false,
+              "granularity_pp": 0.3663003663003663,
+              "passes": true,
+              "usable": true
+            },
+            "ukladanie_pretow": {
+              "support": 179,
+              "tp": 173,
+              "predicted": 197,
+              "recall": 0.9664804469273743,
+              "precision": 0.8781725888324873,
+              "time_ratio": 1.100558659217877,
+              "inflated": false,
+              "granularity_pp": 0.5586592178770949,
+              "passes": true,
+              "usable": true
+            },
+            "pozostale": {
+              "support": 90,
+              "tp": 71,
+              "predicted": 146,
+              "recall": 0.7888888888888889,
+              "precision": 0.4863013698630137,
+              "time_ratio": 1.6222222222222222,
+              "inflated": true,
+              "granularity_pp": 1.1111111111111112,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 58,
+              "tp": 0,
+              "predicted": 0,
+              "recall": 0.0,
+              "precision": null,
+              "time_ratio": 0.0,
+              "inflated": false,
+              "granularity_pp": 1.7241379310344827,
+              "passes": false,
+              "usable": false
+            }
+          },
+          "W3": {
+            "spawanie": {
+              "support": 247,
+              "tp": 115,
+              "predicted": 254,
+              "recall": 0.46558704453441296,
+              "precision": 0.452755905511811,
+              "time_ratio": 1.0283400809716599,
+              "inflated": false,
+              "granularity_pp": 0.4048582995951417,
+              "passes": false,
+              "usable": false
+            },
+            "ukladanie_pretow": {
+              "support": 193,
+              "tp": 100,
+              "predicted": 213,
+              "recall": 0.5181347150259067,
+              "precision": 0.4694835680751174,
+              "time_ratio": 1.1036269430051813,
+              "inflated": false,
+              "granularity_pp": 0.5181347150259067,
+              "passes": false,
+              "usable": false
+            },
+            "pozostale": {
+              "support": 156,
+              "tp": 42,
+              "predicted": 122,
+              "recall": 0.2692307692307692,
+              "precision": 0.3442622950819672,
+              "time_ratio": 0.782051282051282,
+              "inflated": false,
+              "granularity_pp": 0.6410256410256411,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 4,
+              "tp": 0,
+              "predicted": 11,
+              "recall": 0.0,
+              "precision": 0.0,
+              "time_ratio": 2.75,
+              "inflated": true,
+              "granularity_pp": 25.0,
+              "passes": false,
+              "usable": false
+            }
+          }
+        }
+      },
       "boundaries": {
         "n": 249,
         "truth_boundaries": 249,
@@ -4113,6 +5745,210 @@
           "sciaganie_elementu": 7
         }
       },
+      "collapsed": {
+        "scores": {
+          "spawanie": {
+            "support": 744,
+            "tp": 713,
+            "predicted": 1567,
+            "recall": 0.9583333333333334,
+            "precision": 0.45500957243139756,
+            "time_ratio": 2.1061827956989245,
+            "inflated": true,
+            "granularity_pp": 0.13440860215053763,
+            "passes": true,
+            "usable": false
+          },
+          "ukladanie_pretow": {
+            "support": 552,
+            "tp": 2,
+            "predicted": 2,
+            "recall": 0.0036231884057971015,
+            "precision": 1.0,
+            "time_ratio": 0.0036231884057971015,
+            "inflated": false,
+            "granularity_pp": 0.18115942028985507,
+            "passes": false,
+            "usable": false
+          },
+          "pozostale": {
+            "support": 441,
+            "tp": 141,
+            "predicted": 230,
+            "recall": 0.3197278911564626,
+            "precision": 0.6130434782608696,
+            "time_ratio": 0.5215419501133787,
+            "inflated": false,
+            "granularity_pp": 0.22675736961451248,
+            "passes": false,
+            "usable": false
+          },
+          "nierozpoznane": {
+            "support": 62,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 1.6129032258064515,
+            "passes": false,
+            "usable": false
+          }
+        },
+        "per_window_scores": {
+          "W1": {
+            "spawanie": {
+              "support": 224,
+              "tp": 221,
+              "predicted": 466,
+              "recall": 0.9866071428571429,
+              "precision": 0.4742489270386266,
+              "time_ratio": 2.080357142857143,
+              "inflated": true,
+              "granularity_pp": 0.44642857142857145,
+              "passes": true,
+              "usable": false
+            },
+            "ukladanie_pretow": {
+              "support": 180,
+              "tp": 2,
+              "predicted": 2,
+              "recall": 0.011111111111111112,
+              "precision": 1.0,
+              "time_ratio": 0.011111111111111112,
+              "inflated": false,
+              "granularity_pp": 0.5555555555555556,
+              "passes": false,
+              "usable": false
+            },
+            "pozostale": {
+              "support": 195,
+              "tp": 121,
+              "predicted": 131,
+              "recall": 0.6205128205128205,
+              "precision": 0.9236641221374046,
+              "time_ratio": 0.6717948717948717,
+              "inflated": false,
+              "granularity_pp": 0.5128205128205128,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 0,
+              "tp": 0,
+              "predicted": 0,
+              "recall": null,
+              "precision": null,
+              "time_ratio": null,
+              "inflated": false,
+              "granularity_pp": null,
+              "passes": false,
+              "usable": false
+            }
+          },
+          "W2": {
+            "spawanie": {
+              "support": 273,
+              "tp": 251,
+              "predicted": 513,
+              "recall": 0.9194139194139194,
+              "precision": 0.48927875243664715,
+              "time_ratio": 1.879120879120879,
+              "inflated": true,
+              "granularity_pp": 0.3663003663003663,
+              "passes": true,
+              "usable": false
+            },
+            "ukladanie_pretow": {
+              "support": 179,
+              "tp": 0,
+              "predicted": 0,
+              "recall": 0.0,
+              "precision": null,
+              "time_ratio": 0.0,
+              "inflated": false,
+              "granularity_pp": 0.5586592178770949,
+              "passes": false,
+              "usable": false
+            },
+            "pozostale": {
+              "support": 90,
+              "tp": 16,
+              "predicted": 87,
+              "recall": 0.17777777777777778,
+              "precision": 0.1839080459770115,
+              "time_ratio": 0.9666666666666667,
+              "inflated": false,
+              "granularity_pp": 1.1111111111111112,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 58,
+              "tp": 0,
+              "predicted": 0,
+              "recall": 0.0,
+              "precision": null,
+              "time_ratio": 0.0,
+              "inflated": false,
+              "granularity_pp": 1.7241379310344827,
+              "passes": false,
+              "usable": false
+            }
+          },
+          "W3": {
+            "spawanie": {
+              "support": 247,
+              "tp": 241,
+              "predicted": 588,
+              "recall": 0.9757085020242915,
+              "precision": 0.4098639455782313,
+              "time_ratio": 2.380566801619433,
+              "inflated": true,
+              "granularity_pp": 0.4048582995951417,
+              "passes": true,
+              "usable": false
+            },
+            "ukladanie_pretow": {
+              "support": 193,
+              "tp": 0,
+              "predicted": 0,
+              "recall": 0.0,
+              "precision": null,
+              "time_ratio": 0.0,
+              "inflated": false,
+              "granularity_pp": 0.5181347150259067,
+              "passes": false,
+              "usable": false
+            },
+            "pozostale": {
+              "support": 156,
+              "tp": 4,
+              "predicted": 12,
+              "recall": 0.02564102564102564,
+              "precision": 0.3333333333333333,
+              "time_ratio": 0.07692307692307693,
+              "inflated": false,
+              "granularity_pp": 0.6410256410256411,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 4,
+              "tp": 0,
+              "predicted": 0,
+              "recall": 0.0,
+              "precision": null,
+              "time_ratio": 0.0,
+              "inflated": false,
+              "granularity_pp": 25.0,
+              "passes": false,
+              "usable": false
+            }
+          }
+        }
+      },
       "boundaries": {
         "n": 249,
         "truth_boundaries": 249,
@@ -4547,6 +6383,210 @@
           "spawanie": 1
         }
       },
+      "collapsed": {
+        "scores": {
+          "spawanie": {
+            "support": 744,
+            "tp": 741,
+            "predicted": 1549,
+            "recall": 0.9959677419354839,
+            "precision": 0.47837314396384767,
+            "time_ratio": 2.081989247311828,
+            "inflated": true,
+            "granularity_pp": 0.13440860215053763,
+            "passes": true,
+            "usable": false
+          },
+          "ukladanie_pretow": {
+            "support": 552,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 0.18115942028985507,
+            "passes": false,
+            "usable": false
+          },
+          "pozostale": {
+            "support": 441,
+            "tp": 178,
+            "predicted": 250,
+            "recall": 0.4036281179138322,
+            "precision": 0.712,
+            "time_ratio": 0.5668934240362812,
+            "inflated": false,
+            "granularity_pp": 0.22675736961451248,
+            "passes": false,
+            "usable": false
+          },
+          "nierozpoznane": {
+            "support": 62,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 1.6129032258064515,
+            "passes": false,
+            "usable": false
+          }
+        },
+        "per_window_scores": {
+          "W1": {
+            "spawanie": {
+              "support": 224,
+              "tp": 224,
+              "predicted": 468,
+              "recall": 1.0,
+              "precision": 0.47863247863247865,
+              "time_ratio": 2.0892857142857144,
+              "inflated": true,
+              "granularity_pp": 0.44642857142857145,
+              "passes": true,
+              "usable": false
+            },
+            "ukladanie_pretow": {
+              "support": 180,
+              "tp": 0,
+              "predicted": 0,
+              "recall": 0.0,
+              "precision": null,
+              "time_ratio": 0.0,
+              "inflated": false,
+              "granularity_pp": 0.5555555555555556,
+              "passes": false,
+              "usable": false
+            },
+            "pozostale": {
+              "support": 195,
+              "tp": 127,
+              "predicted": 131,
+              "recall": 0.6512820512820513,
+              "precision": 0.9694656488549618,
+              "time_ratio": 0.6717948717948717,
+              "inflated": false,
+              "granularity_pp": 0.5128205128205128,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 0,
+              "tp": 0,
+              "predicted": 0,
+              "recall": null,
+              "precision": null,
+              "time_ratio": null,
+              "inflated": false,
+              "granularity_pp": null,
+              "passes": false,
+              "usable": false
+            }
+          },
+          "W2": {
+            "spawanie": {
+              "support": 273,
+              "tp": 270,
+              "predicted": 516,
+              "recall": 0.989010989010989,
+              "precision": 0.5232558139534884,
+              "time_ratio": 1.89010989010989,
+              "inflated": true,
+              "granularity_pp": 0.3663003663003663,
+              "passes": true,
+              "usable": false
+            },
+            "ukladanie_pretow": {
+              "support": 179,
+              "tp": 0,
+              "predicted": 0,
+              "recall": 0.0,
+              "precision": null,
+              "time_ratio": 0.0,
+              "inflated": false,
+              "granularity_pp": 0.5586592178770949,
+              "passes": false,
+              "usable": false
+            },
+            "pozostale": {
+              "support": 90,
+              "tp": 21,
+              "predicted": 84,
+              "recall": 0.23333333333333334,
+              "precision": 0.25,
+              "time_ratio": 0.9333333333333333,
+              "inflated": false,
+              "granularity_pp": 1.1111111111111112,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 58,
+              "tp": 0,
+              "predicted": 0,
+              "recall": 0.0,
+              "precision": null,
+              "time_ratio": 0.0,
+              "inflated": false,
+              "granularity_pp": 1.7241379310344827,
+              "passes": false,
+              "usable": false
+            }
+          },
+          "W3": {
+            "spawanie": {
+              "support": 247,
+              "tp": 247,
+              "predicted": 565,
+              "recall": 1.0,
+              "precision": 0.43716814159292033,
+              "time_ratio": 2.2874493927125505,
+              "inflated": true,
+              "granularity_pp": 0.4048582995951417,
+              "passes": true,
+              "usable": false
+            },
+            "ukladanie_pretow": {
+              "support": 193,
+              "tp": 0,
+              "predicted": 0,
+              "recall": 0.0,
+              "precision": null,
+              "time_ratio": 0.0,
+              "inflated": false,
+              "granularity_pp": 0.5181347150259067,
+              "passes": false,
+              "usable": false
+            },
+            "pozostale": {
+              "support": 156,
+              "tp": 30,
+              "predicted": 35,
+              "recall": 0.19230769230769232,
+              "precision": 0.8571428571428571,
+              "time_ratio": 0.22435897435897437,
+              "inflated": false,
+              "granularity_pp": 0.6410256410256411,
+              "passes": false,
+              "usable": false
+            },
+            "nierozpoznane": {
+              "support": 4,
+              "tp": 0,
+              "predicted": 0,
+              "recall": 0.0,
+              "precision": null,
+              "time_ratio": 0.0,
+              "inflated": false,
+              "granularity_pp": 25.0,
+              "passes": false,
+              "usable": false
+            }
+          }
+        }
+      },
       "boundaries": {
         "n": 249,
         "truth_boundaries": 249,
@@ -4684,5 +6724,27 @@
         "usable": false
       }
     }
+  },
+  "collapse": {
+    "declared": "2026-09-02",
+    "bucket": "pozostale",
+    "members": [
+      "sciaganie_elementu",
+      "inna_czynnosc",
+      "postoj",
+      "brak_na_stanowisku"
+    ],
+    "name_pl": "Pozostałe czynności",
+    "why": "The three-category scope the client accepted from the #117 feasibility report: spawanie, ukladanie_pretow, and everything else as one collective line. Every figure in that report was produced on seven categories, so the vocabulary actually being delivered had never been scored (#121).",
+    "excludes": "nierozpoznane is deliberately NOT a member and keeps its own row. The manifest defines it as never work and never downtime, and the client report says the same; folding the honest cannot-tell into a collective work bucket would convert 3.4% of unknown time into measured time.",
+    "integrity": "The categories were fixed by the client acceptance of the #117 scope, which predates this scoring - the mapping is not chosen from arm results. But seven-category arm results WERE already known when this block was written, so like the 3-fold split it is not a blind pre-registration, and it is recorded that way rather than implied to be one.",
+    "never_mix": "A three-category figure is not comparable with a seven-category one and the two must never appear in the same table. evaluate_arms.py enforces the separation in the renderer; a reader cannot undo a merge by reading harder.",
+    "source": "manifest.source.json",
+    "classes": [
+      "spawanie",
+      "ukladanie_pretow",
+      "pozostale",
+      "nierozpoznane"
+    ]
   }
 }

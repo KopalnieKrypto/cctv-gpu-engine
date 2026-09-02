@@ -58,6 +58,16 @@
 			"note": "Not an activity. The annotator's and the classifier's honest 'cannot tell'. Never counted as work or downtime."
 		}
 	],
+	"delivery_vocabulary": {
+		"declared": "2026-09-02",
+		"bucket": "pozostale",
+		"members": ["sciaganie_elementu", "inna_czynnosc", "postoj", "brak_na_stanowisku"],
+		"name_pl": "Pozostałe czynności",
+		"why": "The three-category scope the client accepted from the #117 feasibility report: spawanie, ukladanie_pretow, and everything else as one collective line. Every figure in that report was produced on seven categories, so the vocabulary actually being delivered had never been scored (#121).",
+		"excludes": "nierozpoznane is deliberately NOT a member and keeps its own row. The manifest defines it as never work and never downtime, and the client report says the same; folding the honest cannot-tell into a collective work bucket would convert 3.4% of unknown time into measured time.",
+		"integrity": "The categories were fixed by the client acceptance of the #117 scope, which predates this scoring - the mapping is not chosen from arm results. But seven-category arm results WERE already known when this block was written, so like the 3-fold split it is not a blind pre-registration, and it is recorded that way rather than implied to be one.",
+		"never_mix": "A three-category figure is not comparable with a seven-category one and the two must never appear in the same table. evaluate_arms.py enforces the separation in the renderer; a reader cannot undo a merge by reading harder."
+	},
 	"clips": [
 		{
 			"slot": "W1",

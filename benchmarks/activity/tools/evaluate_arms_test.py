@@ -33,6 +33,34 @@ def _annotation(window: str, labels: list[str], stride: int = 2) -> dict:
     }
 
 
+ACTIVITY_IDS = [
+    "spawanie",
+    "ukladanie_pretow",
+    "sciaganie_elementu",
+    "inna_czynnosc",
+    "postoj",
+    "brak_na_stanowisku",
+    "nierozpoznane",
+]
+
+
+# The vocabulary the client accepted (#117): `spawanie`, `ukladanie_pretow`,
+# and everything else on one line.
+DELIVERY_MEMBERS = [
+    "sciaganie_elementu",
+    "inna_czynnosc",
+    "postoj",
+    "brak_na_stanowisku",
+]
+
+
+def _manifest(members: list[str], bucket: str = "pozostale") -> dict:
+    return {
+        "activities": [{"id": a} for a in ACTIVITY_IDS],
+        "delivery_vocabulary": {"bucket": bucket, "members": members},
+    }
+
+
 class TestPerActivityScores:
     def test_bar_is_per_activity_not_an_average(self):
         # 18 correct `spawanie` and 2 of 4 `postoj`: average clears 85%, postoj does not.
@@ -217,3 +245,288 @@ class TestArcBaseline:
         assert f1_dim == pytest.approx(1.0)
         assert f1_bright == pytest.approx(1.0)
         assert t_bright > t_dim
+
+
+class TestCollapse:
+    def test_members_score_as_one_bucket(self):
+        # The delivery vocabulary the client accepted: two named activities and
+        # everything else as one line. A model that confused `postoj` with
+        # `inna_czynnosc` was wrong under seven categories and is right under three.
+        collapse = {"bucket": "pozostale", "members": ["inna_czynnosc", "postoj"]}
+        pairs = [("postoj", "inna_czynnosc")] * 8 + [("inna_czynnosc", "postoj")] * 2
+        merged = ev.collapse_pairs(pairs, collapse)
+        s = ev.per_activity_scores(merged, ["pozostale"])["pozostale"]
+        assert s["support"] == 10
+        assert s["recall"] == 1.0
+
+    def test_nierozpoznane_is_refused_as_a_bucket_member(self):
+        # The manifest defines it as never work and never downtime. Folding the
+        # honest "cannot tell" into a work bucket would quietly convert unknown
+        # time into measured time - the one error a chronometraz cannot survive.
+        manifest = _manifest(members=["postoj", ev.NON_ACTIVITY])
+        with pytest.raises(SystemExit):
+            ev.resolve_collapse(manifest, None)
+
+    def test_nierozpoznane_keeps_its_own_row(self):
+        # Three delivered categories plus the abstention, which is not one of them.
+        collapse = {"bucket": "pozostale", "members": DELIVERY_MEMBERS}
+        assert ev.collapse_classes(ACTIVITY_IDS, collapse) == [
+            "spawanie",
+            "ukladanie_pretow",
+            "pozostale",
+            "nierozpoznane",
+        ]
+        assert ev.collapse_pairs([("nierozpoznane", "nierozpoznane")], collapse) == [
+            ("nierozpoznane", "nierozpoznane")
+        ]
+
+    def test_unknown_member_is_refused(self):
+        # A typo would silently build a smaller bucket and still print a
+        # confident three-category number.
+        manifest = _manifest(members=["postoj", "sciaganie_elemetu"])
+        with pytest.raises(SystemExit):
+            ev.resolve_collapse(manifest, None)
+
+    def test_bucket_named_after_a_real_activity_is_refused(self):
+        # `postoj` would then mean both the activity and the bucket, and no
+        # reader of the table could tell which figure they were looking at.
+        manifest = _manifest(members=["inna_czynnosc", "postoj"], bucket="postoj")
+        with pytest.raises(SystemExit):
+            ev.resolve_collapse(manifest, None)
+
+    def test_declared_vocabulary_names_the_manifest_as_its_source(self):
+        # The report header prints this, so a reader can tell a fixture-declared
+        # vocabulary from one someone typed at the prompt.
+        collapse = ev.resolve_collapse(_manifest(members=DELIVERY_MEMBERS), None)
+        assert collapse["bucket"] == "pozostale"
+        assert collapse["members"] == DELIVERY_MEMBERS
+        assert collapse["source"] == "manifest.source.json"
+
+    def test_flag_overrides_the_declared_vocabulary(self):
+        manifest = _manifest(members=DELIVERY_MEMBERS)
+        collapse = ev.resolve_collapse(manifest, "inne=postoj,inna_czynnosc")
+        assert collapse["bucket"] == "inne"
+        assert collapse["members"] == ["postoj", "inna_czynnosc"]
+        assert collapse["source"] == "--collapse"
+
+    def test_flag_is_validated_like_the_declared_block(self):
+        # An ad-hoc vocabulary is still a vocabulary; the guards are not a
+        # property of where the mapping was written down.
+        manifest = _manifest(members=DELIVERY_MEMBERS)
+        with pytest.raises(SystemExit):
+            ev.resolve_collapse(manifest, f"inne=postoj,{ev.NON_ACTIVITY}")
+
+
+def _write_fixture(tmp_path: Path, *, declare_vocabulary: bool) -> Path:
+    """A two-window fixture whose arm confuses exactly the classes the bucket merges.
+
+    Under seven categories the arm scores 0% on `postoj` and `inna_czynnosc`;
+    under three they are the same line and it scores 100%. That is the whole
+    hypothesis of #121, so the fixture has to be able to show it.
+    """
+    labels = [
+        "spawanie",
+        "spawanie",
+        "spawanie",
+        "spawanie",
+        "ukladanie_pretow",
+        "ukladanie_pretow",
+        "postoj",
+        "postoj",
+        "inna_czynnosc",
+        "nierozpoznane",
+    ]
+    # Swaps `postoj` for `inna_czynnosc` and back - wrong under seven, right under three.
+    swap = {"postoj": "inna_czynnosc", "inna_czynnosc": "postoj"}
+    predicted = [swap.get(a, a) for a in labels]
+
+    manifest = {
+        "activities": [{"id": a} for a in ACTIVITY_IDS],
+        "clips": [
+            {
+                "slot": w,
+                "annotated": True,
+                "annotation_file": f"{w}.intervals.json",
+                "window_local": f"{w} 07:00",
+                "shift_position": "pre-break",
+            }
+            for w in ("W1", "W2")
+        ],
+        "split": {
+            "declared": "2026-09-02",
+            "protocol": "2-fold cross-validation",
+            "folds": [
+                {"id": "A", "train_dev": ["W1"], "held_out": ["W2"]},
+                {"id": "B", "train_dev": ["W2"], "held_out": ["W1"]},
+            ],
+            "reporting": "union of held-out folds",
+            "caveat": "toy fixture",
+        },
+    }
+    if declare_vocabulary:
+        manifest["delivery_vocabulary"] = {
+            "declared": "2026-09-02",
+            "bucket": "pozostale",
+            "members": DELIVERY_MEMBERS,
+            "why": "the three-category scope the client accepted (#117)",
+        }
+
+    for w in ("W1", "W2"):
+        truth = _annotation(w, labels)
+        (tmp_path / f"{w}.intervals.json").write_text(
+            json.dumps(
+                {
+                    "window": w,
+                    "stride_s": truth["stride_s"],
+                    "duration_s": truth["duration_s"],
+                    "samples": [
+                        {"t_s": t, "activity_id": a} for t, a in sorted(truth["grid"].items())
+                    ],
+                    "intervals": truth["intervals"],
+                }
+            )
+        )
+        (tmp_path / f"pred-{w}.json").write_text(
+            json.dumps(
+                {
+                    "arm": "toy",
+                    "window": w,
+                    "samples": [{"t_s": i * 2, "activity_id": a} for i, a in enumerate(predicted)],
+                    "gpu": {
+                        "box": "cctv-vps",
+                        "gpus_used": 1,
+                        "gpu_seconds": 10.0,
+                        "video_seconds": 20,
+                        "peak_vram_mib": 1000,
+                    },
+                }
+            )
+        )
+
+    path = tmp_path / "manifest.source.json"
+    path.write_text(json.dumps(manifest))
+    return path
+
+
+def _render_fixture(tmp_path: Path, monkeypatch, *, declare_vocabulary=True, flag=None) -> str:
+    manifest = _write_fixture(tmp_path, declare_vocabulary=declare_vocabulary)
+    out = tmp_path / "report.md"
+    argv = [
+        "evaluate_arms.py",
+        "--manifest",
+        str(manifest),
+        "--predictions",
+        str(tmp_path / "pred-W1.json"),
+        str(tmp_path / "pred-W2.json"),
+        "--out",
+        str(out),
+    ]
+    if flag:
+        argv += ["--collapse", flag]
+    monkeypatch.setattr(sys, "argv", argv)
+    ev.main()
+    return out.read_text()
+
+
+def _slice(text: str, heading: str, level: str) -> str:
+    lines = text.splitlines()
+    start = next(i for i, ln in enumerate(lines) if ln.startswith(heading))
+    end = next(
+        (i for i, ln in enumerate(lines[start + 1 :], start + 1) if ln.startswith(level)),
+        len(lines),
+    )
+    return "\n".join(lines[start:end])
+
+
+def _tables(report: str) -> list[list[str]]:
+    """Every markdown table in the report, as runs of consecutive `|` lines."""
+    tables, current = [], []
+    for ln in report.splitlines():
+        if ln.startswith("|"):
+            current.append(ln)
+        elif current:
+            tables.append(current)
+            current = []
+    return tables + ([current] if current else [])
+
+
+def _row_labels(table: list[str]) -> set[str]:
+    return {row.split("|")[1].strip().strip("`") for row in table if row.count("|") > 1}
+
+
+def _section(report: str, heading: str) -> str:
+    return _slice(report, heading, "## ")
+
+
+def _subsection(section: str, heading: str) -> str:
+    return _slice(section, heading, "### ")
+
+
+class TestCollapsedReport:
+    def test_header_states_which_activities_were_merged(self, tmp_path: Path, monkeypatch):
+        # A three-category figure must never be mistakable for a seven-category
+        # one, so the merge is stated before any number is shown.
+        report = _render_fixture(tmp_path, monkeypatch)
+        lines = report.splitlines()
+        stated = [
+            i
+            for i, ln in enumerate(lines)
+            if "`pozostale`" in ln and all(f"`{m}`" in ln for m in DELIVERY_MEMBERS)
+        ]
+        assert stated, "no line states which activities were merged"
+        first_arm = next(i for i, ln in enumerate(lines) if ln.startswith("## Arm:"))
+        assert stated[0] < first_arm, "the merge is stated after the first arm's numbers"
+
+    def test_three_categories_carry_recall_and_time_ratio_in_both_tables(
+        self, tmp_path: Path, monkeypatch
+    ):
+        # The folds disagree on this fixture, so the union alone describes
+        # neither of them - both views have to be present.
+        delivery = _section(_render_fixture(tmp_path, monkeypatch), "## Delivery vocabulary")
+        union = _subsection(delivery, "### Held-out union")
+        per_window = _subsection(delivery, "### Per held-out window")
+
+        union_row = next(ln for ln in union.splitlines() if ln.startswith("| `pozostale`"))
+        assert "100.0%" in union_row
+        assert "1.00×" in union_row
+
+        assert "W1" in per_window and "W2" in per_window
+        window_row = next(ln for ln in per_window.splitlines() if ln.startswith("| `pozostale`"))
+        assert window_row.count("100.0%") == 2
+        assert window_row.count("1.00×") == 2
+
+    def test_no_table_mixes_the_two_vocabularies(self, tmp_path: Path, monkeypatch):
+        # A merge cannot be undone by reading harder. If one table ever carried
+        # both `pozostale` and one of its members, a reader would have no way to
+        # tell a three-category figure from a seven-category one.
+        report = _render_fixture(tmp_path, monkeypatch)
+        members = set(DELIVERY_MEMBERS)
+        for table in _tables(report):
+            labels = _row_labels(table)
+            assert not ("pozostale" in labels and labels & members), table[0]
+
+    def test_seven_category_sections_are_untouched_by_the_collapse(
+        self, tmp_path: Path, monkeypatch
+    ):
+        # The arm swaps two activities the bucket merges. Under seven categories
+        # that is still an error, and the collapse must not launder it.
+        report = _render_fixture(tmp_path, monkeypatch)
+        arm = _section(report, "## Arm: `toy`")
+        postoj = next(ln for ln in arm.splitlines() if ln.startswith("| `postoj`"))
+        assert "0.0%" in postoj
+
+    def test_no_declared_vocabulary_means_no_delivery_section(self, tmp_path: Path, monkeypatch):
+        report = _render_fixture(tmp_path, monkeypatch, declare_vocabulary=False)
+        assert "Delivery vocabulary" not in report
+        assert "pozostale" not in report
+
+    def test_unanswered_samples_are_not_swallowed_by_the_bucket(self):
+        # The harness's central rule - an unanswered sample is an error, not a
+        # smaller denominator - has to survive the collapse. It would not if the
+        # bucket were defined as "everything except the named categories".
+        collapse = {"bucket": "pozostale", "members": DELIVERY_MEMBERS}
+        merged = ev.collapse_pairs([("postoj", "__brak_predykcji__")], collapse)
+        assert merged == [("pozostale", "__brak_predykcji__")]
+        s = ev.per_activity_scores(merged, ["pozostale"])["pozostale"]
+        assert s["support"] == 1
+        assert s["recall"] == 0.0

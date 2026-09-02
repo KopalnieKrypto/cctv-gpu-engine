@@ -21,6 +21,200 @@ Protocol: **3-fold cross-validation over the three windows**, declared 2026-09-0
 
 Per-activity accuracy is computed on the UNION of the three folds' held-out predictions - every labelled sample is predicted exactly once, by a model that never saw it. One confusion matrix per arm over that union, plus the per-fold matrices so a fold-specific collapse is visible.
 
+## Delivery vocabulary: 3 categories
+
+`pozostale` = `sciaganie_elementu` + `inna_czynnosc` + `postoj` + `brak_na_stanowisku` — declared in `manifest.source.json`.
+
+Every figure in this section is over 3 categories and is **not comparable** with the per-arm sections below, which score all 7 separately. A merge cannot be undone by reading harder, so the two vocabularies never share a table.
+
+`nierozpoznane` is **not** a member of the bucket and keeps its own row. It is neither work nor downtime, and folding the honest "cannot tell" into a work bucket would convert unknown time into measured time.
+
+### Held-out union
+
+#### `pixel-probe-dinov2-224`
+
+| Category | Support | Recall (the bar) | Precision | Time reported | 1 error = | Verdict |
+|---|---:|---:|---:|---:|---:|:---:|
+| `spawanie` | 744 | 65.1% | 91.7% | 0.71× | 0.1 pp | ❌ |
+| `ukladanie_pretow` | 552 | 75.5% | 75.4% | 1.00× | 0.2 pp | ❌ |
+| `pozostale` | 441 | 37.0% | 36.1% | 1.02× | 0.2 pp | ❌ |
+| `nierozpoznane` | 62 | 4.8% | 1.1% | 4.29× | 1.6 pp | — |
+
+#### `pixel-probe-dinov2-518`
+
+| Category | Support | Recall (the bar) | Precision | Time reported | 1 error = | Verdict |
+|---|---:|---:|---:|---:|---:|:---:|
+| `spawanie` | 744 | 82.4% | 86.2% | 0.96× | 0.1 pp | ❌ |
+| `ukladanie_pretow` | 552 | 79.0% | 75.6% | 1.05× | 0.2 pp | ❌ |
+| `pozostale` | 441 | 64.4% | 56.5% | 1.14× | 0.2 pp | ❌ |
+| `nierozpoznane` | 62 | 0.0% | 0.0% | 0.13× | 1.6 pp | — |
+
+#### `tcn-fused-518`
+
+| Category | Support | Recall (the bar) | Precision | Time reported | 1 error = | Verdict |
+|---|---:|---:|---:|---:|---:|:---:|
+| `spawanie` | 744 | 79.0% | 82.8% | 0.95× | 0.1 pp | ❌ |
+| `ukladanie_pretow` | 552 | 90.8% | 77.9% | 1.16× | 0.2 pp | ✅ |
+| `pozostale` | 441 | 45.4% | 52.4% | 0.87× | 0.2 pp | ❌ |
+| `nierozpoznane` | 62 | 4.8% | 4.7% | 1.03× | 1.6 pp | — |
+
+#### `tcn-pixel-224`
+
+| Category | Support | Recall (the bar) | Precision | Time reported | 1 error = | Verdict |
+|---|---:|---:|---:|---:|---:|:---:|
+| `spawanie` | 744 | 83.9% | 88.3% | 0.95× | 0.1 pp | ❌ |
+| `ukladanie_pretow` | 552 | 84.8% | 81.2% | 1.04× | 0.2 pp | ❌ |
+| `pozostale` | 441 | 48.3% | 53.4% | 0.90× | 0.2 pp | ❌ |
+| `nierozpoznane` | 62 | 3.2% | 1.7% | 1.89× | 1.6 pp | — |
+
+#### `tcn-pixel-518`
+
+| Category | Support | Recall (the bar) | Precision | Time reported | 1 error = | Verdict |
+|---|---:|---:|---:|---:|---:|:---:|
+| `spawanie` | 744 | 89.0% | 83.8% | 1.06× | 0.1 pp | ✅ |
+| `ukladanie_pretow` | 552 | 88.2% | 80.2% | 1.10× | 0.2 pp | ✅ |
+| `pozostale` | 441 | 45.1% | 53.6% | 0.84× | 0.2 pp | ❌ |
+| `nierozpoznane` | 62 | 0.0% | 0.0% | 0.50× | 1.6 pp | — |
+
+#### `tcn-pixel-pca64-518`
+
+| Category | Support | Recall (the bar) | Precision | Time reported | 1 error = | Verdict |
+|---|---:|---:|---:|---:|---:|:---:|
+| `spawanie` | 744 | 78.6% | 81.0% | 0.97× | 0.1 pp | ❌ |
+| `ukladanie_pretow` | 552 | 85.9% | 83.0% | 1.03× | 0.2 pp | ✅ |
+| `pozostale` | 441 | 48.3% | 47.5% | 1.02× | 0.2 pp | ❌ |
+| `nierozpoznane` | 62 | 0.0% | 0.0% | 0.94× | 1.6 pp | — |
+
+#### `tcn-pose`
+
+| Category | Support | Recall (the bar) | Precision | Time reported | 1 error = | Verdict |
+|---|---:|---:|---:|---:|---:|:---:|
+| `spawanie` | 744 | 72.0% | 70.8% | 1.02× | 0.1 pp | ❌ |
+| `ukladanie_pretow` | 552 | 85.3% | 69.7% | 1.22× | 0.2 pp | ✅ |
+| `pozostale` | 441 | 29.9% | 49.6% | 0.60× | 0.2 pp | ❌ |
+| `nierozpoznane` | 62 | 4.8% | 3.0% | 1.61× | 1.6 pp | — |
+
+#### `tcn-rich`
+
+| Category | Support | Recall (the bar) | Precision | Time reported | 1 error = | Verdict |
+|---|---:|---:|---:|---:|---:|:---:|
+| `spawanie` | 744 | 78.8% | 75.5% | 1.04× | 0.1 pp | ❌ |
+| `ukladanie_pretow` | 552 | 79.2% | 74.4% | 1.06× | 0.2 pp | ❌ |
+| `pozostale` | 441 | 34.7% | 48.1% | 0.72× | 0.2 pp | ❌ |
+| `nierozpoznane` | 62 | 0.0% | 0.0% | 1.90× | 1.6 pp | — |
+
+#### `vlm-qwen2.5-vl-3b-v1`
+
+| Category | Support | Recall (the bar) | Precision | Time reported | 1 error = | Verdict |
+|---|---:|---:|---:|---:|---:|:---:|
+| `spawanie` | 744 | 95.8% | 45.5% | 2.11× | 0.1 pp | ⚠️ gamed |
+| `ukladanie_pretow` | 552 | 0.4% | 100.0% | 0.00× | 0.2 pp | ❌ |
+| `pozostale` | 441 | 32.0% | 61.3% | 0.52× | 0.2 pp | ❌ |
+| `nierozpoznane` | 62 | 0.0% | n/a | 0.00× | 1.6 pp | — |
+
+#### `vlm-qwen2.5-vl-3b-v2`
+
+| Category | Support | Recall (the bar) | Precision | Time reported | 1 error = | Verdict |
+|---|---:|---:|---:|---:|---:|:---:|
+| `spawanie` | 744 | 99.6% | 47.8% | 2.08× | 0.1 pp | ⚠️ gamed |
+| `ukladanie_pretow` | 552 | 0.0% | n/a | 0.00× | 0.2 pp | ❌ |
+| `pozostale` | 441 | 40.4% | 71.2% | 0.57× | 0.2 pp | ❌ |
+| `nierozpoznane` | 62 | 0.0% | n/a | 0.00× | 1.6 pp | — |
+
+### Per held-out window
+
+The union above is one number over folds that held out different material. Where those folds disagree, the mean describes neither — and on this fixture they disagree. Cells are recall (time reported, n).
+
+#### `pixel-probe-dinov2-224`
+
+| Category | W1 | W2 | W3 |
+|---|---:|---:|---:|
+| `spawanie` | 86.6% (0.96×, n=224) | 76.9% (0.79×, n=273) | 32.4% (0.40×, n=247) |
+| `ukladanie_pretow` | 83.3% (0.89×, n=180) | 81.6% (1.22×, n=179) | 62.7% (0.90×, n=193) |
+| `pozostale` | 19.0% (0.30×, n=195) | 61.1% (1.82×, n=90) | 45.5% (1.47×, n=156) |
+| `nierozpoznane` | n/a | 0.0% (0.03×, n=58) | 75.0% (24.50×, n=4) |
+
+#### `pixel-probe-dinov2-518`
+
+| Category | W1 | W2 | W3 |
+|---|---:|---:|---:|
+| `spawanie` | 97.8% (1.11×, n=224) | 89.4% (0.97×, n=273) | 60.7% (0.80×, n=247) |
+| `ukladanie_pretow` | 71.1% (0.73×, n=180) | 87.2% (1.14×, n=179) | 78.8% (1.25×, n=193) |
+| `pozostale` | 85.6% (1.09×, n=195) | 51.1% (1.46×, n=90) | 45.5% (1.03×, n=156) |
+| `nierozpoznane` | n/a | 0.0% (0.02×, n=58) | 0.0% (0.00×, n=4) |
+
+#### `tcn-fused-518`
+
+| Category | W1 | W2 | W3 |
+|---|---:|---:|---:|
+| `spawanie` | 98.2% (1.16×, n=224) | 88.3% (0.94×, n=273) | 51.4% (0.79×, n=247) |
+| `ukladanie_pretow` | 89.4% (0.97×, n=180) | 96.1% (1.06×, n=179) | 87.0% (1.45×, n=193) |
+| `pozostale` | 51.3% (0.58×, n=195) | 68.9% (1.70×, n=90) | 24.4% (0.74×, n=156) |
+| `nierozpoznane` | n/a | 0.0% (0.00×, n=58) | 75.0% (2.75×, n=4) |
+
+#### `tcn-pixel-224`
+
+| Category | W1 | W2 | W3 |
+|---|---:|---:|---:|
+| `spawanie` | 99.6% (1.18×, n=224) | 74.7% (0.75×, n=273) | 79.8% (0.96×, n=247) |
+| `ukladanie_pretow` | 91.7% (0.95×, n=180) | 100.0% (1.47×, n=179) | 64.2% (0.73×, n=193) |
+| `pozostale` | 32.8% (0.36×, n=195) | 57.8% (1.47×, n=90) | 62.2% (1.26×, n=156) |
+| `nierozpoznane` | n/a | 0.0% (0.00×, n=58) | 50.0% (6.00×, n=4) |
+
+#### `tcn-pixel-518`
+
+| Category | W1 | W2 | W3 |
+|---|---:|---:|---:|
+| `spawanie` | 98.2% (1.13×, n=224) | 92.7% (0.99×, n=273) | 76.5% (1.08×, n=247) |
+| `ukladanie_pretow` | 94.4% (1.41×, n=180) | 96.6% (1.04×, n=179) | 74.6% (0.87×, n=193) |
+| `pozostale` | 27.2% (0.32×, n=195) | 72.2% (1.59×, n=90) | 51.9% (1.06×, n=156) |
+| `nierozpoznane` | n/a | 0.0% (0.00×, n=58) | 0.0% (0.00×, n=4) |
+
+#### `tcn-pixel-pca64-518`
+
+| Category | W1 | W2 | W3 |
+|---|---:|---:|---:|
+| `spawanie` | 95.5% (1.11×, n=224) | 96.0% (1.12×, n=273) | 44.1% (0.67×, n=247) |
+| `ukladanie_pretow` | 88.9% (1.12×, n=180) | 88.8% (0.93×, n=179) | 80.3% (1.05×, n=193) |
+| `pozostale` | 37.4% (0.46×, n=195) | 66.7% (1.40×, n=90) | 51.3% (1.49×, n=156) |
+| `nierozpoznane` | n/a | 0.0% (0.00×, n=58) | 0.0% (0.00×, n=4) |
+
+#### `tcn-pose`
+
+| Category | W1 | W2 | W3 |
+|---|---:|---:|---:|
+| `spawanie` | 97.8% (1.47×, n=224) | 91.2% (0.96×, n=273) | 27.5% (0.67×, n=247) |
+| `ukladanie_pretow` | 93.9% (1.02×, n=180) | 98.9% (1.09×, n=179) | 64.8% (1.54×, n=193) |
+| `pozostale` | 15.9% (0.19×, n=195) | 72.2% (1.59×, n=90) | 23.1% (0.55×, n=156) |
+| `nierozpoznane` | n/a | 0.0% (0.00×, n=58) | 75.0% (12.50×, n=4) |
+
+#### `tcn-rich`
+
+| Category | W1 | W2 | W3 |
+|---|---:|---:|---:|
+| `spawanie` | 97.3% (1.18×, n=224) | 92.7% (0.94×, n=273) | 46.6% (1.03×, n=247) |
+| `ukladanie_pretow` | 91.1% (0.98×, n=180) | 96.6% (1.10×, n=179) | 51.8% (1.10×, n=193) |
+| `pozostale` | 20.5% (0.26×, n=195) | 78.9% (1.62×, n=90) | 26.9% (0.78×, n=156) |
+| `nierozpoznane` | n/a | 0.0% (0.00×, n=58) | 0.0% (2.75×, n=4) |
+
+#### `vlm-qwen2.5-vl-3b-v1`
+
+| Category | W1 | W2 | W3 |
+|---|---:|---:|---:|
+| `spawanie` | 98.7% (2.08×, n=224) | 91.9% (1.88×, n=273) | 97.6% (2.38×, n=247) |
+| `ukladanie_pretow` | 1.1% (0.01×, n=180) | 0.0% (0.00×, n=179) | 0.0% (0.00×, n=193) |
+| `pozostale` | 62.1% (0.67×, n=195) | 17.8% (0.97×, n=90) | 2.6% (0.08×, n=156) |
+| `nierozpoznane` | n/a | 0.0% (0.00×, n=58) | 0.0% (0.00×, n=4) |
+
+#### `vlm-qwen2.5-vl-3b-v2`
+
+| Category | W1 | W2 | W3 |
+|---|---:|---:|---:|
+| `spawanie` | 100.0% (2.09×, n=224) | 98.9% (1.89×, n=273) | 100.0% (2.29×, n=247) |
+| `ukladanie_pretow` | 0.0% (0.00×, n=180) | 0.0% (0.00×, n=179) | 0.0% (0.00×, n=193) |
+| `pozostale` | 65.1% (0.67×, n=195) | 23.3% (0.93×, n=90) | 19.2% (0.22×, n=156) |
+| `nierozpoznane` | n/a | 0.0% (0.00×, n=58) | 0.0% (0.00×, n=4) |
+
 ## Arm: `pixel-probe-dinov2-224`
 
 *1 of #120 - diagnostic, not a candidate model*
