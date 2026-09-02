@@ -146,9 +146,16 @@
 	"station_roi": {
 		"activity": "spawanie",
 		"space": "native source pixels (3840x2160)",
-		"crop": { "w": 900, "h": 800, "x": 1700, "y": 1400 },
-		"ffmpeg": "crop=900:800:1700:1400",
-		"note": "The welding bench. C.0 is measured INSIDE this ROI, cropped from the native frame - not from the 1280x736 downscale, which would discard the 3x that makes station framing work. This is the software crop that discharges assumption A2 (client refused a physical reframe; nothing forbids cropping pixels we already receive)."
+		"crop": { "w": 900, "h": 800, "x": 1700, "y": 1360 },
+		"ffmpeg": "crop=900:800:1700:1360",
+		"note": "The welding bench. C.0 is measured INSIDE this ROI, cropped from the native frame - not from the 1280x736 downscale, which would discard the 3x that makes station framing work. This is the software crop that discharges assumption A2 (client refused a physical reframe; nothing forbids cropping pixels we already receive).",
+		"corrected": {
+			"date": "2026-09-02",
+			"was": { "y": 1400, "ffmpeg": "crop=900:800:1700:1400" },
+			"why": "1400 + 800 = 2200 does not fit a 2160-tall frame, and ffmpeg's crop filter does not fail on that - it slides the rectangle back inside, to y = in_h - h = 1360. So every crop ever extracted for this fixture was cut at 1360 while every record of it said 1400. No measured number moves: the crops, the embeddings, the folds and the shipped head are all built from the pixels at 1360, and always were. What was wrong is the coordinate, which is also the one field #123's inference path uses to decide whether a configured zone may be fed to this head.",
+			"how_verified": "Not read off the filter's source. The shipped W1 crop was compared against the native frame at candidate offsets: mean |diff| is 2.02 at y=1360 (JPEG quantisation noise) and 24.74 at the next candidate, 1355.",
+			"consequence": "station-head-hala-prawe-v1-v1.0.0.card.json carries the same 1400 and is regenerated from this manifest. The weights are unaffected and their sha256 is expected to be unchanged; that is verified rather than assumed at regeneration time."
+		}
 	},
 	"verification": {
 		"date": "2026-09-01",

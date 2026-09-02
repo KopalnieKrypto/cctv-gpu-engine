@@ -35,7 +35,7 @@ import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, time, timedelta, tzinfo
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pipeline.conversation import (
@@ -378,9 +378,54 @@ class BendingRuleset:
         )
 
 
-# The rule registry: ``rules.type`` → ruleset class. Adding a welding station is a
-# new entry here plus its own ruleset — the bending analyzers stay untouched.
-_RULESETS: dict[str, type[BendingRuleset]] = {BendingRuleset.type: BendingRuleset}
+class ZoneRuleset(Protocol):
+    """What every ruleset owes the aggregator: observe frames, then resolve modes."""
+
+    type: str
+
+    def __init__(self, rules: dict[str, Any], sampling_step_s: float) -> None: ...
+
+    def observe(self, timestamp_s: float, sightings: Sightings) -> None: ...
+
+    def result(self) -> ZoneModes: ...
+
+
+class StationRuleset:
+    """Station ruleset (#123): the zone is the unit, so nothing here derives modes.
+
+    A zone declaring ``rules.type: "station"`` is measured by the station
+    classifier — a crop of the native frame read by a frozen backbone and a
+    temporal head — not by watching people move through it. That path produces
+    the ``station_activity`` section directly and never routes through the
+    aggregator, so this ruleset exists to make the type *loadable* and to state,
+    in the one place a reader would look, that a station zone derives no
+    presence and no conversation.
+
+    It is deliberately inert rather than absent: without it the config would not
+    load at all (:func:`_resolve_rule_type` rejects unknown types), and a station
+    zone must still be expressible alongside bending zones in one file.
+    """
+
+    type = "station"
+
+    def __init__(self, rules: dict[str, Any], sampling_step_s: float) -> None:
+        self._rules = rules
+        self._sampling_step_s = sampling_step_s
+
+    def observe(self, timestamp_s: float, sightings: Sightings) -> None:
+        """Ignore in-zone sightings — a station is measured from pixels, not tracks."""
+
+    def result(self) -> ZoneModes:
+        """No derived modes. The station's numbers live in ``station_activity``."""
+        return ZoneModes()
+
+
+# The rule registry: ``rules.type`` → ruleset class. Adding a station is a new
+# entry here plus its own ruleset — the bending analyzers stay untouched.
+_RULESETS: dict[str, type[ZoneRuleset]] = {
+    BendingRuleset.type: BendingRuleset,
+    StationRuleset.type: StationRuleset,
+}
 
 # Rule types this build implements, derived from the registry (single source of
 # truth) so the constant and the dispatch can never drift apart.
@@ -407,14 +452,12 @@ def _resolve_rule_type(rules: dict[str, Any], zone_id: str) -> str:
     return rule_type
 
 
-def build_zone_ruleset(zone: Zone, sampling_step_s: float) -> BendingRuleset:
+def build_zone_ruleset(zone: Zone, sampling_step_s: float) -> ZoneRuleset:
     """Instantiate the ruleset selected by ``zone.rules['type']`` (#82).
 
     The dispatch the aggregator routes through: it resolves the zone's rule type
     (defaulting to ``bending``) and constructs that ruleset from the zone's
-    ``rules``. Raises :class:`UnsupportedRuleTypeError` for an unknown type — the
-    welding seam. (The return type widens to a shared ruleset protocol once a
-    second ruleset lands.)
+    ``rules``. Raises :class:`UnsupportedRuleTypeError` for an unknown type.
     """
     rule_type = _resolve_rule_type(zone.rules, zone.id)
     return _RULESETS[rule_type](zone.rules, sampling_step_s)
