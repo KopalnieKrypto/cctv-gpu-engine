@@ -78,6 +78,15 @@ A second lesson from the same fixture: that third window differs in *both* shift
 and operator, so we cannot attribute the drop to either. Conditions that move
 together cannot be separated afterwards.
 
+**Updated 2026-09-02, and the update sharpens the lesson rather than softening
+it.** `#120` rung 2 recovered most of that drop, 27.5% to 76.5%, by changing the
+model's input representation and not by adding a single frame of footage. So part
+of what looked like a coverage problem was a representation problem. The design
+consequence is not "coverage matters less" - 76.5% is still well under the 85% bar,
+and no representation change reached it. It is that **a dataset tool cannot know
+which of the two it is looking at**, so it has to make the conditions its clips
+cover visible and let the modeller find out.
+
 ## The other hard-won lessons, compressed
 
 Use these to pressure-test. Each one is a real failure from a real project.
@@ -129,30 +138,46 @@ The export shape decides which model families are reachable:
 
 Cheaper to design for clips now than to retrofit. But it multiplies storage.
 
-**Partial evidence exists as of 2026-09-02** (`#120`, rung 1). A frozen DINOv2
-linear probe over single stills, scored on the same folds as everything else:
+**This was measured, not guessed** (`#120`, rungs 1 and 2, both complete as of
+2026-09-02). Same folds, same scorer as everything else. Rung 2 is the decisive
+one: it feeds the winning temporal model a frozen DINOv2 embedding of each still
+in place of the 59 geometry numbers, changing nothing else.
 
-| Class | geometry (pose keypoints) | pixels, single still |
+**Stills plus a temporal model over them are the best result this fixture has.**
+`tcn-pixel-518` is the first arm to clear the 85% bar on two activities with an
+honest time ratio, and it fixed the transfer failure quoted above:
+
+| | `spawanie`, union | `spawanie` on the unseen shift |
 |---|---:|---:|
-| `brak_na_stanowisku` | 4.4% | **97.1%** |
-| `inna_czynnosc` | 19.6% | 28.0% |
-| `postoj` | 1.7% | 8.6% |
-| `sciaganie_elementu` | 71.2% | 55.8% |
+| geometry (the previous winner) | 72.0% | 27.5% |
+| **stills + temporal model** | **89.0%** | **76.5%** |
 
-Stills alone already carry a lot — one class goes from unusable to 97.1% with no
-temporal context whatsoever. They did not rescue the two hard hand-work classes,
-but the probe was handicapped (one frame against a 64-sample receptive field), so
-that half is not settled.
+It is also 11× cheaper, because no pose detection runs at all.
 
-**Guidance: treat clip export as a capability to keep *reachable*, not one to
-build or drop in this session.** Rung 2 of `#120` — temporal modelling over image
-embeddings, about a day — is what actually decides it. The interview should
-establish how expensive it would be to add clips later, and whether that cost is
-acceptable, rather than guessing which way the experiment lands.
+**What stills did not do is rescue the hard hand-work classes.** Every apparent
+gain there is the model over-calling the class: `postoj` reaches 27-36% recall
+while reporting 1.8× to 3.2× the real duration, which the scorer flags rather than
+passes. That is unchanged from geometry.
 
-One more datum for open decision 1 below: the pixel probe **transferred better**
-to the unseen shift than the fitted geometry model (60.7% vs 27.5% on the main
-activity), because a frozen general backbone was never fitted to that camera.
+**Guidance for this decision: per-sample stills are enough to build v1 on, and
+clip export should stay reachable rather than get built now.**
+
+- Stills demonstrably carry the two classes that matter commercially, and they
+  carry them better than anything tried before.
+- Clips remain the only untested lever for the hand-work classes, because motion
+  *between* the samples is the one thing neither a still nor a model over stills
+  can see. That lever is untested, not ruled out.
+- But the ceiling that binds first is data, not export shape: 177 and 62 labelled
+  samples for the two classes in question. No exporter fixes that.
+
+So the interview question is not "frames or clips" but **"what does it cost to add
+clips later"**, and the answer should be cheap enough that nobody has to guess now.
+
+One datum that matters more for open decision 1 and for section A: the reason
+pixels transfer and geometry does not is that **a frozen general backbone was never
+fitted to that camera**. Coverage of conditions in the training material is what
+the fixture showed to be decisive, and that is a project-structure decision in this
+module, not an export-format one.
 
 ### 4. How opinionated should the tool be
 

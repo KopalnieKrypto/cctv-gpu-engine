@@ -154,6 +154,70 @@ the conditions it will run on" is supported; "evenings are harder" is not.
 `spawanie`) and slightly worse on `ukladanie_pretow` (51.8% vs 64.8%). Neither is
 near the bar, so the arm ranking does not change.
 
+### Pixels close most of that gap, and geometry was the reason it opened (#120 rung 2)
+
+`run_tcn_pixel_arm.py` feeds the **same** dilated TCN, window, dilations, kernel,
+seed and folds a frozen DINOv2 CLS embedding of the station crop instead of the 59
+geometry numbers. `train_fold` is imported from `run_tcn_arm.py` rather than copied,
+so exactly one thing changes between `tcn-pose` and `tcn-pixel-518`.
+
+`spawanie`, per held-out window:
+
+| Arm | W1 | W2 | **W3 (unseen shift)** |
+|---|---:|---:|---:|
+| `tcn-pose` (geometry) | 97.8% | 91.2% | **27.5%** |
+| `tcn-rich` | 97.3% | 92.7% | 46.6% |
+| `pixel-probe-dinov2-518` (rung 1, one frame) | 97.8% | 89.4% | 60.7% |
+| `tcn-pixel-518` (rung 2) | 98.2% | 92.7% | **76.5%** |
+
+The collapse was never a property of the evening footage. It was a property of
+fitting a model to *this camera's skeletons*: a frozen general backbone has nothing
+of the kind to overfit to, and adding temporal context on top of it recovers most of
+what geometry lost. `ukladanie_pretow` on W3 moves the same way, 64.8% to 87.0%
+(`tcn-fused-518`).
+
+**Consequence for the union scores, which is what the bar is taken on.**
+`tcn-pixel-518` is the first arm in this fixture to clear 85% on two activities with
+a time ratio inside `INFLATION_LIMIT` and measured hardware:
+
+| Arm | `spawanie` | `ukladanie_pretow` | passes |
+|---|---:|---:|---|
+| `tcn-pose` | 72.0% (1.02×) | 85.3% (1.22×) | 1 of 6 |
+| `tcn-pixel-518` | **89.0% (1.06×)** | **88.2% (1.10×)** | **2 of 6** |
+
+**The hard classes did not move, and the scorer is what shows it.** Every apparent
+gain on `postoj` is bought by over-calling the class: 27.4% at **1.81×**
+(`tcn-pixel-518`), 35.5% at **2.85×** (`pca64`), 16.1% at **3.18×** (`fused`). All
+three are flagged `inflated` and none is a pass. `inna_czynnosc`'s best non-inflated
+figure is 17.5% against geometry's 13.6%. `sciaganie_elementu` gets *worse* with
+pixels on the unseen window, 24.1% down to 1.7-15.5%.
+
+**Correction to how rung 1 was reported.** The 97.1% for `brak_na_stanowisku` quoted
+in #120 was the W1+W2 pooled column, and it is 66 of 66 on W1 against **0 of 24 on
+W3** and 0 of 2 on W2. On the union the probe scores 71.7% at **1.52×**, which the
+harness marks inflated. Calling that result "decisive" overstated it: it is one
+window, and it is the same transfer failure in a different coat.
+
+**A modelling failure, now demonstrated twice.** The TCN scores 0.0-6.5% on
+`brak_na_stanowisku` whatever it is fed, while a linear probe on the identical
+embeddings reached 100% on W1 and a parameter-free rule on the pose `found` flag
+reaches 95.7% recall (`empty_station_rule.py`). The information reaches the model
+and the model discards it. Training loss hits 0.000 by epoch 20 in every fold, so
+memorisation of the two training windows is the first thing to look at.
+
+**Cost.** 49.3 GPU-seconds per video-hour at 1310 MiB peak on `cctv-vps` GPU 1,
+against `tcn-pose`'s 555.3 GPU-seconds at 710 MiB. Eleven times cheaper, because no
+pose detection runs at all; more VRAM, still far inside the one-card budget.
+
+**Reruns are not bit-identical.** Re-running `fused-518` cold to measure its VRAM
+changed 1 of 600 predictions on W3 (cuDNN picks conv algorithms nondeterministically).
+Differences of a few tenths of a point between arms are not resolvable by this
+fixture.
+
+Four configurations were declared in the script before any of them ran, and all four
+are in `C0-report.md`. Best-of-four on the same held-out folds is optimistically
+biased, so read them as a set.
+
 ### What the 3-fold numbers cost the headline claims
 
 Not a rescoring of the same result. Three claims moved:

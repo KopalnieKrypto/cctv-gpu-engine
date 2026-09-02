@@ -155,3 +155,9 @@ Three rules worth knowing before reading its output:
   reads fine and it is the trained model that fails to transfer. Read the
   finding section in `hala-prawe-v1/METHODOLOGY.md` before quoting any single
   number from this fixture, including the 72% union (`#117`).
+  **Most of that gap closed on 2026-09-02** (`#120` rung 2): the same TCN fed
+  frozen DINOv2 embeddings of the station crop instead of pose geometry scores
+  76.5% on the unseen window and **89.0% / 88.2% on the union**, the first arm
+  here to clear the bar on two activities with an honest time ratio, at 11× less
+  GPU cost. The two hard hand-work classes did not move: their apparent gains are
+  flagged `inflated` (1.8x to 3.2x the real duration).
