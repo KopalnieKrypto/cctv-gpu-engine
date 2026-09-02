@@ -62,10 +62,17 @@ At the default 2 s stride each window is ~600 samples, so a full pass is roughly
 raw per-sample `samples`, so the fold can be re-derived and audited rather than
 taken on trust.
 
+A window not yet in `arc-timeline.csv` gets **measured** rather than silently skipped —
+saturated-pixel fraction (`Y>235`) inside `station_roi` at 1 fps, appended to the CSV.
+Before that, the timeline was hand-made for W1/W2 and unreproducible, so a new window
+got no hints and the tool presented that as "no arc here" rather than "nobody measured
+this". `--no-arc` opts out.
+
 Two things the tool will not do for you. It never guesses an activity — every
 sample starts `null`. And its arc hints cover only `spawanie`; the other six
 activities are entirely hand work, which is most of the vocabulary and all of
-the hard part.
+the hard part. **Treat the hints as weaker on some windows than others**: their
+precision against hand labels runs 82.7% on W1, 56.3% on W2 and 32.2% on W3.
 
 ## The bar
 
@@ -94,41 +101,80 @@ source material is gone permanently.**
 ## Status
 
 - **W1** (09:00–09:20) and **W2** (10:20–10:40) captured 2026-08-28. Both pre-break.
-- **W3 (afternoon) is DROPPED** — decision 2026-09-01, proceed on two windows. This
-  fixture therefore represents **only the first half of a shift**, permanently, and
-  every accuracy figure derived from it inherits that bias. Quote it with the caveat
-  attached or do not quote it.
+- **W3 was dropped, then recovered.** Dropped 2026-09-01 (afternoon window not
+  captured); recovered the same evening from the appliance's rolling buffer once the
+  C.0 report named the missing second-half-of-shift material as the open question.
+  **18:25–18:45 local, second shift, a different operator.** The original decision's
+  cost is not erased by the recovery: W1 and W2 are still both pre-break, so any
+  figure computed over those two alone still carries that bias, and two of the three
+  windows still do.
 - **Content verified 2026-09-01.** The welding station is manned in both windows by the
   same operator, and both contain real arc time: **W1 ≈ 140 s (11.7%)**, **W2 ≈ 310 s
   (25.9%)**, measured at 1 fps by saturated-pixel fraction (`Y>235`) inside
   `station_roi`. W2 is the denser of the two. Person counts: W1 avg 3.18 / peak 6,
   W2 avg 4.28 / peak 7, `recall_risk: normal` on both.
-- **Both windows are annotated** (2026-09-01): `W1.intervals.json` 599/599 samples /
-  85 intervals, `W2.intervals.json` 600/600 / 92 intervals, both at a 2 s stride with
-  no unlabelled gap on the timeline. The first C.0 acceptance criterion is met.
-- **The split is declared** (`manifest.source.json` → `split`): 2-fold
-  cross-validation, recorded before any spike arm ran. See "Why 2-fold" below.
+- **All three windows are annotated**: `W1.intervals.json` 599/599 samples / 85
+  intervals and `W2.intervals.json` 600/600 / 92 intervals (2026-09-01),
+  `W3.intervals.json` 600/600 / 75 intervals (2026-09-02). All at a 2 s stride with
+  no unlabelled gap on the timeline.
+- **The split is 3-fold** (`manifest.source.json` → `split`), amended 2026-09-02.
+  Read the integrity note below before quoting any figure produced under it.
 
-### Why 2-fold, and not the single split declared first
+### The split, and the two amendments behind it
 
-The split was first written as W1 train / W2 held out, on the reasoning that W2 is the
-denser window. Annotating W2 falsified that reasoning — **not** by producing a result,
-but by revealing the class support, which is why the amendment is legitimate and is
-recorded rather than quietly applied.
+It has been rewritten twice, and the two rewrites are not equivalent. That
+distinction is the point of writing any of this down.
 
-The bar is **per activity**. On W2 alone, three classes cannot carry it:
+**First amendment (2026-09-01), before any arm ran.** The split started as W1 train /
+W2 held out, on the reasoning that W2 is the denser window. Annotating W2 falsified
+that — not with a result, but by revealing class support, which only existed once the
+labels did. On W2 alone `brak_na_stanowisku` had 2 samples (one error moves the score
+50 pp), `postoj` 16, and `nierozpoznane` 0 on W1, so a trained arm would never see one.
+2-fold fixed the granularity but not the disjointness.
 
-| Class | W1 | W2 | Problem on a W2-only held-out set |
-|---|---|---|---|
-| `brak_na_stanowisku` | 66 | **2** | one error moves the score 50 pp — unmeasurable |
-| `postoj` | 42 | **16** | 6.2 pp per error; 85% is coarser than the granularity |
-| `nierozpoznane` | **0** | 58 | a trained arm would never see an example of it |
+**Second amendment (2026-09-02), after three arms had been measured.** W3 was recovered
+and annotated, so the fixture moved to 3-fold. This is the one to be careful with.
 
-Under 2-fold every class clears 52 held-out samples — `spawanie` 497,
-`ukladanie_pretow` 359, `inna_czynnosc` 107, `brak_na_stanowisku` 68, `nierozpoznane`
-58, `postoj` 58, `sciaganie_elementu` 52 — and every labelled sample is predicted
-exactly once by a model that never saw it. With two folds the variance on a 52-sample
-class is still wide; report it as indicative, not settled.
+> **Integrity note.** The manifest records
+> `declared_before_any_model_run: false` for the current protocol. That flag was
+> **true** for 2-fold and is **false** now, and it is set honestly rather than carried
+> over. A figure produced under 3-fold is **not comparable** to the arm results already
+> published under 2-fold, and the two must never appear in the same table. Anything
+> measured from here is a fresh measurement of a re-scoped fixture, not an improvement
+> on an old number.
+
+What the third window actually fixes:
+
+| Class | W1 | W2 | W3 | Total | Effect |
+|---|---:|---:|---:|---:|---|
+| `spawanie` | 224 | 273 | 247 | 744 | already fine |
+| `ukladanie_pretow` | 180 | 179 | 193 | 552 | already fine |
+| `inna_czynnosc` | 65 | 42 | 70 | 177 | more headroom |
+| `sciaganie_elementu` | 22 | 30 | **58** | **110** | doubles |
+| `brak_na_stanowisku` | 66 | 2 | **24** | 92 | **no longer disjoint** |
+| `nierozpoznane` | 0 | 58 | 4 | 62 | **no longer disjoint** |
+| `postoj` | 42 | 16 | **4** | **62** | **not fixed** |
+
+The two disjoint classes are the real win: under 2-fold each model was asked for a
+class it had never seen, and both scored a meaningless 0.0%. Every fold now trains on
+at least some of both.
+
+**`postoj` is not fixed, and the reason matters.** W3 contributes four samples — eight
+seconds in twenty minutes. Across an hour of footage the class totals 62 samples. The
+C.0 report asked whether the failing classes were limited by the camera or by data
+volume; for `postoj` the answer is neither. **The activity is rare at this station**,
+so more comparable footage cannot rescue a class that barely happens. Collecting
+another three windows would add perhaps a dozen samples.
+
+`nierozpoznane` also stays thin in one direction: the fold holding out W2 trains on
+only 4 examples of it.
+
+### Two confounds are now entangled
+
+W3 differs from W1 and W2 in **both** shift and operator. If an arm scores worse on
+W3, this fixture cannot say which caused it, and "the evening is harder" would be an
+unsupported claim. Separating them needs an evening window with the morning operator,
+or vice versa, which nothing currently on disk provides.
 
 ### W2 annotation, cross-checked against the arc signal
 
@@ -149,6 +195,35 @@ demonstrated rather than asserted: the threshold was tuned on W1's brightness an
 not port to W2 an hour and twenty minutes later. Any arm compared against this baseline
 must be compared against a **per-clip re-tuned** baseline, or the comparison flatters
 the model.
+
+### W3 annotation, cross-checked against the arc signal
+
+Same audit again, and the trend it started continues to its conclusion:
+
+| | W1 | W2 | **W3** |
+|---|---:|---:|---:|
+| arc metric p50 | 0.28 | 0.62 | **2.83** |
+| arc metric max | 4.91 | 9.79 | 8.44 |
+| **max ÷ p50** | **17.5×** | **15.8×** | **3.0×** |
+| precision against hand labels | 82.7% | 56.3% | **32.2%** |
+| coverage of hand-labelled `spawanie` | 36.2% | 44.3% | **33.8%** |
+
+**On W3 the arc hint is barely better than noise.** Of the 518 seconds above the
+clip-relative threshold, only 167 fall in hand-labelled `spawanie` while 200 fall in
+`ukladanie_pretow`. The peak is comparable to W2's, but the *baseline* is ten times
+higher, so the arc no longer stands out from the scene the way it did in the morning
+windows.
+
+**A correction, because I got this wrong in passing.** On first inspection I sampled
+three frames — the minimum showed no arc, the median showed a small one, the maximum a
+full arc with sparks — and concluded the elevated median was signal rather than ambient
+light, so the 276 suggested samples were "plausibly right". The full cross-check says
+otherwise. Three frames were not a sample. The metric does carry *some* signal, but the
+threshold placement on this window is poor and the suggestions were unreliable.
+
+The annotation itself is not contaminated by them: hand-labelled `spawanie` is 247
+samples against 276 suggested, and the two overlap on only a third of the welding.
+That is what independent labelling looks like, rather than someone accepting hints.
 
 ### Correction: the "recall ceiling" was an artefact of one threshold
 
@@ -282,3 +357,25 @@ Two copies on two machines, neither of them object storage, for material this do
 calls irreplaceable. **Someone should confirm the R2 copies exist and record which
 bucket holds them**, or re-upload from the Mac and note the bucket in the manifest.
 Until then, do not treat `r2_key_preserved` as a backup that has been checked.
+
+### W3 has a different provenance, and the same fragility
+
+W1 and W2 were captured as platform tasks. **W3 was not.** It was cut by hand from the
+appliance's rolling buffer on `cctv-vps-camera` — 20 consecutive one-minute chunks
+concatenated with stream copy, so the frames are the recorder's own and were never
+re-encoded. Its container metadata is honest (`r_frame_rate=20/1`, 23 985 frames over
+1200.04 s), so W1's `120/1` trap does not recur.
+
+That buffer is **three hours deep**, which is the whole reason this material exists at
+all: the recovery happened at 21:20 local, mid-shift, with the buffer holding
+18:21–21:21. **The first 85 minutes of that shift were already gone.** A window from a
+past day cannot be recovered this way at all.
+
+The full three hours it was cut from are preserved at
+`~/preserve-2026-09-01-zmiana2` on `cctv-vps-camera`, outside the rotating directory,
+so further windows can be cut without re-capturing. **That directory is on one machine
+and is not backed up anywhere**, and neither is `W3-2026-09-01T1625Z.mp4` beyond the
+dev Mac. Same gap as above, one day newer.
+
+**If a future window is wanted, schedule the capture.** Reconstructing one after the
+fact only works inside a three-hour tail, and only by luck.

@@ -90,34 +90,48 @@
 		{
 			"slot": "W3",
 			"task_id": null,
-			"window_utc": null,
-			"window_local": null,
-			"duration_s": null,
-			"shift_position": "afternoon, post-break",
+			"window_utc": ["2026-09-01T16:25:05Z", "2026-09-01T16:45:05Z"],
+			"window_local": "2026-09-01 18:25-18:45 Europe/Warsaw",
+			"duration_s": 1200,
+			"shift_position": "evening, second shift (17:00-23:00)",
 			"r2_key_original": null,
 			"r2_key_preserved": null,
-			"annotated": false,
-			"status": "DROPPED 2026-09-01",
-			"note": "Afternoon window deliberately not captured - decision 2026-09-01, proceed on two windows. The cost is accepted and must be carried forward, not rediscovered: W1 and W2 are both pre-break, so this fixture represents the FIRST HALF OF A SHIFT ONLY and every accuracy figure derived from it inherits that bias. Any figure quoted to the client says so."
+			"annotated": true,
+			"annotation_file": "W3.intervals.json",
+			"annotated_at": "2026-09-02",
+			"annotation_coverage": { "labelled": 600, "total": 600, "stride_s": 2 },
+			"status": "RECOVERED 2026-09-01, previously DROPPED",
+			"provenance": "NOT a platform task, unlike W1/W2. Cut by hand from the appliance's rolling buffer on cctv-vps-camera - 20 consecutive one-minute chunks concatenated with stream copy, so the frames are the recorder's own and were never re-encoded. Container metadata is honest: r_frame_rate=20/1, 23985 frames over 1200.04 s, so W1's 120/1 trap does not recur here.",
+			"source_retained": "The full three-hour buffer this was cut from (18:21-21:21 local, 180 chunks, 6.8 GB) is preserved at ~/preserve-2026-09-01-zmiana2 on cctv-vps-camera, outside the rotating buffer. Further windows can be cut from it without re-capturing. That directory is NOT backed up and lives on one machine.",
+			"note": "Recovered because the C.0 report named the missing second-half-of-shift material as the open question. The original DROPPED decision and its cost stand as history: W1 and W2 are still both pre-break, so any figure computed over those two alone still carries that bias, and two of the three windows still do."
 		}
 	],
 	"split": {
-		"declared": "2026-09-01",
-		"declared_before_any_model_run": true,
-		"protocol": "2-fold cross-validation over the two windows",
+		"declared": "2026-09-02",
+		"declared_before_any_model_run": false,
+		"declared_before_any_model_run_note": "TRUE for the original 2-fold protocol, declared 2026-09-01 before a single arm ran, and FALSE for this one. Three arms had already been measured when the third window was added. The flag is set honestly rather than carried over, because a split whose provenance is asserted but not true is worse than no split at all - it launders a retrofit as a discipline. Read every 3-fold figure with that attached.",
+		"protocol": "3-fold cross-validation over the three windows",
 		"folds": [
-			{ "id": "A", "train_dev": ["W1"], "held_out": ["W2"] },
-			{ "id": "B", "train_dev": ["W2"], "held_out": ["W1"] }
+			{ "id": "A", "train_dev": ["W1", "W2"], "held_out": ["W3"] },
+			{ "id": "B", "train_dev": ["W1", "W3"], "held_out": ["W2"] },
+			{ "id": "C", "train_dev": ["W2", "W3"], "held_out": ["W1"] }
 		],
-		"reporting": "Per-activity accuracy is computed on the UNION of the two folds' held-out predictions - every labelled sample is predicted exactly once, by a model that never saw it. One confusion matrix per arm over that union, plus the per-fold matrices so a fold-specific collapse is visible.",
+		"reporting": "Per-activity accuracy is computed on the UNION of the three folds' held-out predictions - every labelled sample is predicted exactly once, by a model that never saw it. One confusion matrix per arm over that union, plus the per-fold matrices so a fold-specific collapse is visible.",
 		"rule": "Within a fold, no arm is tuned, prompted, thresholded or trained on that fold's held-out window. An arm that cannot honour fold isolation (e.g. a hand-tuned threshold fitted on both) is reported as such and its figure is marked in-sample.",
+		"amended_2": {
+			"date": "2026-09-02",
+			"was": "2-fold cross-validation over W1 and W2",
+			"why": "W3 exists and is annotated, and it fixes the specific defect the 2-fold split could not work around: brak_na_stanowisku and nierozpoznane were used almost disjointly by the two windows (66/0 and 2/58), so under 2-fold each model was asked for a class it had never seen and both scored a meaningless 0.0%. W3 contributes 24 and 4, so every fold now trains on at least some of both. sciaganie_elementu also rises from 52 held-out samples to 110, and the fixture stops being entirely pre-break.",
+			"integrity_warning": "UNLIKE the first amendment, this one is made AFTER arm results are known on the old split. That is a real difference and it is recorded rather than glossed: a figure produced under 3-fold is NOT comparable to the arm figures already published under 2-fold, and the two must never be quoted in the same table. Anything measured from here is a fresh measurement of a re-scoped fixture, not an improvement on the old number.",
+			"does_not_fix": "postoj. W3 adds 4 samples - eight seconds in twenty minutes - for 62 across all three windows. The activity is rare at this station rather than under-sampled, so no amount of comparable footage rescues it. nierozpoznane is also still thin in one direction: the fold holding out W2 trains on only 4 examples of it."
+		},
 		"amended": {
 			"date": "2026-09-01",
 			"was": "single split, W1 train / W2 held out",
 			"why": "The single split cannot measure the per-activity bar, which is the bar. Class support on W2 alone: brak_na_stanowisku n=2 (one error moves the score 50 pp - unmeasurable), postoj n=16 (6.2 pp per error), and nierozpoznane n=0 on W1 so a trained arm would have no examples of it at all. Under 2-fold every class clears 52 held-out samples: spawanie 497, ukladanie_pretow 359, inna_czynnosc 107, brak_na_stanowisku 68, nierozpoznane 58, postoj 58, sciaganie_elementu 52.",
 			"integrity": "Amended on ANNOTATION statistics only, before any spike arm ran - no model result informed it. That distinction is the whole point of declaring a split early, so it is recorded rather than quietly rewritten."
 		},
-		"caveat": "Two windows, one station, one operator, both pre-break. This is a feasibility gate, not a generalisation estimate - cross-validation bounds overfitting to one window, it does not establish that the result transfers to another shift, station or worker. With only two folds the variance on a small class stays wide; treat a 52-sample class as indicative, not settled."
+		"caveat": "Three windows, one station, two operators, two of the three pre-break. Cross-validation bounds overfitting to one window; it does not establish transfer to another station. Two confounds are now entangled and this fixture cannot separate them: W3 differs from W1/W2 in BOTH shift and operator, so a drop on W3 could be either and calling it 'the afternoon is harder' would be unsupported. Aggregate figures still lean pre-break, two windows to one. With three folds the variance on a small class stays wide; treat anything under ~100 held-out samples as indicative, not settled."
 	},
 	"station_roi": {
 		"activity": "spawanie",
@@ -135,7 +149,8 @@
 		"arc_fraction": { "W1": 0.117, "W2": 0.259 },
 		"arc_metric_percentiles": {
 			"W1": { "p50": 0.28, "p90": 1.09, "max": 4.91 },
-			"W2": { "p50": 0.62, "p90": 1.59, "max": 9.79 }
+			"W2": { "p50": 0.62, "p90": 1.59, "max": 9.79 },
+			"W3": { "p50": 2.83, "p90": 5.04, "max": 8.44 }
 		},
 		"arc_metric_caveat": "Clip-relative, not a portable constant - the two windows differ ~3x at the median, so ambient light drift alone moves a fixed cut-off. Detects ARC, not welding WORK: it cannot separate ukladanie_pretow from postoj. Use as a weak pre-label for spawanie and as the cost floor any GPU model must beat, never as ground truth.",
 		"vocabulary_gap_reproducible": "The operator mid-arc, sparks visible, is labelled `standing` by the shipped four-pose classifier, and `standing` maps to `Praca` in this camera's activity_label_map. Welding and standing idle are the same label today.",
