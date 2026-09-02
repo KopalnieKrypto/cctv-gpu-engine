@@ -9,11 +9,14 @@ components rather than adding a fourth.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
 from pipeline.station_card import StationCard
 from pipeline.station_classifier import (
+    StationClassifier,
     StationCropError,
     StationRectMismatchError,
     StationZoneError,
@@ -56,6 +59,8 @@ def _card(**overrides) -> StationCard:
         "stride_s": 2,
         "model_outputs": ("spawanie", "ukladanie_pretow", "postoj", "nierozpoznane"),
         "delivered_classes": ("spawanie", "ukladanie_pretow", "pozostale", "nierozpoznane"),
+        "bucket": "pozostale",
+        "bucket_members": frozenset({"postoj"}),
         "abstention": "nierozpoznane",
         "time_ratios": {
             "spawanie": 1.06,
@@ -254,3 +259,121 @@ class TestPreprocessingMatchesTheRealProcessor:
 
         assert ours.shape == reference.shape
         assert np.abs(ours - reference).max() < 1e-5
+
+
+class _FakeSession:
+    """An onnxruntime session stand-in: one named input, one array out.
+
+    A boundary fake, not an internal one. The real thing is a CUDA session over
+    weights this test has no business loading; what it stands in for is the
+    contract — a named input, a batched array back — and the test drives the
+    module through the same public method production does.
+    """
+
+    def __init__(self, name: str, fn) -> None:
+        self._name = name
+        self._fn = fn
+        self.calls: list[tuple[int, ...]] = []
+
+    def get_inputs(self):
+        return [SimpleNamespace(name=self._name, shape=[1, 768, "time"])]
+
+    def get_providers(self):
+        return ["CUDAExecutionProvider"]
+
+    def run(self, _outputs, feed):
+        array = feed[self._name]
+        self.calls.append(array.shape)
+        return [self._fn(array)]
+
+
+def _echo_head(n_class: int):
+    """A head that reads the class index straight off feature 0 of each sample.
+
+    Keeps the averaging a no-op so a failure points at the plumbing — the time
+    axis, the per-sample alignment, the collapse — rather than at arithmetic.
+    """
+
+    def run(embeddings: np.ndarray) -> np.ndarray:
+        _, _, time = embeddings.shape
+        logits = np.zeros((1, n_class, time), dtype=np.float32)
+        for t in range(time):
+            logits[0, int(embeddings[0, 0, t]), t] = 1.0
+        return logits
+
+    return run
+
+
+def _embeddings(class_indices: list[int], feature: int = 768) -> np.ndarray:
+    x = np.zeros((len(class_indices), feature), dtype=np.float32)
+    x[:, 0] = class_indices
+    return x
+
+
+class TestReadingTheHead:
+    def test_each_sample_gets_the_category_its_logits_argmax_to(self) -> None:
+        card = _card()
+        head = _FakeSession("embeddings", _echo_head(len(card.model_outputs)))
+        classifier = StationClassifier(backbone=None, head=head, card=card)
+
+        # spawanie, spawanie, ukladanie_pretow, nierozpoznane
+        categories = classifier.categories(_embeddings([0, 0, 1, 3]))
+
+        assert categories == ["spawanie", "spawanie", "ukladanie_pretow", "nierozpoznane"]
+
+    def test_the_collapse_happens_after_argmax(self) -> None:
+        """The head is seven-class and the delivered vocabulary is four.
+
+        `postoj` is a member of the `pozostale` bucket, so it must reach the
+        consumer as the bucket. Collapsing before the argmax would sum logits
+        across members and change which class wins.
+        """
+        card = _card()
+        head = _FakeSession("embeddings", _echo_head(len(card.model_outputs)))
+        classifier = StationClassifier(backbone=None, head=head, card=card)
+
+        assert classifier.categories(_embeddings([2])) == ["pozostale"]
+
+    def test_the_abstention_is_never_folded_into_the_bucket(self) -> None:
+        """`nierozpoznane` keeps its own row: it is neither work nor downtime.
+
+        Folding the honest cannot-tell into a collective work bucket would
+        convert unknown time into measured time.
+        """
+        card = _card()
+        head = _FakeSession("embeddings", _echo_head(len(card.model_outputs)))
+        classifier = StationClassifier(backbone=None, head=head, card=card)
+
+        assert classifier.categories(_embeddings([3])) == ["nierozpoznane"]
+
+    def test_a_clip_longer_than_the_window_is_covered_end_to_end(self) -> None:
+        card = _card(window=8)
+        head = _FakeSession("embeddings", _echo_head(len(card.model_outputs)))
+        classifier = StationClassifier(backbone=None, head=head, card=card)
+
+        indices = [i % 2 for i in range(20)]
+        categories = classifier.categories(_embeddings(indices))
+
+        assert len(categories) == 20
+        assert categories == [card.model_outputs[i] for i in indices]
+        # Every window is the width the head was trained on — a head fed a
+        # different span sees a different amount of the production cycle.
+        assert {shape[2] for shape in head.calls} == {8}
+
+    def test_a_clip_shorter_than_the_window_still_predicts_every_sample(self) -> None:
+        card = _card(window=64)
+        head = _FakeSession("embeddings", _echo_head(len(card.model_outputs)))
+        classifier = StationClassifier(backbone=None, head=head, card=card)
+
+        categories = classifier.categories(_embeddings([0, 1, 2]))
+
+        assert categories == ["spawanie", "ukladanie_pretow", "pozostale"]
+        assert head.calls == [(1, 768, 3)]
+
+    def test_no_samples_produce_no_categories_and_no_head_call(self) -> None:
+        card = _card()
+        head = _FakeSession("embeddings", _echo_head(len(card.model_outputs)))
+        classifier = StationClassifier(backbone=None, head=head, card=card)
+
+        assert classifier.categories(np.zeros((0, 768), dtype=np.float32)) == []
+        assert head.calls == []

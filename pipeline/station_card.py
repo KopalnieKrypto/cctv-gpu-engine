@@ -83,12 +83,27 @@ class StationCard:
     stride_s: int
     model_outputs: tuple[str, ...]
     delivered_classes: tuple[str, ...]
+    bucket: str
+    bucket_members: frozenset[str]
     abstention: str
     time_ratios: dict[str, float]
     window: int
     resize_px: int
     model_input: tuple[int, int]
     training_windows: tuple[TrainingWindow, ...]
+
+    def deliver(self, model_output: str) -> str:
+        """Map one of the head's classes to the category the client is shown.
+
+        The collapse happens **after** argmax, by the consumer — the shipped head
+        is seven-class and the delivered vocabulary is four. Summing logits across
+        the bucket's members before the argmax would change which class wins.
+
+        ``nierozpoznane`` is never a member: the manifest defines it as neither
+        work nor downtime, and folding the honest cannot-tell into a collective
+        work bucket would convert unknown time into measured time.
+        """
+        return self.bucket if model_output in self.bucket_members else model_output
 
     @classmethod
     def load(cls, path: str | Path) -> StationCard:
@@ -111,6 +126,8 @@ class StationCard:
             stride_s=int(station["stride_s"]),
             model_outputs=tuple(vocabulary["model_outputs"]),
             delivered_classes=delivered,
+            bucket=vocabulary["bucket"],
+            bucket_members=frozenset(vocabulary["bucket_contains"]),
             abstention=vocabulary["not_in_bucket"],
             time_ratios=_time_ratios(union, delivered),
             window=int(data["head"]["hyperparameters"]["window"]),

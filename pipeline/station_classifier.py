@@ -23,6 +23,9 @@ framing work at all.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Any
+
 import numpy as np
 
 from pipeline.station_card import Rect, StationCard
@@ -154,6 +157,61 @@ def station_rect(zone: Zone, card: StationCard) -> Rect:
             "the card's rectangle, or ship a head trained on this one."
         )
     return configured
+
+
+@dataclass
+class StationClassifier:
+    """The frozen backbone and the station's temporal head, as one reader.
+
+    Two ONNX sessions with one job between them: turn native station crops into a
+    category per sample. The split is the economics of the offer — the backbone
+    is identical at every station and ships once inside the container image, and
+    what is station-specific is the ~1 MB head. Onboarding another bench is
+    "annotate twenty minutes, train a head", with no new large model and no engine
+    redeploy.
+    """
+
+    backbone: Any
+    head: Any
+    card: StationCard
+
+    def embed(self, crop_bgr: np.ndarray) -> np.ndarray:
+        """One native station crop → its frozen-backbone CLS vector."""
+        tensor = preprocess_crop(crop_bgr, self.card.resize_px, self.card.model_input)
+        name = self.backbone.get_inputs()[0].name
+        return np.asarray(self.backbone.run(None, {name: tensor})[0][0], dtype=np.float32)
+
+    def categories(self, embeddings: np.ndarray) -> list[str]:
+        """Per-sample delivered categories for a whole clip's embeddings.
+
+        ``embeddings`` is ``(samples, feature)`` in time order. Scored with
+        overlapping windows of the width the head was trained on, logits averaged,
+        so every sample is predicted with as much surrounding context as the clip
+        allows — the same inference the cross-validated folds used, which is what
+        makes the card's figures describe this path.
+
+        A clip shorter than the window is scored in one pass over what there is.
+        The head is fully convolutional in time, so that is a shorter sequence and
+        not a truncated one; it simply sees less context, which is the honest
+        consequence of a short clip.
+        """
+        count = len(embeddings)
+        if count == 0:
+            return []
+
+        name = self.head.get_inputs()[0].name
+        span = min(count, self.card.window)
+        n_class = len(self.card.model_outputs)
+        totals = np.zeros((count, n_class), dtype=np.float32)
+        counts = np.zeros((count, 1), dtype=np.float32)
+        for start in range(0, count - span + 1):
+            segment = embeddings[start : start + span].T[None].astype(np.float32)
+            logits = np.asarray(self.head.run(None, {name: segment})[0][0], dtype=np.float32)
+            totals[start : start + span] += logits.T
+            counts[start : start + span] += 1
+
+        winners = (totals / np.maximum(counts, 1)).argmax(axis=1)
+        return [self.card.deliver(self.card.model_outputs[int(i)]) for i in winners]
 
 
 def station_crop(frame: np.ndarray, rect: Rect) -> np.ndarray:

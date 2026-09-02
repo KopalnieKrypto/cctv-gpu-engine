@@ -1,0 +1,125 @@
+{
+  "schema_version": 6,
+  "video_duration_s": 125.0,
+  "total_frames": 125,
+  "peak_persons": 4,
+  "avg_persons": 2.5,
+  "dominant_activity": "walking",
+  "person_minutes": {
+    "sitting": 0.5,
+    "standing": 1.0,
+    "walking": 2.5,
+    "running": 0.0
+  },
+  "timeline": [
+    {
+      "minute": 0,
+      "sitting": 0,
+      "standing": 10,
+      "walking": 60,
+      "running": 0
+    },
+    {
+      "minute": 1,
+      "sitting": 20,
+      "standing": 0,
+      "walking": 30,
+      "running": 0
+    }
+  ],
+  "keyframes": [
+    {
+      "timestamp_s": 10.0,
+      "person_count": 4,
+      "activities": [
+        "walking"
+      ],
+      "image_b64_jpeg": "<jpeg>"
+    }
+  ],
+  "zones": [
+    {
+      "zone_id": "bending-1",
+      "name": "Giętarka 1",
+      "person_minutes": {
+        "sitting": 3.0,
+        "standing": 0.5,
+        "walking": 0.0,
+        "running": 0.0
+      },
+      "presence": {
+        "anchored_track_id": 1,
+        "present_s": 200.0,
+        "absent_s": 200.0,
+        "work_s": 40.0,
+        "presence_intervals": [
+          {
+            "start_s": 0.0,
+            "end_s": 100.0,
+            "duration_s": 100.0
+          },
+          {
+            "start_s": 300.0,
+            "end_s": 400.0,
+            "duration_s": 100.0
+          }
+        ],
+        "absence_intervals": [
+          {
+            "start_s": 100.0,
+            "end_s": 300.0,
+            "duration_s": 200.0,
+            "flagged": true
+          }
+        ],
+        "work_intervals": [
+          {
+            "start_s": 10.0,
+            "end_s": 50.0,
+            "duration_s": 40.0
+          }
+        ]
+      },
+      "conversation": {
+        "conversation_s": 40.0,
+        "intervals": [
+          {
+            "start_s": 20.0,
+            "end_s": 40.0,
+            "duration_s": 20.0
+          },
+          {
+            "start_s": 70.0,
+            "end_s": 90.0,
+            "duration_s": 20.0
+          }
+        ]
+      }
+    }
+  ],
+  "shift": {
+    "windows": [
+      [
+        "07:00",
+        "15:00"
+      ],
+      [
+        "17:00",
+        "23:00"
+      ]
+    ],
+    "breaks": [
+      [
+        "13:00",
+        "13:30"
+      ]
+    ],
+    "excluded_duration_s": 1800.0
+  },
+  "diagnostics": {
+    "classifier": "mlp",
+    "activity_model": {
+      "version": "v1"
+    }
+  }
+}

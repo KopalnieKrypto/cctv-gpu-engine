@@ -116,6 +116,10 @@ class ReportData:
     shift: ShiftSummary | None = None
     # Runtime classifier/model identity for reproducibility (issue #34).
     diagnostics: dict | None = None
+    # Per-station chronometraż (issue #123); ``None`` unless the station
+    # classifier ran. Produced outside this aggregator — the zone is the unit of
+    # measurement there, not a person, so nothing in it comes from detections.
+    station_activity: dict | None = None
 
 
 class Aggregator:

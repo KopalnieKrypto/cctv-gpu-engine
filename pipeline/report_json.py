@@ -126,7 +126,7 @@ def _shift_to_dict(shift: ShiftSummary | None) -> dict | None:
 
 def report_data_to_dict(data: ReportData) -> dict:
     """Serialize ``data`` into the canonical ``result.json`` dict."""
-    return {
+    payload = {
         "schema_version": SCHEMA_VERSION,
         "video_duration_s": data.video_duration_s,
         "total_frames": data.total_frames,
@@ -153,6 +153,17 @@ def report_data_to_dict(data: ReportData) -> dict:
         "shift": _shift_to_dict(data.shift),
         "diagnostics": data.diagnostics,
     }
+    # Per-station chronometraż (issue #123). Emitted *only* when the station
+    # classifier ran, and absent — not null — otherwise, so a result from every
+    # pre-#123 mode is byte-identical to what it was. That is also why
+    # ``SCHEMA_VERSION`` stays at 6: the bump rule above covers a change to the
+    # shape existing consumers read, and nothing they read changes here. The key
+    # can only appear from a mode that did not exist at 6, and the platform
+    # renders the section on its presence rather than on a version
+    # (gpu-exchange#210).
+    if data.station_activity is not None:
+        payload["station_activity"] = data.station_activity
+    return payload
 
 
 def render_report_json(data: ReportData) -> bytes:
