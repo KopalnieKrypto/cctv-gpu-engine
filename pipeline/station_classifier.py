@@ -23,28 +23,32 @@ framing work at all.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from pipeline.station_card import Rect, StationCard
+from pipeline.station_card import Rect, StationCard, StationError
 from pipeline.zones import StationRuleset, Zone, ZoneConfig
 
 DEFAULT_STATION_HEAD_PATH = "models/station-head-hala-prawe-v1-v1.0.0.onnx"
 DEFAULT_STATION_CARD_PATH = "models/station-head-hala-prawe-v1-v1.0.0.card.json"
 DEFAULT_BACKBONE_PATH = "models/dinov2-base.onnx"
 
+CUDA_PROVIDER = "CUDAExecutionProvider"
 
-class StationZoneError(ValueError):
+
+class StationZoneError(StationError):
     """Raised when a zones config does not name exactly one station zone."""
 
 
-class StationCropError(ValueError):
+class StationCropError(StationError):
     """Raised when the station rectangle does not fit inside the native frame."""
 
 
-class StationRectMismatchError(ValueError):
+class StationRectMismatchError(StationError):
     """Raised when the configured zone is not the rectangle the head was fitted on."""
 
 
@@ -174,6 +178,7 @@ class StationClassifier:
     backbone: Any
     head: Any
     card: StationCard
+    head_sha256: str = ""
 
     def embed(self, crop_bgr: np.ndarray) -> np.ndarray:
         """One native station crop → its frozen-backbone CLS vector."""
@@ -239,3 +244,58 @@ def station_crop(frame: np.ndarray, rect: Rect) -> np.ndarray:
             "array and ffmpeg slides the rectangle back inside, and neither says so."
         )
     return frame[y : y + h, x : x + w]
+
+
+def _cuda_session(ort_module: Any, path: Path, what: str) -> Any:
+    """Open a CUDA-only ONNX session, or refuse.
+
+    Two checks, not one. ``get_available_providers`` reports what the build
+    supports; a provider can register and still be inactive on the session
+    (microsoft/onnxruntime#25145), which looks like a working run at a fraction of
+    the speed and on different arithmetic. There is no CPU fallback here for the
+    same reason the rest of this engine has none — it breaks the 1:1 processing
+    guarantee the schedule is costed against.
+    """
+    available = ort_module.get_available_providers()
+    if CUDA_PROVIDER not in available:
+        raise RuntimeError(
+            f"{CUDA_PROVIDER} not available for the {what} — GPU required, no CPU "
+            f"fallback. Available providers: {available}"
+        )
+    session = ort_module.InferenceSession(str(path), providers=[CUDA_PROVIDER])
+    active = session.get_providers()
+    if CUDA_PROVIDER not in active:
+        raise RuntimeError(
+            f"{CUDA_PROVIDER} registered but inactive after the {what} session init "
+            f"(active providers: {active}) — refusing CPU fallback"
+        )
+    return session
+
+
+def load_station_classifier(
+    head_path: str | Path,
+    card_path: str | Path,
+    backbone_path: str | Path,
+    *,
+    ort_module: Any | None = None,
+) -> StationClassifier:
+    """Open the frozen backbone and the station head, with the card that describes them.
+
+    The head's sha256 is read here and travels into ``station_activity``. Mounting
+    other weights over ``./models`` is the documented way to run a different model,
+    and without the digest in the artefact it would change every total in silence.
+    """
+    if ort_module is None:
+        import onnxruntime as ort_module
+
+    card = StationCard.load(card_path)
+    head = Path(head_path)
+    # Before any session: the onnxruntime-gpu wheel has no RPATH to
+    # site-packages/nvidia, so a session opened first lands silently on CPU.
+    ort_module.preload_dlls(cuda=True, cudnn=True)
+    return StationClassifier(
+        backbone=_cuda_session(ort_module, Path(backbone_path), "station backbone"),
+        head=_cuda_session(ort_module, head, "station head"),
+        card=card,
+        head_sha256=hashlib.sha256(head.read_bytes()).hexdigest(),
+    )

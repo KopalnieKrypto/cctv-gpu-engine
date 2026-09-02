@@ -9,6 +9,8 @@ components rather than adding a fourth.
 
 from __future__ import annotations
 
+import hashlib
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -20,6 +22,7 @@ from pipeline.station_classifier import (
     StationCropError,
     StationRectMismatchError,
     StationZoneError,
+    load_station_classifier,
     preprocess_crop,
     resolve_station_zone,
     station_crop,
@@ -27,6 +30,9 @@ from pipeline.station_classifier import (
     zone_rect,
 )
 from pipeline.zones import ZoneConfig
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+SHIPPED_CARD_NAME = "models/station-head-hala-prawe-v1-v1.0.0.card.json"
 
 # The welding bench: 900x800 at (1700, 1360) in the 3840x2160 native frame,
 # written as a rectangle polygon because that is what a station zone is.
@@ -377,3 +383,93 @@ class TestReadingTheHead:
 
         assert classifier.categories(np.zeros((0, 768), dtype=np.float32)) == []
         assert head.calls == []
+
+
+class _FakeOrt:
+    """The onnxruntime module surface this loader touches, and nothing else."""
+
+    def __init__(self, available=("CUDAExecutionProvider",), active=None) -> None:
+        self._available = list(available)
+        self._active = list(active if active is not None else available)
+        self.preloaded = False
+        self.sessions: list[tuple[str, list[str]]] = []
+
+    def get_available_providers(self):
+        return list(self._available)
+
+    def preload_dlls(self, cuda: bool = False, cudnn: bool = False):
+        self.preloaded = True
+
+    def InferenceSession(self, path, providers):  # noqa: N802 — mirrors onnxruntime
+        self.sessions.append((path, list(providers)))
+        active = self._active
+        return SimpleNamespace(
+            get_providers=lambda: list(active),
+            get_inputs=lambda: [SimpleNamespace(name="x", shape=[1, 768, "time"])],
+        )
+
+
+def _artefacts(tmp_path: Path) -> tuple[Path, Path, Path]:
+    head = tmp_path / "station-head-hala-prawe-v1-v1.0.0.onnx"
+    head.write_bytes(b"head-weights")
+    backbone = tmp_path / "dinov2-base.onnx"
+    backbone.write_bytes(b"backbone-weights")
+    card = tmp_path / "station-head-hala-prawe-v1-v1.0.0.card.json"
+    card.write_text(REPO_ROOT.joinpath(SHIPPED_CARD_NAME).read_text(encoding="utf-8"))
+    return head, card, backbone
+
+
+class TestLoadingTheSessions:
+    def test_it_records_the_weights_that_produced_the_numbers(self, tmp_path: Path) -> None:
+        head, card, backbone = _artefacts(tmp_path)
+
+        classifier = load_station_classifier(head, card, backbone, ort_module=_FakeOrt())
+
+        assert classifier.head_sha256 == hashlib.sha256(b"head-weights").hexdigest()
+        assert classifier.card.station_id == "hala-prawe-v1"
+
+    def test_it_refuses_to_run_without_cuda(self, tmp_path: Path) -> None:
+        # The repo rule, unchanged here: no CPU fallback, because it breaks the
+        # 1:1 processing guarantee the whole schedule is costed against.
+        head, card, backbone = _artefacts(tmp_path)
+
+        with pytest.raises(RuntimeError) as exc:
+            load_station_classifier(
+                head, card, backbone, ort_module=_FakeOrt(available=("CPUExecutionProvider",))
+            )
+
+        assert "CUDAExecutionProvider" in str(exc.value)
+
+    def test_it_catches_a_silent_fallback_after_the_session_opens(self, tmp_path: Path) -> None:
+        """`get_available_providers` is not enough — microsoft/onnxruntime#25145.
+
+        CUDA can register and then be inactive on the session, which looks like a
+        working run at a third of the speed and on different arithmetic.
+        """
+        head, card, backbone = _artefacts(tmp_path)
+
+        with pytest.raises(RuntimeError) as exc:
+            load_station_classifier(
+                head,
+                card,
+                backbone,
+                ort_module=_FakeOrt(
+                    available=("CUDAExecutionProvider",), active=("CPUExecutionProvider",)
+                ),
+            )
+
+        assert "refusing CPU fallback" in str(exc.value)
+
+    def test_it_preloads_the_cuda_libraries_before_opening_a_session(self, tmp_path: Path) -> None:
+        # The onnxruntime-gpu wheel has no RPATH to site-packages/nvidia, so a
+        # session opened before this silently lands on CPU.
+        head, card, backbone = _artefacts(tmp_path)
+        ort = _FakeOrt()
+
+        load_station_classifier(head, card, backbone, ort_module=ort)
+
+        assert ort.preloaded
+        assert [providers for _, providers in ort.sessions] == [
+            ["CUDAExecutionProvider"],
+            ["CUDAExecutionProvider"],
+        ]

@@ -27,6 +27,8 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
+import numpy as np
+
 from pipeline.aggregator import Aggregator, ReportData
 from pipeline.detection_scale import detection_scale
 from pipeline.detections_dump import detection_to_dict
@@ -37,6 +39,18 @@ from pipeline.preprocessing import input_wh
 from pipeline.reid import DEFAULT_REID_MODEL_PATH, load_reid_model
 from pipeline.report_json import render_report_json
 from pipeline.report_renderer import render_report
+from pipeline.station_activity import build_station_activity
+from pipeline.station_classifier import (
+    DEFAULT_BACKBONE_PATH,
+    DEFAULT_STATION_CARD_PATH,
+    DEFAULT_STATION_HEAD_PATH,
+    StationError,
+    StationZoneError,
+    load_station_classifier,
+    resolve_station_zone,
+    station_crop,
+    station_rect,
+)
 from pipeline.tiled_detector import build_hybrid_detector
 from pipeline.track_filter import MinTrackLengthFilter
 from pipeline.tracker import DEFAULT_MAX_TRACK_AGE_S, PersonTracker
@@ -130,6 +144,129 @@ def _aggregate(
 POSE_MODE_FULL_FRAME = "full_frame"
 POSE_MODE_HYBRID = "hybrid"
 
+CLASSIFIER_STATION = "station"
+
+
+class StationStrideError(StationError):
+    """Raised when the sampling rate cannot land on the card's stride (#123)."""
+
+
+def _analyze_station(
+    chunks: list[Path],
+    zones: ZoneConfig | None,
+    fps: int,
+    progress: Callable[[int], None] | None,
+    station_head_path: str,
+    station_card_path: str,
+    backbone_path: str,
+) -> ReportData:
+    """The chronometraż path: zone crop → backbone → head → `station_activity`.
+
+    Deliberately not the person pipeline. It builds no pose detector, no Re-ID
+    embedder and no VLM — that is three heavy components removed rather than a
+    fourth added, and it is why the arm costs ~49 GPU-seconds per video-hour
+    where the pose-based one costs 555.
+
+    The report around the section is an empty :class:`Aggregator`'s, not a set of
+    hand-written zeros. Nobody was detected because nobody was looked for, so
+    ``dominant_activity`` comes back as ``"none"`` and every person counter is 0 —
+    values the existing code already produces for a run that saw no people, rather
+    than invented ones that happen to look similar.
+
+    Multiple chunks are read as one continuous sample sequence. In production they
+    are consecutive minutes of one recording, so the head's temporal context
+    legitimately spans the seam; training cut sequences at clip boundaries because
+    *there* the seam joined a Friday morning to a Monday evening.
+    """
+    if zones is None:
+        raise StationZoneError(
+            "--classifier station needs --zones: the station rectangle is read "
+            'from the zone that declares `"rules": {"type": "station"}`.'
+        )
+    classifier = load_station_classifier(station_head_path, station_card_path, backbone_path)
+    card = classifier.card
+    zone = resolve_station_zone(zones)
+    rect = station_rect(zone, card)
+
+    # The sampler has to land exactly on the card's grid — the head's receptive
+    # field is counted in samples, so a different spacing silently changes how
+    # much of the production cycle each prediction sees.
+    frames_per_sample = fps * card.stride_s
+    if frames_per_sample != int(frames_per_sample) or frames_per_sample < 1:
+        raise StationStrideError(
+            f"--fps {fps} cannot sample the head's {card.stride_s}s stride: "
+            f"{fps} x {card.stride_s} is not a whole number of frames."
+        )
+    frames_per_sample = int(frames_per_sample)
+
+    aggregator = Aggregator(
+        fps=fps,
+        zones=zones.zones,
+        shift=zones.shift_schedule,
+        restrict_to_zones=zones.restrict_to_zones,
+    )
+    diagnostics: dict = {
+        "classifier": CLASSIFIER_STATION,
+        "station_head": {
+            "path": station_head_path,
+            "sha256": classifier.head_sha256,
+            "version": card.version,
+            "station_id": card.station_id,
+        },
+        "backbone": {"path": backbone_path},
+        "stride_s": card.stride_s,
+        "zone_native_px": dict(zip(("x", "y", "w", "h"), rect, strict=True)),
+        "source_frame": None,
+        # No pose ran, so there is no `pose_mode`, no `model_sha256` and no
+        # `detection_scale`. Those describe person detection, and their absence
+        # here is the honest signal that none happened.
+    }
+
+    embeddings: list[np.ndarray] = []
+    duration_s = 0.0
+    chunk_span = 100.0 / len(chunks)
+    for chunk_index, chunk in enumerate(chunks):
+        chunk_base = chunk_index * chunk_span
+        chunk_duration_s = probe_duration_s(chunk)
+        index = 0
+        last_ts = 0.0
+        for timestamp_s, frame in _frames_recording_source_size(chunk, fps, diagnostics):
+            last_ts = timestamp_s
+            if index % frames_per_sample == 0:
+                embeddings.append(classifier.embed(station_crop(frame, rect)))
+                if progress is not None:
+                    progress(
+                        _intra_chunk_pct(chunk_base, chunk_span, timestamp_s, chunk_duration_s)
+                    )
+            index += 1
+        duration_s += chunk_duration_s if chunk_duration_s else last_ts + 1.0 / fps
+        if progress is not None:
+            progress(int((chunk_index + 1) / len(chunks) * 100))
+
+    samples_possible = int(duration_s // card.stride_s)
+    categories = classifier.categories(
+        np.stack(embeddings) if embeddings else np.zeros((0, 1), dtype=np.float32)
+    )
+
+    report = aggregator.build_report_data()
+    report.video_duration_s = duration_s
+    # A "frame" here is a sample at the card's stride, which is what this mode
+    # processes; reporting decoded frames would suggest work that never happened.
+    report.total_frames = len(categories)
+    report.diagnostics = diagnostics
+    report.station_activity = {
+        "zones": [
+            build_station_activity(
+                zone=zone,
+                card=card,
+                categories=categories,
+                samples_possible=samples_possible,
+                head_sha256=classifier.head_sha256,
+            )
+        ]
+    }
+    return report
+
 
 def _build_detector(model_path: str, zones: ZoneConfig | None, pose_mode: str):
     """Build the pose detector the camera's ``pose.mode`` selects (#111).
@@ -174,6 +311,9 @@ def _analyze_to_report_data(
     max_track_age_s: float = DEFAULT_MAX_TRACK_AGE_S,
     zones: ZoneConfig | None = None,
     pose_mode: str = POSE_MODE_FULL_FRAME,
+    station_head_path: str = DEFAULT_STATION_HEAD_PATH,
+    station_card_path: str = DEFAULT_STATION_CARD_PATH,
+    backbone_path: str = DEFAULT_BACKBONE_PATH,
 ) -> ReportData:
     """Run YOLO-pose pipeline across one or more MP4 chunks → :class:`ReportData`.
 
@@ -213,6 +353,20 @@ def _analyze_to_report_data(
         bbox_center,
     )
     from pipeline.detections_dump import DetectionsDumpWriter
+
+    # Before any model is opened: the station path builds none of the three the
+    # person pipeline needs, and constructing them here to throw them away would
+    # cost the VRAM and the load time this mode exists to avoid.
+    if classifier == CLASSIFIER_STATION:
+        return _analyze_station(
+            chunks,
+            zones=zones,
+            fps=fps,
+            progress=progress,
+            station_head_path=station_head_path,
+            station_card_path=station_card_path,
+            backbone_path=backbone_path,
+        )
 
     detector = _build_detector(model_path, zones, pose_mode)
     aggregator = Aggregator(
@@ -437,6 +591,9 @@ def run_full_video_to_json(
     max_track_age_s: float = DEFAULT_MAX_TRACK_AGE_S,
     zones: ZoneConfig | None = None,
     pose_mode: str = POSE_MODE_FULL_FRAME,
+    station_head_path: str = DEFAULT_STATION_HEAD_PATH,
+    station_card_path: str = DEFAULT_STATION_CARD_PATH,
+    backbone_path: str = DEFAULT_BACKBONE_PATH,
 ) -> bytes:
     """Run the pipeline and return the canonical ``result.json`` bytes (issue #72).
 
@@ -462,6 +619,9 @@ def run_full_video_to_json(
             max_track_age_s=max_track_age_s,
             zones=zones,
             pose_mode=pose_mode,
+            station_head_path=station_head_path,
+            station_card_path=station_card_path,
+            backbone_path=backbone_path,
         )
     )
 
@@ -480,6 +640,9 @@ def run_full_video_to_html(
     max_track_age_s: float = DEFAULT_MAX_TRACK_AGE_S,
     zones: ZoneConfig | None = None,
     pose_mode: str = POSE_MODE_FULL_FRAME,
+    station_head_path: str = DEFAULT_STATION_HEAD_PATH,
+    station_card_path: str = DEFAULT_STATION_CARD_PATH,
+    backbone_path: str = DEFAULT_BACKBONE_PATH,
 ) -> bytes:
     """Run the pipeline and return a standalone HTML report as bytes.
 
@@ -503,6 +666,9 @@ def run_full_video_to_html(
             max_track_age_s=max_track_age_s,
             zones=zones,
             pose_mode=pose_mode,
+            station_head_path=station_head_path,
+            station_card_path=station_card_path,
+            backbone_path=backbone_path,
         )
     ).encode("utf-8")
 
@@ -538,11 +704,31 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--classifier",
-        choices=["heuristic", "vlm", "mlp"],
+        choices=["heuristic", "vlm", "mlp", CLASSIFIER_STATION],
         default="heuristic",
         help="Activity classifier: heuristic (fast, geometric rules) "
-        "vlm (Qwen2.5-VL, deployed quality default), or mlp "
-        "(experimental per-person ONNX; default: heuristic)",
+        "vlm (Qwen2.5-VL, deployed quality default), mlp "
+        "(experimental per-person ONNX), or station (issue #123: per-zone "
+        "chronometraż from a frozen backbone plus a station head — needs "
+        "--zones with a 'station' zone, and builds no pose/OSNet/VLM at all; "
+        "default: heuristic)",
+    )
+    parser.add_argument(
+        "--station-head",
+        default=DEFAULT_STATION_HEAD_PATH,
+        help="Path to the station head ONNX weights (used only with --classifier station)",
+    )
+    parser.add_argument(
+        "--station-card",
+        default=DEFAULT_STATION_CARD_PATH,
+        help="Path to the station head's generated model card. It carries the "
+        "rectangle the head was fitted on, the delivered vocabulary, and the "
+        "measured time ratio quoted beside every total",
+    )
+    parser.add_argument(
+        "--backbone",
+        default=DEFAULT_BACKBONE_PATH,
+        help="Path to the frozen DINOv2 backbone ONNX shared by every station",
     )
     parser.add_argument(
         "--activity-model",
@@ -654,8 +840,13 @@ def _run_full_video(args: argparse.Namespace) -> int:
             max_track_age_s=args.max_track_age,
             zones=zones,
             pose_mode=args.pose_mode,
+            station_head_path=args.station_head,
+            station_card_path=args.station_card,
+            backbone_path=args.backbone,
         )
-    except (RuntimeError, ZoneConfigError) as exc:
+    # The station errors are ValueErrors that name the config or artefact at
+    # fault; the operator gets that sentence, not a traceback.
+    except (RuntimeError, ZoneConfigError, StationError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

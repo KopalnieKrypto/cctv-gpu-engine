@@ -24,12 +24,22 @@ from typing import Any
 Rect = tuple[int, int, int, int]
 
 
-class StationCardError(ValueError):
+class StationError(ValueError):
+    """Base for every reason the station path refuses to produce numbers.
+
+    Lives here because this is the bottom of the station import stack, so every
+    other station module can subclass it without a cycle. A subclass of
+    :class:`ValueError` so callers already catching bad input keep working, and
+    one type the CLI can catch to turn any of them into a sentence rather than a
+    traceback.
+    """
+
+
+class StationCardError(StationError):
     """Raised when a card cannot support the totals that would be quoted from it.
 
-    A subclass of :class:`ValueError` so callers already catching bad input keep
-    working. Raised for a malformed card and — the case that matters — for a card
-    whose measured time ratios have a hole in them. A blank there is worse than a
+    Raised for a malformed card and — the case that matters — for a card whose
+    measured time ratios have a hole in them. A blank there is worse than a
     missing card: the reader fills it in from somewhere else, which is exactly how
     a detector's in-sample hit rate once ended up quoted as held-out accuracy.
     """

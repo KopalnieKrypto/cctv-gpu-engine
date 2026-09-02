@@ -8,13 +8,18 @@ or real video file.
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 
-from pipeline.analyze import main
+from pipeline.analyze import main, run_full_video_to_json
 from pipeline.postprocessing import Detection, Keypoint
+from pipeline.station_card import StationCard, TrainingWindow
+from pipeline.station_classifier import StationClassifier, StationZoneError
+from pipeline.zones import ZoneConfig
 
 
 def _detection(
@@ -1696,3 +1701,208 @@ class TestPoseModeSelection:
 
         assert detector.zones is zones  # per-zone reporting still works
         assert detector.zone_bounds is None  # but the grid still covers the frame
+
+
+class TestStationClassifierMode:
+    """Issue #123 — `--classifier station`, the chronometraż path.
+
+    The zone is the unit of measurement, not a person, so this path is the person
+    pipeline with three components removed rather than a fourth added. The tests
+    fake only the two ONNX sessions; the crop, the preprocessing, the sliding
+    window and the section are the real code.
+    """
+
+    RECT_POLYGON = [[0, 0], [10, 0], [10, 10], [0, 10]]
+
+    @staticmethod
+    def _card() -> StationCard:
+        return StationCard(
+            version="1.0.0",
+            station_id="hala-prawe-v1",
+            zone_rect=(0, 0, 10, 10),
+            stride_s=2,
+            model_outputs=("spawanie", "ukladanie_pretow", "postoj", "nierozpoznane"),
+            delivered_classes=("spawanie", "ukladanie_pretow", "pozostale", "nierozpoznane"),
+            bucket="pozostale",
+            bucket_members=frozenset({"postoj"}),
+            abstention="nierozpoznane",
+            time_ratios={
+                "spawanie": 1.06,
+                "ukladanie_pretow": 1.10,
+                "pozostale": 0.84,
+                "nierozpoznane": 0.5,
+            },
+            window=2,
+            resize_px=8,
+            model_input=(4, 4),
+            training_windows=(
+                TrainingWindow("W1", "2026-08-28 09:00-09:20 Europe/Warsaw", "2026-09-01", 599),
+            ),
+        )
+
+    @classmethod
+    def _classifier(cls) -> StationClassifier:
+        """A real classifier over two fake sessions — the GPU is the only boundary.
+
+        The backbone reads a crop's mean pixel back out as a class index, so a
+        frame's content decides its label and the test can say what the answer
+        should be without knowing anything about the arithmetic in between.
+        """
+        card = cls._card()
+
+        def backbone(tensor):
+            # Undo the ImageNet normalisation on the red channel to recover the
+            # byte the frame was filled with.
+            value = float(tensor[0, 0].mean()) * 0.229 + 0.485
+            return np.full((1, 768), round(value * 255), dtype=np.float32)
+
+        def head(embeddings):
+            _, _, time = embeddings.shape
+            logits = np.zeros((1, len(card.model_outputs), time), dtype=np.float32)
+            for t in range(time):
+                logits[0, int(round(float(embeddings[0, 0, t]))), t] = 1.0
+            return logits
+
+        return StationClassifier(
+            backbone=SimpleNamespace(
+                get_inputs=lambda: [SimpleNamespace(name="pixel_values")],
+                run=lambda _out, feed: [backbone(feed["pixel_values"])],
+            ),
+            head=SimpleNamespace(
+                get_inputs=lambda: [SimpleNamespace(name="embeddings")],
+                run=lambda _out, feed: [head(feed["embeddings"])],
+            ),
+            card=card,
+            head_sha256="deadbeef",
+        )
+
+    def _zones(self, tmp_path):
+        path = tmp_path / "zones.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "zones": [
+                        {
+                            "id": "spawanie",
+                            "name": "Stanowisko spawalnicze",
+                            "polygon": self.RECT_POLYGON,
+                            "rules": {"type": "station"},
+                        }
+                    ]
+                }
+            )
+        )
+        return path
+
+    @staticmethod
+    def _frames(values):
+        """One 20x20 frame per value, filled with that byte."""
+        return iter(
+            [(float(i), np.full((20, 20, 3), v, dtype=np.uint8)) for i, v in enumerate(values)]
+        )
+
+    def _run(self, mocker, tmp_path, values=(0, 0, 1, 1, 2, 2, 3, 3)):
+        mocker.patch("pipeline.analyze.iter_frames", return_value=self._frames(values))
+        mocker.patch("pipeline.analyze.probe_duration_s", return_value=float(len(values)))
+        mocker.patch("pipeline.analyze.load_station_classifier", return_value=self._classifier())
+        return json.loads(
+            run_full_video_to_json(
+                [Path("chunk_000.mp4")],
+                classifier="station",
+                zones=ZoneConfig.load(self._zones(tmp_path)),
+            )
+        )
+
+    def test_it_produces_the_station_activity_section(self, mocker, tmp_path):
+        payload = self._run(mocker, tmp_path)
+
+        station = payload["station_activity"]["zones"][0]
+        assert station["zone_id"] == "spawanie"
+        assert station["stride_s"] == 2
+        assert station["coverage"] == {
+            "samples_predicted": 4,
+            "samples_possible": 4,
+            "fraction": 1.0,
+        }
+        assert [c["category"] for c in station["categories"]] == [
+            "spawanie",
+            "ukladanie_pretow",
+            "pozostale",
+            "nierozpoznane",
+        ]
+        assert all(c["time_ratio"] is not None for c in station["categories"])
+
+    def test_it_samples_at_the_cards_stride_and_not_at_every_frame(self, mocker, tmp_path):
+        # Eight frames at 1 fps, a 2 s stride: four samples, and their labels are
+        # the even-indexed frames' contents.
+        payload = self._run(mocker, tmp_path)
+
+        station = payload["station_activity"]["zones"][0]
+        assert [iv["category"] for iv in station["intervals"]] == [
+            "spawanie",
+            "ukladanie_pretow",
+            "pozostale",
+            "nierozpoznane",
+        ]
+
+    def test_it_loads_no_pose_model_no_osnet_and_no_vlm(self, mocker, tmp_path):
+        """The acceptance criterion, asserted rather than described.
+
+        Three heavy components removed is the whole reason this arm costs 49
+        GPU-seconds per video-hour where the pose-based one costs 555. A stray
+        import would not fail anything visible — it would just quietly cost the
+        margin the offer is priced on.
+        """
+        pose = mocker.patch("pipeline.analyze.load_pose_model", side_effect=AssertionError)
+        reid = mocker.patch("pipeline.analyze.load_reid_model", side_effect=AssertionError)
+        vlm = mocker.patch("pipeline.vlm_classifier.VLMClassifier", side_effect=AssertionError)
+
+        self._run(mocker, tmp_path)
+
+        assert pose.call_count == 0
+        assert reid.call_count == 0
+        assert vlm.call_count == 0
+
+    def test_the_rest_of_the_report_is_an_honest_blank(self, mocker, tmp_path):
+        # Nobody was detected because nobody was looked for. `dominant_activity`
+        # says "none" rather than naming a posture no model produced.
+        payload = self._run(mocker, tmp_path)
+
+        assert payload["peak_persons"] == 0
+        assert payload["dominant_activity"] == "none"
+        assert payload["person_minutes"] == {
+            "sitting": 0.0,
+            "standing": 0.0,
+            "walking": 0.0,
+            "running": 0.0,
+        }
+        assert payload["keyframes"] == []
+        assert payload["diagnostics"]["classifier"] == "station"
+
+    def test_station_mode_without_a_zones_config_is_refused(self, mocker, tmp_path):
+        mocker.patch("pipeline.analyze.iter_frames", return_value=self._frames([0, 0]))
+        mocker.patch("pipeline.analyze.load_station_classifier", return_value=self._classifier())
+
+        with pytest.raises(StationZoneError):
+            run_full_video_to_json([Path("chunk_000.mp4")], classifier="station")
+
+    def test_the_cli_accepts_the_station_classifier(self, mocker, tmp_path):
+        mocker.patch("pipeline.analyze.iter_frames", return_value=self._frames([0, 0, 1, 1]))
+        mocker.patch("pipeline.analyze.probe_duration_s", return_value=4.0)
+        mocker.patch("pipeline.analyze.load_station_classifier", return_value=self._classifier())
+        out = tmp_path / "result.json"
+
+        code = main(
+            [
+                "video.mp4",
+                "--output",
+                str(out),
+                "--classifier",
+                "station",
+                "--zones",
+                str(self._zones(tmp_path)),
+            ]
+        )
+
+        assert code == 0
+        assert "station_activity" in json.loads(out.read_text())
