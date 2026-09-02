@@ -207,9 +207,25 @@ def main() -> int:
     size = onnx_path.stat().st_size
     print(f"wrote {onnx_path} ({size / 1024:.0f} KiB, sha256 {digest[:16]}…)")
 
+    # Discovered, not assumed: the processor centre-crops, so `--image-size 518`
+    # yields a 224 tensor. The card must carry both numbers or a reader will feed
+    # the model the resize target it never sees.
+    from PIL import Image
+    from transformers import AutoImageProcessor
+
+    probe = AutoImageProcessor.from_pretrained(BACKBONE)(
+        images=[Image.new("RGB", (900, 800))],
+        return_tensors="pt",
+        size={"height": args.image_size, "width": args.image_size},
+    )["pixel_values"]
+
     training = {
         "backbone": BACKBONE,
-        "image_size": args.image_size,
+        "preprocessing": {
+            "resize": args.image_size,
+            "model_input": [int(probe.shape[-2]), int(probe.shape[-1])],
+        },
+        "output_classes": output_classes,
         "trained_as": comparison["ships"],
         "comparison": comparison,
         "hyperparameters": {
@@ -223,7 +239,6 @@ def main() -> int:
             "seed": SEED,
             "receptive_field_frames": 1 + (KERNEL - 1) * sum(DILATIONS),
             "feature_width": int(n_feat),
-            "output_classes": output_classes,
             "normalisation": "baked into the exported graph as a leading layer",
         },
         "artifact": {

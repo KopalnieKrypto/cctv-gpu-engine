@@ -116,6 +116,14 @@ def build_card(manifest: dict, report: dict, arm: str, training: dict) -> dict:
             "stride for the card to state and 64 frames would mean two spans of time."
         )
     collapse = report["collapse"]
+    preprocessing = training.get("preprocessing")
+    if not preprocessing or "resize" not in preprocessing or "model_input" not in preprocessing:
+        sys.exit(
+            "the training record carries no preprocessing contract. The card must "
+            "state both the resize target and the tensor the model actually "
+            "receives - naming only one of them is how a 518 resize came to be "
+            "read as a 518-pixel input."
+        )
     comparison = training.get("comparison")
     # The decision and the artefact are not allowed to disagree. A card that
     # describes the model its own comparison rejected is worse than no card:
@@ -136,7 +144,17 @@ def build_card(manifest: dict, report: dict, arm: str, training: dict) -> dict:
             "stride_s": strides.pop(),
         },
         "vocabulary": {
-            "classes": collapse["classes"],
+            # What the ONNX emits and what the client is shown are not the same
+            # list when the collapsed model ships: the head is seven-class and
+            # the merge happens after argmax. A card naming only one of the two
+            # leaves the consumer to guess which, so both are named.
+            "model_outputs": training["output_classes"],
+            "delivered_classes": collapse["classes"],
+            "collapse_applied": (
+                "none - the head emits them directly"
+                if training["trained_as"] == "direct"
+                else "after argmax, by the consumer"
+            ),
             "bucket": collapse["bucket"],
             "bucket_contains": collapse["members"],
             "not_in_bucket": NON_ACTIVITY,
@@ -149,7 +167,17 @@ def build_card(manifest: dict, report: dict, arm: str, training: dict) -> dict:
         },
         "backbone": {
             "id": training["backbone"],
-            "image_size": training["image_size"],
+            # Resize and crop are different numbers, and quoting only the resize
+            # is how this fixture's "518" arms came to be described as seeing 518
+            # pixels when the processor centre-crops every one of them to 224.
+            "preprocessing": {
+                **preprocessing,
+                "note": (
+                    f"resize {preprocessing['resize']}x{preprocessing['resize']}, then "
+                    f"centre-crop to {preprocessing['model_input'][0]}x"
+                    f"{preprocessing['model_input'][1]} - the crop is what the model sees"
+                ),
+            },
             "frozen": True,
             "why_frozen": (
                 "it is identical at every station and ships once inside the container "

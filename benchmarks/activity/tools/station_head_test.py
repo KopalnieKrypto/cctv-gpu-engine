@@ -163,6 +163,8 @@ def _manifest() -> dict:
 
 
 TRAINING = {
+    "output_classes": ACTIVITY_IDS,
+    "preprocessing": {"resize": 518, "model_input": [224, 224]},
     "backbone": "facebook/dinov2-base",
     "image_size": 518,
     "hyperparameters": {"window": 64, "channels": 96, "epochs": 60, "seed": 117},
@@ -255,7 +257,12 @@ class TestModelCard:
     def test_card_states_the_vocabulary_and_what_the_bucket_contains(self):
         card = sh.build_card(_manifest(), _report(), "tcn-pixel-518", TRAINING)
         vocab = card["vocabulary"]
-        assert vocab["classes"] == ["spawanie", "ukladanie_pretow", "pozostale", "nierozpoznane"]
+        assert vocab["delivered_classes"] == [
+            "spawanie",
+            "ukladanie_pretow",
+            "pozostale",
+            "nierozpoznane",
+        ]
         assert vocab["bucket"] == "pozostale"
         assert vocab["bucket_contains"] == COLLAPSE["members"]
         assert vocab["not_in_bucket"] == "nierozpoznane"
@@ -265,7 +272,6 @@ class TestModelCard:
         # rebuilt from what the card says.
         card = sh.build_card(_manifest(), _report(), "tcn-pixel-518", TRAINING)
         assert card["backbone"]["id"] == "facebook/dinov2-base"
-        assert card["backbone"]["image_size"] == 518
         assert card["backbone"]["frozen"] is True
         assert card["head"]["hyperparameters"]["seed"] == 117
 
@@ -346,3 +352,50 @@ class TestSelfContainedArtifact:
         onnx = tmp_path / "head.onnx"
         onnx.write_bytes(b"graph with weights inline")
         sh.assert_single_file(onnx)
+
+
+class TestCardMatchesTheArtifact:
+    def test_collapsed_head_says_it_emits_the_full_vocabulary(self):
+        # The shipped head is seven-class and the merge happens after argmax.
+        # A card listing four classes next to a seven-logit output is a
+        # contradiction the consumer resolves by guessing.
+        training = {**TRAINING, "trained_as": "collapsed", "output_classes": ACTIVITY_IDS}
+        card = sh.build_card(_manifest(), _report(), "tcn-pixel-518", training)
+        vocab = card["vocabulary"]
+        assert vocab["model_outputs"] == ACTIVITY_IDS
+        assert vocab["delivered_classes"] == [
+            "spawanie",
+            "ukladanie_pretow",
+            "pozostale",
+            "nierozpoznane",
+        ]
+        assert vocab["collapse_applied"] == "after argmax, by the consumer"
+
+    def test_direct_head_emits_the_delivered_classes_itself(self):
+        delivered = ["spawanie", "ukladanie_pretow", "pozostale", "nierozpoznane"]
+        training = {
+            **TRAINING,
+            "trained_as": "direct",
+            "output_classes": delivered,
+            "comparison": sh.choose_vocabulary(
+                _figs(spawanie=(0.9, 1.0)), _figs(spawanie=(0.8, 1.1))
+            ),
+        }
+        card = sh.build_card(_manifest(), _report(), "tcn-pixel-518", training)
+        assert card["vocabulary"]["model_outputs"] == delivered
+        assert card["vocabulary"]["collapse_applied"] == "none - the head emits them directly"
+
+    def test_card_carries_the_whole_preprocessing_contract(self):
+        # `image_size` alone is what let "518" be described as 518 pixels when
+        # the processor centre-crops to 224. Both numbers, or neither.
+        card = sh.build_card(_manifest(), _report(), "tcn-pixel-518", TRAINING)
+        pre = card["backbone"]["preprocessing"]
+        assert pre["resize"] == 518
+        assert pre["model_input"] == [224, 224]
+        assert "centre-crop" in pre["note"]
+
+    def test_a_missing_preprocessing_contract_is_an_error(self):
+        training = {k: v for k, v in TRAINING.items() if k != "preprocessing"}
+        training.pop("image_size", None)
+        with pytest.raises(SystemExit):
+            sh.build_card(_manifest(), _report(), "tcn-pixel-518", training)

@@ -1,0 +1,222 @@
+{
+  "artifact": {
+    "name": "station-head-hala-prawe-v1-v1.0.0.onnx",
+    "version": "1.0.0",
+    "sha256": "4f4e30d34ef8bbe394d49786ad65ab9458ab0755df47bf9ba6f24130e165cb21",
+    "bytes": 1892460,
+    "opset": 18,
+    "input": "embeddings (batch, 768, time) - frozen facebook/dinov2-base CLS vectors",
+    "output": "logits (batch, 7, time)",
+    "trained_as": "collapsed"
+  },
+  "station": {
+    "id": "hala-prawe-v1",
+    "camera_id": "c88d18d9-cda0-4c88-b76c-b475a45cbeb8",
+    "zone_native_px": {
+      "w": 900,
+      "h": 800,
+      "x": 1700,
+      "y": 1400
+    },
+    "stride_s": 2
+  },
+  "vocabulary": {
+    "classes": [
+      "spawanie",
+      "ukladanie_pretow",
+      "pozostale",
+      "nierozpoznane"
+    ],
+    "bucket": "pozostale",
+    "bucket_contains": [
+      "sciaganie_elementu",
+      "inna_czynnosc",
+      "postoj",
+      "brak_na_stanowisku"
+    ],
+    "not_in_bucket": "nierozpoznane",
+    "not_in_bucket_why": "neither work nor downtime; folding it in would convert unknown time into measured time",
+    "trained_as": "collapsed",
+    "comparison": {
+      "ships": "collapsed",
+      "regressions": {
+        "spawanie": [
+          "time_ratio"
+        ],
+        "ukladanie_pretow": [
+          "recall"
+        ]
+      },
+      "deltas": {
+        "spawanie": {
+          "recall": 0.028225806451612878,
+          "time_ratio_toward_1": -0.04704301075268824
+        },
+        "ukladanie_pretow": {
+          "recall": -0.036231884057971064,
+          "time_ratio_toward_1": 0.019927536231884146
+        },
+        "pozostale": {
+          "recall": 0.2063492063492064,
+          "time_ratio_toward_1": 0.13605442176870752
+        }
+      },
+      "rule": "the directly-trained vocabulary ships only if it regresses on no delivered activity, on neither recall nor reported time; `nierozpoznane` is excluded because it is not an activity"
+    }
+  },
+  "backbone": {
+    "id": "facebook/dinov2-base",
+    "image_size": 518,
+    "frozen": true,
+    "why_frozen": "it is identical at every station and ships once inside the container image; only the ~1 MB head below is station-specific"
+  },
+  "head": {
+    "hyperparameters": {
+      "window": 64,
+      "channels": 96,
+      "dilations": [
+        1,
+        2,
+        4
+      ],
+      "kernel": 5,
+      "epochs": 60,
+      "lr": 0.002,
+      "weight_decay": 0.0001,
+      "seed": 117,
+      "receptive_field_frames": 29,
+      "feature_width": 768,
+      "output_classes": [
+        "spawanie",
+        "ukladanie_pretow",
+        "sciaganie_elementu",
+        "inna_czynnosc",
+        "postoj",
+        "brak_na_stanowisku",
+        "nierozpoznane"
+      ],
+      "normalisation": "baked into the exported graph as a leading layer"
+    }
+  },
+  "training_material": {
+    "windows": [
+      {
+        "slot": "W1",
+        "window_local": "2026-08-28 09:00-09:20 Europe/Warsaw",
+        "annotated_at": "2026-09-01",
+        "samples": 599
+      },
+      {
+        "slot": "W2",
+        "window_local": "2026-08-28 10:20-10:40 Europe/Warsaw",
+        "annotated_at": "2026-09-01",
+        "samples": 600
+      },
+      {
+        "slot": "W3",
+        "window_local": "2026-09-01 18:25-18:45 Europe/Warsaw",
+        "annotated_at": "2026-09-02",
+        "samples": 600
+      }
+    ],
+    "held_out": [],
+    "all_annotated_material_used": true,
+    "consequence": "These weights saw every annotated window, so they have no held-out material and cannot be scored. Every figure under `accuracy` was measured on different models - the cross-validated folds - and describes the method, not this file."
+  },
+  "accuracy": {
+    "arm": "tcn-pixel-518",
+    "source": "C0-report.json",
+    "from_these_weights": false,
+    "measured_on": "cross-validated held-out folds, on models that are not the shipped weights; read programmatically from C0-report.json at generation time",
+    "union": {
+      "spawanie": {
+        "recall": 0.8897849462365591,
+        "time_ratio": 1.0618279569892473,
+        "support": 744
+      },
+      "ukladanie_pretow": {
+        "recall": 0.8822463768115942,
+        "time_ratio": 1.0996376811594204,
+        "support": 552
+      },
+      "pozostale": {
+        "recall": 0.4512471655328798,
+        "time_ratio": 0.8412698412698413,
+        "support": 441
+      },
+      "nierozpoznane": {
+        "recall": 0.0,
+        "time_ratio": 0.5,
+        "support": 62
+      }
+    },
+    "per_window": {
+      "W1": {
+        "spawanie": {
+          "recall": 0.9821428571428571,
+          "time_ratio": 1.1294642857142858,
+          "support": 224
+        },
+        "ukladanie_pretow": {
+          "recall": 0.9444444444444444,
+          "time_ratio": 1.4055555555555554,
+          "support": 180
+        },
+        "pozostale": {
+          "recall": 0.2717948717948718,
+          "time_ratio": 0.31794871794871793,
+          "support": 195
+        },
+        "nierozpoznane": {
+          "recall": null,
+          "time_ratio": null,
+          "support": 0
+        }
+      },
+      "W2": {
+        "spawanie": {
+          "recall": 0.9267399267399268,
+          "time_ratio": 0.989010989010989,
+          "support": 273
+        },
+        "ukladanie_pretow": {
+          "recall": 0.9664804469273743,
+          "time_ratio": 1.0446927374301676,
+          "support": 179
+        },
+        "pozostale": {
+          "recall": 0.7222222222222222,
+          "time_ratio": 1.5888888888888888,
+          "support": 90
+        },
+        "nierozpoznane": {
+          "recall": 0.0,
+          "time_ratio": 0.0,
+          "support": 58
+        }
+      },
+      "W3": {
+        "spawanie": {
+          "recall": 0.7651821862348178,
+          "time_ratio": 1.0809716599190284,
+          "support": 247
+        },
+        "ukladanie_pretow": {
+          "recall": 0.7461139896373057,
+          "time_ratio": 0.8652849740932642,
+          "support": 193
+        },
+        "pozostale": {
+          "recall": 0.5192307692307693,
+          "time_ratio": 1.064102564102564,
+          "support": 156
+        },
+        "nierozpoznane": {
+          "recall": 0.0,
+          "time_ratio": 0.0,
+          "support": 4
+        }
+      }
+    }
+  }
+}
