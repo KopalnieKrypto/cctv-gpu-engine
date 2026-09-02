@@ -65,14 +65,16 @@ mid-weld is noise rather than the operator leaving.
 
 ## Honesty rules this script enforces
 
-- **Both folds, from the manifest.** Fold A trains W1 and predicts W2; fold B the
-  reverse. Per-activity accuracy is then reported by `evaluate_arms.py` on the
+- **Every fold, from the manifest, and every window inside it.** Under the 3-fold
+  split each fold trains on two windows and predicts the third. Sequences are cut
+  per window before pooling, so no training sample spans the seam between two
+  clips. Per-activity accuracy is then reported by `evaluate_arms.py` on the
   union, where every labelled sample is predicted once by a model that never
   trained on it.
 - **Hyperparameters are fixed before the run** and are not adjusted against
   results. They are recorded in the output. If this arm fails, it is reported as
-  failing - tuning against W2 until it passes would spend the last clean window
-  in the fixture, and there is no second one.
+  failing - tuning against the held-out window until it passes would spend the
+  clean windows in the fixture, and there are no more.
 - **The pose pass is cached** so re-running the model does not re-run detection,
   but the cache is keyed by the model file so a detector change invalidates it.
 
@@ -366,17 +368,31 @@ def make_model(n_feat: int, n_class: int):
     return torch.nn.Sequential(*layers)
 
 
-def train_fold(xtr, ytr, xte, n_class: int, device: str):
+def train_fold(train_clips, xte, n_class: int, device: str):
+    """Fit on one or more training windows and predict the held-out one.
+
+    `train_clips` is a list of `(x, y)` per source window, never one concatenated
+    array. Sliding sequences are cut inside each window and only then pooled, so
+    no training sequence ever straddles the seam between two clips - a seam that
+    joins a Friday morning to a Monday evening and would teach the model a
+    transition that never happened.
+    """
     import torch
 
     torch.manual_seed(SEED)
+    xtr = np.concatenate([x for x, _ in train_clips], axis=0)
+    ytr = np.concatenate([y for _, y in train_clips], axis=0)
     mu, sd = xtr.mean(0, keepdims=True), xtr.std(0, keepdims=True) + 1e-6
-    xtr_n = (xtr - mu) / sd
     xte_n = (xte - mu) / sd
 
-    starts = list(range(0, max(1, len(xtr_n) - WINDOW + 1)))
-    batch = np.stack([xtr_n[s : s + WINDOW] for s in starts]).transpose(0, 2, 1)
-    target = np.stack([ytr[s : s + WINDOW] for s in starts])
+    seqs, targets = [], []
+    for x, y in train_clips:
+        xn = (x - mu) / sd
+        for s in range(0, max(1, len(xn) - WINDOW + 1)):
+            seqs.append(xn[s : s + WINDOW])
+            targets.append(y[s : s + WINDOW])
+    batch = np.stack(seqs).transpose(0, 2, 1)
+    target = np.stack(targets)
 
     xb = torch.tensor(batch, device=device)
     yb = torch.tensor(target, device=device)
@@ -469,12 +485,19 @@ def main() -> int:
     total_video = sum(w["duration"] for w in windows.values())
 
     for fold in folds:
-        tr, te = fold["train_dev"][0], fold["held_out"][0]
-        if tr not in windows or te not in windows:
-            continue
-        print(f"\n=== fold {fold['id']}: train {tr} -> predict {te} ===", file=sys.stderr)
+        # Every train_dev slot, not just the first. Under the 3-fold split each
+        # fold names two training windows, and silently taking [0] would train on
+        # half the data the split promised while still reporting the fold's name.
+        tr_slots = [s for s in fold["train_dev"] if s in windows]
+        te = fold["held_out"][0]
+        if len(tr_slots) != len(fold["train_dev"]) or te not in windows:
+            sys.exit(f"fold {fold['id']} names a window the fixture does not have")
+        joined = "+".join(tr_slots)
+        print(f"\n=== fold {fold['id']}: train {joined} -> predict {te} ===", file=sys.stderr)
         t1 = time.monotonic()
-        pred = train_fold(feats[tr], windows[tr]["y"], feats[te], len(classes), device)
+        pred = train_fold(
+            [(feats[s], windows[s]["y"]) for s in tr_slots], feats[te], len(classes), device
+        )
         fit_seconds = time.monotonic() - t1
         torch_peak = torch.cuda.max_memory_allocated() // (1024 * 1024)
         # A cache hit never loads the pose session, so the sampled peak would
@@ -487,6 +510,7 @@ def main() -> int:
             "arm": f"tcn-{args.features}",
             "window": te,
             "fold": fold["id"],
+            "trained_on": tr_slots,
             "model": f"dilated temporal CNN, {args.features} features over YOLO-pose",
             "feature_set": args.features,
             "hyperparameters": {

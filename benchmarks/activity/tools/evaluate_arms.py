@@ -385,14 +385,32 @@ def render(report: dict) -> str:
     add("")
     add(f"Generated {report['generated']} by `benchmarks/activity/tools/evaluate_arms.py`.")
     add("")
-    add("## Pre-break bias")
+    # Derived from the manifest rather than written in prose, because this
+    # paragraph outlived its own truth once: it still announced W3 as dropped
+    # after W3 had been recovered and annotated.
+    add("## Coverage")
     add("")
-    add(
-        "**Both annotated windows are pre-break** (W1 09:00–09:20, W2 10:20–10:40, "
-        "both 2026-08-28; W3 was dropped by decision on 2026-09-01). Every figure in "
-        "this report therefore describes the first half of a shift only, and inherits "
-        "that bias permanently. Quote it with the caveat attached or do not quote it."
-    )
+    annotated = [c for c in m["clips"] if c.get("annotated")]
+    for c in annotated:
+        add(f"- **{c['slot']}** {c['window_local']} — {c['shift_position']}")
+    add("")
+    positions = [c["shift_position"] for c in annotated]
+    pre_break = sum("pre-break" in p for p in positions)
+    if pre_break == len(annotated):
+        add(
+            "**Every annotated window is pre-break.** Every figure below describes the "
+            "first half of a shift only and inherits that bias permanently. Quote it "
+            "with the caveat attached or do not quote it."
+        )
+    elif pre_break:
+        add(
+            f"**{pre_break} of {len(annotated)} windows are pre-break.** The aggregate "
+            f"still leans that way, and the one window that does not differs in both "
+            f"shift and operator, so a per-window difference cannot be attributed to "
+            f"either alone."
+        )
+    add("")
+    add(m["split"].get("caveat", ""))
     add("")
     add("## Split")
     add("")
