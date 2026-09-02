@@ -159,8 +159,16 @@ def main() -> int:
     classes, windows = data["classes"], data["windows"]
 
     geom: dict[str, np.ndarray] = {}
+    # `fused` cannot run without a pose pass, so the pose pass is part of its
+    # cost. Reporting only the embedding time here understated it by ~12x and
+    # made the most expensive arm look like the cheapest.
+    pose_seconds = 0.0
+    pose_cached = False
     if args.features == "fused":
+        t_pose = time.monotonic()
         pose = build_sequences(args.manifest, args.pose_model, args.out_dir / "cache")
+        pose_seconds = time.monotonic() - t_pose
+        pose_cached = pose_seconds < 5
         for slot, w in windows.items():
             if slot not in pose["windows"]:
                 sys.exit(f"pose cache has no window {slot}")
@@ -241,8 +249,24 @@ def main() -> int:
                 "box": args.box,
                 "gpu_index": args.gpu_index,
                 "gpus_used": 1,
-                "gpu_seconds": round(embed_seconds / max(len(folds), 1) + fit_seconds, 1),
+                # A stage this arm cannot run without belongs in its cost. When
+                # `fused` hits the pose cache the pose pass is real but untimed,
+                # so the total is withheld rather than reported without it.
+                "gpu_seconds": (
+                    None
+                    if (args.features == "fused" and pose_cached)
+                    else round((embed_seconds + pose_seconds) / max(len(folds), 1) + fit_seconds, 1)
+                ),
+                "gpu_seconds_note": (
+                    "pose pass cached and untimed; `fused` requires it, so the total "
+                    "is withheld rather than understated"
+                    if (args.features == "fused" and pose_cached)
+                    else None
+                ),
                 "embed_seconds_total": round(embed_seconds, 1),
+                "pose_seconds_total": (
+                    round(pose_seconds, 1) if args.features == "fused" else None
+                ),
                 "fit_seconds": round(fit_seconds, 1),
                 "video_seconds": len(windows[te]["y"]) * stride,
                 "peak_vram_mib": int(peak) if peak else None,
