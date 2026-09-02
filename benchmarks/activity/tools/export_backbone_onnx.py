@@ -60,8 +60,31 @@ def main() -> int:
         def forward(self, pixel_values):
             return self.model(pixel_values=pixel_values).last_hidden_state[:, 0]
 
+    # The tensor shape is discovered from the processor, never assumed from the
+    # flag. `--image-size` is the *resize* target, and DINOv2's processor then
+    # centre-crops to `crop_size` (224) - so `--image-size 518` produces a 224
+    # tensor, not a 518 one. Exporting at the flag's value would ship a model
+    # whose input the pipeline can never satisfy.
+    from PIL import Image
+    from transformers import AutoImageProcessor
+
+    processor = AutoImageProcessor.from_pretrained(args.backbone)
+    probe = processor(
+        images=[Image.new("RGB", (900, 800))],
+        return_tensors="pt",
+        size={"height": args.image_size, "width": args.image_size},
+    )["pixel_values"]
+    height, width = int(probe.shape[-2]), int(probe.shape[-1])
+    if (height, width) != (args.image_size, args.image_size):
+        print(
+            f"NOTE: --image-size {args.image_size} is the resize target; the "
+            f"processor centre-crops to {height}x{width}, which is what the model "
+            "actually sees and what this export takes as input.",
+            file=sys.stderr,
+        )
+
     model = ClsOnly(args.backbone).eval()
-    dummy = torch.zeros(1, 3, args.image_size, args.image_size)
+    dummy = torch.zeros(1, 3, height, width)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     torch.onnx.export(
         model,
@@ -91,6 +114,13 @@ def main() -> int:
     size = args.out.stat().st_size
     print(f"wrote {args.out} ({size / 1024 / 1024:.0f} MiB)")
     print(f"sha256 {digest}")
+    # The whole preprocessing contract, printed together, because the resize and
+    # the crop are different numbers and reading only one of them is how the
+    # "518" arms came to be described as seeing 518 pixels.
+    print(
+        f"\npreprocessing contract: resize {args.image_size}x{args.image_size} "
+        f"-> centre-crop {height}x{width} -> model input"
+    )
     print(f'\nPin it in setup-models.sh:\n  DINOV2_SHA256="{digest}"')
     return 0
 
