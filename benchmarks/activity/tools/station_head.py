@@ -45,11 +45,19 @@ def _require_figures(scores: dict, where: str) -> None:
     up quoted as a classifier's held-out accuracy.
     """
     for c, s in scores.items():
-        missing = [k for k in ("recall", "time_ratio", "support") if s.get(k) is None]
+        if s.get("support") is None:
+            sys.exit(f"{where}: `{c}` has no support count - the report is malformed.")
+        # Zero support is not a hole. `nierozpoznane` never occurs on W1, so it
+        # has no recall there, and that is a fact about the fixture rather than a
+        # missing measurement. The card carries the null with its zero next to it.
+        if s["support"] == 0:
+            continue
+        missing = [k for k in ("recall", "time_ratio") if s.get(k) is None]
         if missing:
             sys.exit(
-                f"{where}: `{c}` has no {', '.join(missing)}. The card would carry a "
-                "blank where a measurement belongs, so it is not written at all."
+                f"{where}: `{c}` has {s['support']} samples but no "
+                f"{', '.join(missing)}. The card would carry a blank where a "
+                "measurement belongs, so it is not written at all."
             )
 
 

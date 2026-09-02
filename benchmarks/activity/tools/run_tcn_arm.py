@@ -372,8 +372,13 @@ def make_model(n_feat: int, n_class: int):
     return torch.nn.Sequential(*layers)
 
 
-def train_fold(train_clips, xte, n_class: int, device: str):
-    """Fit on one or more training windows and predict the held-out one.
+def fit_model(train_clips, n_class: int, device: str):
+    """Fit on one or more training windows; return the model and its normalisation.
+
+    Split out of `train_fold` so #122 can ship the fitted weights rather than only
+    their predictions. The body is unchanged and `train_fold` is now a thin caller,
+    so the cross-validated arms and the shipped head are trained by literally the
+    same code - which is the claim the model card makes about them.
 
     `train_clips` is a list of `(x, y)` per source window, never one concatenated
     array. Sliding sequences are cut inside each window and only then pooled, so
@@ -387,7 +392,6 @@ def train_fold(train_clips, xte, n_class: int, device: str):
     xtr = np.concatenate([x for x, _ in train_clips], axis=0)
     ytr = np.concatenate([y for _, y in train_clips], axis=0)
     mu, sd = xtr.mean(0, keepdims=True), xtr.std(0, keepdims=True) + 1e-6
-    xte_n = (xte - mu) / sd
 
     seqs, targets = [], []
     for x, y in train_clips:
@@ -420,6 +424,15 @@ def train_fold(train_clips, xte, n_class: int, device: str):
             opt.step()
         if (ep + 1) % 20 == 0:
             print(f"  epoch {ep + 1}/{EPOCHS} loss {loss.item():.3f}", file=sys.stderr)
+    return model, mu, sd
+
+
+def train_fold(train_clips, xte, n_class: int, device: str):
+    """Fit on the training windows and predict the held-out one."""
+    import torch
+
+    model, mu, sd = fit_model(train_clips, n_class, device)
+    xte_n = (xte - mu) / sd
 
     # Inference: overlapping windows, logits averaged, so every frame is predicted
     # with as much surrounding context as the clip allows.

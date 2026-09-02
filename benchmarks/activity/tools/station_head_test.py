@@ -306,3 +306,25 @@ class TestModelCard:
         }
         with pytest.raises(SystemExit):
             sh.build_card(_manifest(), _report(), "tcn-pixel-518", training)
+
+    def test_a_class_absent_from_a_window_is_not_a_missing_measurement(self):
+        # `nierozpoznane` has zero support on W1 - the annotator never used it
+        # there. That is a fact about the fixture, not a hole in the report, and
+        # a card that refused to build over it could never be built at all.
+        report = _report()
+        report["arms"][0]["collapsed"]["per_window_scores"]["W1"]["nierozpoznane"] = {
+            "support": 0,
+            "recall": None,
+            "time_ratio": None,
+            "precision": None,
+        }
+        card = sh.build_card(_manifest(), report, "tcn-pixel-518", TRAINING)
+        assert card["accuracy"]["per_window"]["W1"]["nierozpoznane"]["support"] == 0
+        assert card["accuracy"]["per_window"]["W1"]["nierozpoznane"]["recall"] is None
+
+    def test_a_class_present_but_unmeasured_is_still_an_error(self):
+        # The distinction that matters: support > 0 with no recall is a hole.
+        report = _report()
+        report["arms"][0]["collapsed"]["per_window_scores"]["W1"]["spawanie"]["recall"] = None
+        with pytest.raises(SystemExit):
+            sh.build_card(_manifest(), report, "tcn-pixel-518", TRAINING)
