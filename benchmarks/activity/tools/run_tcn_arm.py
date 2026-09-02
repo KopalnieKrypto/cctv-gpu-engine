@@ -277,8 +277,12 @@ def build_sequences(manifest: Path, pose_model: Path, cache: Path) -> dict:
     roi = m["station_roi"]["crop"]
     classes = [a["id"] for a in m["activities"]]
 
+    # The annotated slots belong in the key. Without them, adding a window to the
+    # fixture hits the old cache and returns the old window set, so a 3-fold run
+    # would quietly reuse a 2-window pose pass.
+    slots = ",".join(sorted(c["slot"] for c in m["clips"] if c.get("annotated")))
     key = hashlib.sha256(
-        f"{pose_model.name}:{pose_model.stat().st_size}:raw{RAW_WIDTH}".encode()
+        f"{pose_model.name}:{pose_model.stat().st_size}:raw{RAW_WIDTH}:{slots}".encode()
     ).hexdigest()[:12]
     cache_file = cache / f"pose-seq-{key}.npz"
     meta_file = cache / f"pose-seq-{key}.json"
