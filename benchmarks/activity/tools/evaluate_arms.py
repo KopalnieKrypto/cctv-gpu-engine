@@ -481,6 +481,31 @@ def render(report: dict) -> str:
             "that under-reports it."
         )
         add("")
+        pw = arm.get("per_window_scores") or {}
+        if len(pw) > 1:
+            add("### Per held-out window")
+            add("")
+            add(
+                "The union above is one number over folds that held out different "
+                "material. Where those folds disagree, the mean describes neither."
+            )
+            add("")
+            cols = sorted(pw)
+            add("| Activity | " + " | ".join(cols) + " |")
+            add("|---|" + "---:|" * len(cols))
+            for c in arm["scores"]:
+                if c == NON_ACTIVITY or not arm["scores"][c]["support"]:
+                    continue
+                cells = []
+                for w in cols:
+                    s = pw[w].get(c)
+                    cells.append(
+                        "n/a"
+                        if not s or not s["support"]
+                        else f"{_pct(s['recall'])} (n={s['support']})"
+                    )
+                add(f"| `{c}` | " + " | ".join(cells) + " |")
+            add("")
         failing = [
             c
             for c, s in arm["scores"].items()
@@ -644,17 +669,24 @@ def main() -> int:
     arms = []
     for name, preds in sorted(by_arm.items()):
         pairs: list[tuple[str, str]] = []
+        # Also kept per window. The union over folds averages a fold that held
+        # out familiar material with one that held out an unseen shift, and on
+        # this fixture those differ by 70 points on `spawanie` - the mean of the
+        # two describes neither, and reporting only the mean hides the finding.
+        per_window_pairs: dict[str, list[tuple[str, str]]] = {}
         unpredicted = 0
         boundary_stats: list[dict] = []
         gpu_blocks = [p["gpu"] for p in preds if p["gpu"]]
         for pred in preds:
             truth = truths[pred["window"]]
+            wp = per_window_pairs.setdefault(pred["window"], [])
             for t, gt in truth["grid"].items():
                 got = pred["grid"].get(t)
                 if got is None:
                     unpredicted += 1
                     got = "__brak_predykcji__"
                 pairs.append((gt, got))
+                wp.append((gt, got))
             boundary_stats.append(boundary_errors(truth["intervals"], pred["intervals"]))
 
         windows = sorted(p["window"] for p in preds)
@@ -691,6 +723,10 @@ def main() -> int:
                 "name": name,
                 "windows": windows,
                 "scores": per_activity_scores(pairs, classes),
+                "per_window_scores": {
+                    w: per_activity_scores(wp, classes)
+                    for w, wp in sorted(per_window_pairs.items())
+                },
                 "confusion": confusion(pairs),
                 "boundaries": merged_boundaries,
                 "hardware": hardware_verdict(gpu),
