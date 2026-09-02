@@ -136,3 +136,48 @@ def test_every_model_pins_a_real_sha256(prefix: str):
     script = SETUP_MODELS_SCRIPT.read_text()
     pin = re.search(rf'{prefix}_SHA256="\$\{{{prefix}_SHA256:-([0-9a-fA-F]{{64}})\}}"', script)
     assert pin, f"{prefix}_SHA256 has no parseable 64-hex default in setup-models.sh"
+
+
+class TestTheStationHead:
+    """#123: the head and the card production loads are pinned like every model.
+
+    The card is pinned too, and that is not bookkeeping. It carries the rectangle
+    the head was fitted on and the measured time ratio quoted beside every total,
+    so a card that changed underneath a deployment would move client-facing
+    numbers with nothing in the artefact to say so.
+    """
+
+    def test_the_head_and_its_card_are_both_fetched(self):
+        prefixes = _fetched_prefixes()
+        assert any("STATION_HEAD" in p for p in prefixes), (
+            f"setup-models.sh does not fetch the station head. Fetched: {prefixes}"
+        )
+        assert any("STATION_CARD" in p for p in prefixes), (
+            "setup-models.sh fetches the station head without its card. The head "
+            "cannot be used without one — the card is where the delivered "
+            f"vocabulary and the measured time ratios come from. Fetched: {prefixes}"
+        )
+
+    def test_the_head_pin_is_the_released_artefact(self):
+        # Hard-coded on purpose: this is the digest the model card names as the
+        # weights its figures describe, so the two are checked against each other
+        # rather than both read from the same file.
+        script = SETUP_MODELS_SCRIPT.read_text()
+        assert "38e678de782d887d59b50c2992820d0a862fcf7b528f1de955c1e439877e2c0e" in script, (
+            "the station head pin is not the sha256 the shipped model card names"
+        )
+
+    def test_the_pinned_card_is_the_one_committed_to_the_repo(self):
+        """A deployment must not read a different card than this checkout tests.
+
+        `pipeline/station_card_test.py` asserts the shipped card's rectangle and
+        vocabulary; if the pinned release asset were a different file, those tests
+        would be describing something production never loads.
+        """
+        script = SETUP_MODELS_SCRIPT.read_text()
+        pin = re.search(
+            r'STATION_CARD_SHA256="\$\{STATION_CARD_SHA256:-([0-9a-fA-F]{64})\}"', script
+        )
+        assert pin, "the station card entry has no pinned 64-hex sha256 default"
+        committed = REPO_ROOT / "models" / "station-head-hala-prawe-v1-v1.0.0.card.json"
+        assert pin.group(1) == hashlib.sha256(committed.read_bytes()).hexdigest()

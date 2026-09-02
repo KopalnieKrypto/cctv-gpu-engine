@@ -85,6 +85,26 @@ DINOV2_FILE="${DINOV2_FILE:-dinov2-base.onnx}"
 DINOV2_SHA256="${DINOV2_SHA256:-5d0ba2adf984402717701987eea1d2c9d8af3a4f8d955e91e8944e6fabb23bf9}"
 DINOV2_URL="${DINOV2_URL:-https://github.com/KopalnieKrypto/cctv-gpu-engine/releases/download/${DINOV2_TAG}/${DINOV2_FILE}}"
 
+# The station-specific half of that classifier (issues #122/#123): a ~1 MB
+# temporal head for `hala prawe skrzydlo`, plus the card that describes it.
+# Onboarding another station means another head this size — no new large model
+# and no engine redeploy — so this is the only per-station artefact here.
+#
+# The card is pinned as its own asset, and that is not bookkeeping. It carries
+# the native-pixel rectangle the head was fitted on and the measured time ratio
+# printed beside every client-facing total, so a card that changed underneath a
+# deployment would move those numbers with nothing in `result.json` to say so.
+# `--classifier station` refuses to run when the configured zone is not the
+# card's rectangle, which only means anything if the card is the pinned one.
+STATION_HEAD_TAG="${STATION_HEAD_TAG:-station-head-hala-prawe-v1-v1.0.0}"
+STATION_HEAD_FILE="${STATION_HEAD_FILE:-station-head-hala-prawe-v1-v1.0.0.onnx}"
+STATION_HEAD_SHA256="${STATION_HEAD_SHA256:-38e678de782d887d59b50c2992820d0a862fcf7b528f1de955c1e439877e2c0e}"
+STATION_HEAD_URL="${STATION_HEAD_URL:-https://github.com/KopalnieKrypto/cctv-gpu-engine/releases/download/${STATION_HEAD_TAG}/${STATION_HEAD_FILE}}"
+
+STATION_CARD_FILE="${STATION_CARD_FILE:-station-head-hala-prawe-v1-v1.0.0.card.json}"
+STATION_CARD_SHA256="${STATION_CARD_SHA256:-2cf6297c1ae58e4a9e9df88ec5f19f289ea7a9eefccfbf0c8fd35d040b4e3c17}"
+STATION_CARD_URL="${STATION_CARD_URL:-https://github.com/KopalnieKrypto/cctv-gpu-engine/releases/download/${STATION_HEAD_TAG}/${STATION_CARD_FILE}}"
+
 DEST_DIR="models"
 
 mkdir -p "${DEST_DIR}"
@@ -150,3 +170,5 @@ fetch_model "${OSNET_URL}" "${OSNET_FILE}" "${OSNET_SHA256}" "OSNET_SHA256"
 fetch_model "${ACTIVITY_MLP_URL}" "${ACTIVITY_MLP_FILE}" "${ACTIVITY_MLP_SHA256}" "ACTIVITY_MLP_SHA256"
 fetch_model "${ACTIVITY_MLP_METADATA_URL}" "${ACTIVITY_MLP_METADATA_FILE}" "${ACTIVITY_MLP_METADATA_SHA256}" "ACTIVITY_MLP_METADATA_SHA256"
 fetch_model "${DINOV2_URL}" "${DINOV2_FILE}" "${DINOV2_SHA256}" "DINOV2_SHA256"
+fetch_model "${STATION_HEAD_URL}" "${STATION_HEAD_FILE}" "${STATION_HEAD_SHA256}" "STATION_HEAD_SHA256"
+fetch_model "${STATION_CARD_URL}" "${STATION_CARD_FILE}" "${STATION_CARD_SHA256}" "STATION_CARD_SHA256"

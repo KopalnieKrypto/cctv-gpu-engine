@@ -79,6 +79,33 @@ RUN curl -fL "${ACTIVITY_MLP_URL}" -o /app/models/activity-mlp-v1.0.0.onnx \
     && curl -fL "${ACTIVITY_MLP_METADATA_URL}" -o /app/models/activity-mlp-v1.0.0.json \
     && echo "${ACTIVITY_MLP_METADATA_SHA256}  /app/models/activity-mlp-v1.0.0.json" | sha256sum -c -
 
+# Station activity classifier (#122/#123), selected per camera via the zones
+# config's `classifier: "station"`. Three files, and all three have to be here:
+# the gpu-agent spawns this image with a bare `docker run` and no bind-mount, so
+# anything only in setup-models.sh is simply absent at run time.
+#
+# The backbone is the expensive one (~332 MiB) and it is also the one that never
+# changes — identical at every station, which is why it ships once here while the
+# ~1.8 MB head is the only per-station artefact. Onboarding another bench costs
+# another head, not another image.
+#
+# The card is not documentation. `--classifier station` reads the native-pixel
+# rectangle the head was fitted on from it and refuses to run when the configured
+# zone is a different rectangle, and every client-facing total is printed with the
+# measured time ratio the card carries. A run without it produces nothing.
+ARG DINOV2_URL=https://github.com/KopalnieKrypto/cctv-gpu-engine/releases/download/dinov2-base-v1.0/dinov2-base.onnx
+ARG DINOV2_SHA256=5d0ba2adf984402717701987eea1d2c9d8af3a4f8d955e91e8944e6fabb23bf9
+ARG STATION_HEAD_URL=https://github.com/KopalnieKrypto/cctv-gpu-engine/releases/download/station-head-hala-prawe-v1-v1.0.0/station-head-hala-prawe-v1-v1.0.0.onnx
+ARG STATION_HEAD_SHA256=38e678de782d887d59b50c2992820d0a862fcf7b528f1de955c1e439877e2c0e
+ARG STATION_CARD_URL=https://github.com/KopalnieKrypto/cctv-gpu-engine/releases/download/station-head-hala-prawe-v1-v1.0.0/station-head-hala-prawe-v1-v1.0.0.card.json
+ARG STATION_CARD_SHA256=2cf6297c1ae58e4a9e9df88ec5f19f289ea7a9eefccfbf0c8fd35d040b4e3c17
+RUN curl -fL "${DINOV2_URL}" -o /app/models/dinov2-base.onnx \
+    && echo "${DINOV2_SHA256}  /app/models/dinov2-base.onnx" | sha256sum -c - \
+    && curl -fL "${STATION_HEAD_URL}" -o /app/models/station-head-hala-prawe-v1-v1.0.0.onnx \
+    && echo "${STATION_HEAD_SHA256}  /app/models/station-head-hala-prawe-v1-v1.0.0.onnx" | sha256sum -c - \
+    && curl -fL "${STATION_CARD_URL}" -o /app/models/station-head-hala-prawe-v1-v1.0.0.card.json \
+    && echo "${STATION_CARD_SHA256}  /app/models/station-head-hala-prawe-v1-v1.0.0.card.json" | sha256sum -c -
+
 # uv (preferred per CLAUDE.md). Pinned version keeps the build reproducible.
 COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /usr/local/bin/uv
 
@@ -154,6 +181,9 @@ COPY pipeline /app/pipeline
 ENV MODEL_PATH=/app/models/yolo11s-pose.onnx \
     ACTIVITY_MODEL_PATH=/app/models/activity-mlp-v1.0.0.onnx \
     ACTIVITY_MODEL_METADATA_PATH=/app/models/activity-mlp-v1.0.0.json \
+    STATION_HEAD_PATH=/app/models/station-head-hala-prawe-v1-v1.0.0.onnx \
+    STATION_CARD_PATH=/app/models/station-head-hala-prawe-v1-v1.0.0.card.json \
+    BACKBONE_PATH=/app/models/dinov2-base.onnx \
     CLASSIFIER=vlm \
     DASHBOARD_PORT=5000 \
     REST_PORT=5003 \

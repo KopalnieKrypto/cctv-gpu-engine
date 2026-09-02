@@ -62,20 +62,15 @@ class TestTheShippedCard:
         assert card.training_windows[0].window_local == "2026-08-28 09:00-09:20 Europe/Warsaw"
         assert card.training_windows[0].samples == 599
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "the shipped card copied the fixture manifest's y=1400, but "
-            "`crop=900:800:1700:1400` does not fit a 2160-tall frame and ffmpeg "
-            "slid it to y=1360 — which is where every training crop was actually "
-            "cut. manifest.source.json is corrected; the card is regenerated on "
-            "cctv-vps in #123 and this marker comes off when it XPASSes."
-        ),
-    )
     def test_the_rectangle_is_the_one_the_head_was_fitted_on(self) -> None:
-        # x, y, w, h in native pixels. This is the field the inference path uses
-        # to decide whether a configured zone may be fed to this head, so it has
-        # to be the rectangle the head actually saw and not the one intended.
+        """x, y, w, h in native pixels — the field the inference path gates on.
+
+        y is 1360 and not the 1400 the card shipped with. `crop=900:800:1700:1400`
+        does not fit a 2160-tall frame, and ffmpeg's crop filter slides the
+        rectangle back inside rather than failing, so every training crop was cut
+        at `in_h - h`. The card was regenerated against the released weights
+        (`--card-only`, sha256 unchanged) once that was measured.
+        """
         assert StationCard.load(SHIPPED_CARD).zone_rect == (1700, 1360, 900, 800)
 
 

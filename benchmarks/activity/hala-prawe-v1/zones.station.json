@@ -1,0 +1,32 @@
+{
+  "_comment": [
+    "The zones config for `--classifier station` at hala prawe skrzydlo (#123).",
+    "",
+    "The polygon IS the station rectangle, in native 3840x2160 pixels, and it has",
+    "to equal the card's `station.zone_native_px` exactly — the run refuses",
+    "otherwise, because a head fed a rectangle it was not fitted on still returns",
+    "confident logits and nothing downstream would say so.",
+    "",
+    "y is 1360, not the 1400 the manifest originally recorded. `crop=900:800:1700:1400`",
+    "does not fit a 2160-tall frame, and ffmpeg's crop filter slides the rectangle",
+    "back inside rather than failing, so every training crop was cut at in_h - h.",
+    "",
+    "`classifier` is the per-camera setting the REST entrypoint resolves at",
+    "container start, the same way it resolves `pose.mode`. No pose model, OSNet",
+    "or VLM is constructed in this mode, so nothing here configures one."
+  ],
+  "classifier": "station",
+  "zones": [
+    {
+      "id": "spawanie",
+      "name": "Stanowisko spawalnicze",
+      "polygon": [
+        [1700, 1360],
+        [2600, 1360],
+        [2600, 2160],
+        [1700, 2160]
+      ],
+      "rules": { "type": "station" }
+    }
+  ]
+}

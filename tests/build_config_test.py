@@ -980,3 +980,80 @@ class TestDockerWorkflowManualPublish:
             "workflow_dispatch to main. A dispatch from a feature branch would "
             "publish from unreviewed code."
         )
+
+
+class TestStationClassifierArtefactsAreBaked:
+    """#123: `--classifier station` has to work in the container the agent spawns.
+
+    The gpu-agent runs a bare `docker run $CCTV_IMAGE` with no bind-mount, so an
+    artefact that is only in `setup-models.sh` is not present at run time. All
+    three pieces are baked: the frozen backbone shared by every station, the
+    station-specific head, and the card without which the head cannot be used.
+    """
+
+    def _dockerfile(self) -> str:
+        return GPU_SERVICE_DOCKERFILE.read_text()
+
+    def test_the_backbone_head_and_card_are_all_fetched_at_build_time(self):
+        dockerfile = self._dockerfile()
+
+        for artefact in (
+            "dinov2-base.onnx",
+            "station-head-hala-prawe-v1-v1.0.0.onnx",
+            "station-head-hala-prawe-v1-v1.0.0.card.json",
+        ):
+            assert artefact in dockerfile, (
+                f"{artefact} is not baked into the image. The gpu-agent spawns the "
+                "container with no bind-mount, so a station run would fail on a "
+                "missing file rather than on anything diagnosable."
+            )
+
+    def test_the_pins_match_setup_models(self):
+        """One digest per artefact, stated in both places and checked to agree.
+
+        The two files are edited by hand at different times; a divergence means a
+        dev box and the container silently load different weights.
+        """
+        dockerfile = self._dockerfile()
+        script = SETUP_MODELS_SCRIPT.read_text()
+
+        for var in ("DINOV2_SHA256", "STATION_HEAD_SHA256", "STATION_CARD_SHA256"):
+            pin = re.search(rf'{var}="\$\{{{var}:-([0-9a-fA-F]{{64}})\}}"', script)
+            assert pin, f"{var} has no parseable pin in setup-models.sh"
+            assert pin.group(1) in dockerfile, (
+                f"the Dockerfile does not pin {var}'s digest {pin.group(1)}; "
+                "the image and setup-models.sh would fetch different bytes"
+            )
+
+    def test_the_build_verifies_each_digest_rather_than_trusting_the_download(self):
+        dockerfile = self._dockerfile()
+
+        for artefact in (
+            "dinov2-base.onnx",
+            "station-head-hala-prawe-v1-v1.0.0.onnx",
+            "station-head-hala-prawe-v1-v1.0.0.card.json",
+        ):
+            assert re.search(rf"{re.escape(artefact)}\"? \| sha256sum -c -", dockerfile), (
+                f"{artefact} is downloaded without a sha256sum -c check, so a "
+                "swapped release asset would land in the image silently"
+            )
+
+    def test_the_station_paths_are_exposed_as_env_defaults(self):
+        # Same contract the pose and MLP models already have: the path is an env
+        # var so an operator can mount different weights without a rebuild.
+        dockerfile = self._dockerfile()
+
+        assert "STATION_HEAD_PATH=/app/models/station-head-hala-prawe-v1-v1.0.0.onnx" in dockerfile
+        assert (
+            "STATION_CARD_PATH=/app/models/station-head-hala-prawe-v1-v1.0.0.card.json"
+            in dockerfile
+        )
+        assert "BACKBONE_PATH=/app/models/dinov2-base.onnx" in dockerfile
+
+    def test_the_station_classifier_is_not_promoted_to_the_default(self):
+        """Baking the artefacts must not change what an existing camera runs.
+
+        `CLASSIFIER=vlm` stays the image default; station is selected per camera
+        through the zones config, exactly as `pose.mode` is.
+        """
+        assert "CLASSIFIER=vlm" in self._dockerfile()
