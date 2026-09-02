@@ -1,5 +1,5 @@
 {
-  "arm": "vlm-qwen2.5-vl-3b",
+  "arm": "vlm-qwen2.5-vl-3b-v1",
   "window": "W2",
   "model": "Qwen/Qwen2.5-VL-3B-Instruct",
   "prompt_tuning": "none - written from the vocabulary definition",
@@ -2414,5 +2414,7 @@
     "load_seconds": 38.2,
     "video_seconds": 1199,
     "peak_vram_mib": 7542
-  }
+  },
+  "prompt_version": "v1",
+  "arm_rename_note": "Renamed from `vlm-qwen2.5-vl-3b` when W3 was measured. Same model and same prompt text: --prompt-version was added in 28e9d88, which renamed PROMPT to PROMPT_V1 without touching its body, and no commit has changed it since. Samples untouched."
 }

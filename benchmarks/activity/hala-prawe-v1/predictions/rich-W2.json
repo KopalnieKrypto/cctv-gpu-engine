@@ -1,7 +1,11 @@
 {
   "arm": "tcn-rich",
   "window": "W2",
-  "fold": "A",
+  "fold": "B",
+  "trained_on": [
+    "W1",
+    "W3"
+  ],
   "model": "dilated temporal CNN, rich features over YOLO-pose",
   "feature_set": "rich",
   "hyperparameters": {
@@ -30,7 +34,7 @@
     },
     {
       "t_s": 4,
-      "activity_id": "ukladanie_pretow"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 6,
@@ -50,7 +54,7 @@
     },
     {
       "t_s": 14,
-      "activity_id": "ukladanie_pretow"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 16,
@@ -58,7 +62,7 @@
     },
     {
       "t_s": 18,
-      "activity_id": "ukladanie_pretow"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 20,
@@ -138,11 +142,11 @@
     },
     {
       "t_s": 58,
-      "activity_id": "spawanie"
+      "activity_id": "sciaganie_elementu"
     },
     {
       "t_s": 60,
-      "activity_id": "inna_czynnosc"
+      "activity_id": "sciaganie_elementu"
     },
     {
       "t_s": 62,
@@ -150,7 +154,7 @@
     },
     {
       "t_s": 64,
-      "activity_id": "sciaganie_elementu"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 66,
@@ -162,11 +166,11 @@
     },
     {
       "t_s": 70,
-      "activity_id": "inna_czynnosc"
+      "activity_id": "postoj"
     },
     {
       "t_s": 72,
-      "activity_id": "postoj"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 74,
@@ -306,11 +310,11 @@
     },
     {
       "t_s": 142,
-      "activity_id": "postoj"
+      "activity_id": "sciaganie_elementu"
     },
     {
       "t_s": 144,
-      "activity_id": "postoj"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 146,
@@ -318,15 +322,15 @@
     },
     {
       "t_s": 148,
-      "activity_id": "spawanie"
-    },
-    {
-      "t_s": 150,
       "activity_id": "postoj"
     },
     {
-      "t_s": 152,
+      "t_s": 150,
       "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 152,
+      "activity_id": "spawanie"
     },
     {
       "t_s": 154,
@@ -334,15 +338,15 @@
     },
     {
       "t_s": 156,
-      "activity_id": "postoj"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 158,
-      "activity_id": "ukladanie_pretow"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 160,
-      "activity_id": "sciaganie_elementu"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 162,
@@ -350,11 +354,11 @@
     },
     {
       "t_s": 164,
-      "activity_id": "postoj"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 166,
-      "activity_id": "ukladanie_pretow"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 168,
@@ -386,7 +390,7 @@
     },
     {
       "t_s": 182,
-      "activity_id": "ukladanie_pretow"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 184,
@@ -438,7 +442,7 @@
     },
     {
       "t_s": 208,
-      "activity_id": "spawanie"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 210,
@@ -682,7 +686,7 @@
     },
     {
       "t_s": 330,
-      "activity_id": "ukladanie_pretow"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 332,
@@ -722,11 +726,11 @@
     },
     {
       "t_s": 350,
-      "activity_id": "ukladanie_pretow"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 352,
-      "activity_id": "inna_czynnosc"
+      "activity_id": "ukladanie_pretow"
     },
     {
       "t_s": 354,
@@ -754,7 +758,7 @@
     },
     {
       "t_s": 366,
-      "activity_id": "inna_czynnosc"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 368,
@@ -762,7 +766,7 @@
     },
     {
       "t_s": 370,
-      "activity_id": "ukladanie_pretow"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 372,
@@ -770,7 +774,7 @@
     },
     {
       "t_s": 374,
-      "activity_id": "ukladanie_pretow"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 376,
@@ -778,11 +782,11 @@
     },
     {
       "t_s": 378,
-      "activity_id": "inna_czynnosc"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 380,
-      "activity_id": "inna_czynnosc"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 382,
@@ -886,7 +890,7 @@
     },
     {
       "t_s": 432,
-      "activity_id": "postoj"
+      "activity_id": "brak_na_stanowisku"
     },
     {
       "t_s": 434,
@@ -918,11 +922,11 @@
     },
     {
       "t_s": 448,
-      "activity_id": "inna_czynnosc"
+      "activity_id": "postoj"
     },
     {
       "t_s": 450,
-      "activity_id": "ukladanie_pretow"
+      "activity_id": "postoj"
     },
     {
       "t_s": 452,
@@ -1018,11 +1022,11 @@
     },
     {
       "t_s": 498,
-      "activity_id": "inna_czynnosc"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 500,
-      "activity_id": "inna_czynnosc"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 502,
@@ -1042,7 +1046,7 @@
     },
     {
       "t_s": 510,
-      "activity_id": "spawanie"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 512,
@@ -1050,11 +1054,11 @@
     },
     {
       "t_s": 514,
-      "activity_id": "inna_czynnosc"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 516,
-      "activity_id": "inna_czynnosc"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 518,
@@ -1062,15 +1066,15 @@
     },
     {
       "t_s": 520,
-      "activity_id": "inna_czynnosc"
+      "activity_id": "postoj"
     },
     {
       "t_s": 522,
-      "activity_id": "ukladanie_pretow"
+      "activity_id": "sciaganie_elementu"
     },
     {
       "t_s": 524,
-      "activity_id": "postoj"
+      "activity_id": "sciaganie_elementu"
     },
     {
       "t_s": 526,
@@ -1114,11 +1118,11 @@
     },
     {
       "t_s": 546,
-      "activity_id": "inna_czynnosc"
+      "activity_id": "ukladanie_pretow"
     },
     {
       "t_s": 548,
-      "activity_id": "spawanie"
+      "activity_id": "ukladanie_pretow"
     },
     {
       "t_s": 550,
@@ -1126,7 +1130,7 @@
     },
     {
       "t_s": 552,
-      "activity_id": "spawanie"
+      "activity_id": "ukladanie_pretow"
     },
     {
       "t_s": 554,
@@ -1178,7 +1182,7 @@
     },
     {
       "t_s": 578,
-      "activity_id": "sciaganie_elementu"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 580,
@@ -1326,7 +1330,7 @@
     },
     {
       "t_s": 652,
-      "activity_id": "sciaganie_elementu"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 654,
@@ -1342,7 +1346,7 @@
     },
     {
       "t_s": 660,
-      "activity_id": "postoj"
+      "activity_id": "sciaganie_elementu"
     },
     {
       "t_s": 662,
@@ -1502,7 +1506,7 @@
     },
     {
       "t_s": 740,
-      "activity_id": "sciaganie_elementu"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 742,
@@ -1618,7 +1622,7 @@
     },
     {
       "t_s": 798,
-      "activity_id": "spawanie"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 800,
@@ -1646,7 +1650,7 @@
     },
     {
       "t_s": 812,
-      "activity_id": "inna_czynnosc"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 814,
@@ -1694,11 +1698,11 @@
     },
     {
       "t_s": 836,
-      "activity_id": "sciaganie_elementu"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 838,
-      "activity_id": "postoj"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 840,
@@ -1706,7 +1710,7 @@
     },
     {
       "t_s": 842,
-      "activity_id": "postoj"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 844,
@@ -1714,11 +1718,11 @@
     },
     {
       "t_s": 846,
-      "activity_id": "postoj"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 848,
-      "activity_id": "ukladanie_pretow"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 850,
@@ -1758,7 +1762,7 @@
     },
     {
       "t_s": 868,
-      "activity_id": "inna_czynnosc"
+      "activity_id": "ukladanie_pretow"
     },
     {
       "t_s": 870,
@@ -1978,7 +1982,7 @@
     },
     {
       "t_s": 978,
-      "activity_id": "spawanie"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 980,
@@ -2058,7 +2062,7 @@
     },
     {
       "t_s": 1018,
-      "activity_id": "spawanie"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 1020,
@@ -2074,11 +2078,11 @@
     },
     {
       "t_s": 1026,
-      "activity_id": "postoj"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 1028,
-      "activity_id": "inna_czynnosc"
+      "activity_id": "postoj"
     },
     {
       "t_s": 1030,
@@ -2322,7 +2326,7 @@
     },
     {
       "t_s": 1150,
-      "activity_id": "spawanie"
+      "activity_id": "ukladanie_pretow"
     },
     {
       "t_s": 1152,
@@ -2410,7 +2414,7 @@
     },
     {
       "t_s": 1194,
-      "activity_id": "spawanie"
+      "activity_id": "sciaganie_elementu"
     },
     {
       "t_s": 1196,
@@ -2425,12 +2429,12 @@
     "box": "cctv-vps",
     "gpu_index": 1,
     "gpus_used": 1,
-    "gpu_seconds": 4.8,
+    "gpu_seconds": 3.2,
     "pose_seconds_total": 0.0,
-    "fit_seconds": 4.8,
+    "fit_seconds": 3.2,
     "video_seconds": 1199,
     "peak_vram_mib": null,
     "peak_vram_note": "pose session not loaded (cache hit) - end-to-end peak unmeasured",
-    "torch_allocator_peak_mib": 23
+    "torch_allocator_peak_mib": 35
   }
 }

@@ -5,463 +5,1356 @@
       "name": "tcn-pose",
       "windows": [
         "W1",
-        "W2"
+        "W2",
+        "W3"
       ],
       "scores": {
         "spawanie": {
-          "support": 497,
-          "tp": 470,
-          "predicted": 505,
-          "recall": 0.9456740442655935,
-          "precision": 0.9306930693069307,
-          "time_ratio": 1.0160965794768613,
+          "support": 744,
+          "tp": 536,
+          "predicted": 757,
+          "recall": 0.7204301075268817,
+          "precision": 0.7080581241743725,
+          "time_ratio": 1.01747311827957,
           "inflated": false,
-          "granularity_pp": 0.2012072434607646,
-          "passes": true,
-          "usable": true
+          "granularity_pp": 0.13440860215053763,
+          "passes": false,
+          "usable": false
         },
         "ukladanie_pretow": {
-          "support": 359,
-          "tp": 346,
-          "predicted": 378,
-          "recall": 0.9637883008356546,
-          "precision": 0.9153439153439153,
-          "time_ratio": 1.052924791086351,
+          "support": 552,
+          "tp": 471,
+          "predicted": 676,
+          "recall": 0.8532608695652174,
+          "precision": 0.6967455621301775,
+          "time_ratio": 1.2246376811594204,
           "inflated": false,
-          "granularity_pp": 0.2785515320334262,
+          "granularity_pp": 0.18115942028985507,
           "passes": true,
           "usable": true
         },
         "sciaganie_elementu": {
-          "support": 52,
-          "tp": 38,
-          "predicted": 54,
-          "recall": 0.7307692307692307,
-          "precision": 0.7037037037037037,
-          "time_ratio": 1.0384615384615385,
+          "support": 110,
+          "tp": 51,
+          "predicted": 70,
+          "recall": 0.4636363636363636,
+          "precision": 0.7285714285714285,
+          "time_ratio": 0.6363636363636364,
           "inflated": false,
-          "granularity_pp": 1.9230769230769231,
+          "granularity_pp": 0.9090909090909091,
           "passes": false,
           "usable": false
         },
         "inna_czynnosc": {
-          "support": 107,
-          "tp": 28,
-          "predicted": 86,
-          "recall": 0.2616822429906542,
-          "precision": 0.32558139534883723,
-          "time_ratio": 0.8037383177570093,
+          "support": 177,
+          "tp": 24,
+          "predicted": 102,
+          "recall": 0.13559322033898305,
+          "precision": 0.23529411764705882,
+          "time_ratio": 0.576271186440678,
           "inflated": false,
-          "granularity_pp": 0.9345794392523364,
+          "granularity_pp": 0.5649717514124294,
           "passes": false,
           "usable": false
         },
         "postoj": {
-          "support": 58,
-          "tp": 7,
-          "predicted": 56,
-          "recall": 0.1206896551724138,
-          "precision": 0.125,
-          "time_ratio": 0.9655172413793104,
-          "inflated": false,
-          "granularity_pp": 1.7241379310344827,
+          "support": 62,
+          "tp": 1,
+          "predicted": 80,
+          "recall": 0.016129032258064516,
+          "precision": 0.0125,
+          "time_ratio": 1.2903225806451613,
+          "inflated": true,
+          "granularity_pp": 1.6129032258064515,
           "passes": false,
           "usable": false
         },
         "brak_na_stanowisku": {
-          "support": 68,
-          "tp": 0,
-          "predicted": 1,
-          "recall": 0.0,
-          "precision": 0.0,
-          "time_ratio": 0.014705882352941176,
+          "support": 92,
+          "tp": 9,
+          "predicted": 14,
+          "recall": 0.09782608695652174,
+          "precision": 0.6428571428571429,
+          "time_ratio": 0.15217391304347827,
           "inflated": false,
-          "granularity_pp": 1.4705882352941178,
+          "granularity_pp": 1.0869565217391304,
           "passes": false,
           "usable": false
         },
         "nierozpoznane": {
-          "support": 58,
-          "tp": 0,
-          "predicted": 119,
-          "recall": 0.0,
-          "precision": 0.0,
-          "time_ratio": 2.0517241379310347,
+          "support": 62,
+          "tp": 3,
+          "predicted": 100,
+          "recall": 0.04838709677419355,
+          "precision": 0.03,
+          "time_ratio": 1.6129032258064515,
           "inflated": true,
-          "granularity_pp": 1.7241379310344827,
+          "granularity_pp": 1.6129032258064515,
           "passes": false,
           "usable": false
+        }
+      },
+      "per_window_boundaries": {
+        "W1": {
+          "n": 84,
+          "median_s": 0.0,
+          "p90_s": 10.0,
+          "max_s": 24.0,
+          "within_2s_frac": 0.75,
+          "spurious": 6,
+          "pred_boundaries": 68,
+          "truth_boundaries": 84
+        },
+        "W2": {
+          "n": 91,
+          "median_s": 0.0,
+          "p90_s": 4.0,
+          "max_s": 16.0,
+          "within_2s_frac": 0.8791208791208791,
+          "spurious": 13,
+          "pred_boundaries": 104,
+          "truth_boundaries": 91
+        },
+        "W3": {
+          "n": 74,
+          "median_s": 1.0,
+          "p90_s": 6.0,
+          "max_s": 12.0,
+          "within_2s_frac": 0.7567567567567568,
+          "spurious": 105,
+          "pred_boundaries": 210,
+          "truth_boundaries": 74
+        }
+      },
+      "per_window_scores": {
+        "W1": {
+          "spawanie": {
+            "support": 224,
+            "tp": 219,
+            "predicted": 329,
+            "recall": 0.9776785714285714,
+            "precision": 0.6656534954407295,
+            "time_ratio": 1.46875,
+            "inflated": true,
+            "granularity_pp": 0.44642857142857145,
+            "passes": true,
+            "usable": false
+          },
+          "ukladanie_pretow": {
+            "support": 180,
+            "tp": 169,
+            "predicted": 183,
+            "recall": 0.9388888888888889,
+            "precision": 0.9234972677595629,
+            "time_ratio": 1.0166666666666666,
+            "inflated": false,
+            "granularity_pp": 0.5555555555555556,
+            "passes": true,
+            "usable": true
+          },
+          "sciaganie_elementu": {
+            "support": 22,
+            "tp": 17,
+            "predicted": 19,
+            "recall": 0.7727272727272727,
+            "precision": 0.8947368421052632,
+            "time_ratio": 0.8636363636363636,
+            "inflated": false,
+            "granularity_pp": 4.545454545454546,
+            "passes": false,
+            "usable": false
+          },
+          "inna_czynnosc": {
+            "support": 65,
+            "tp": 8,
+            "predicted": 15,
+            "recall": 0.12307692307692308,
+            "precision": 0.5333333333333333,
+            "time_ratio": 0.23076923076923078,
+            "inflated": false,
+            "granularity_pp": 1.5384615384615385,
+            "passes": false,
+            "usable": false
+          },
+          "postoj": {
+            "support": 42,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 2.380952380952381,
+            "passes": false,
+            "usable": false
+          },
+          "brak_na_stanowisku": {
+            "support": 66,
+            "tp": 3,
+            "predicted": 3,
+            "recall": 0.045454545454545456,
+            "precision": 1.0,
+            "time_ratio": 0.045454545454545456,
+            "inflated": false,
+            "granularity_pp": 1.5151515151515151,
+            "passes": false,
+            "usable": false
+          },
+          "nierozpoznane": {
+            "support": 0,
+            "tp": 0,
+            "predicted": 50,
+            "recall": null,
+            "precision": 0.0,
+            "time_ratio": null,
+            "inflated": false,
+            "granularity_pp": null,
+            "passes": false,
+            "usable": false
+          }
+        },
+        "W2": {
+          "spawanie": {
+            "support": 273,
+            "tp": 249,
+            "predicted": 262,
+            "recall": 0.9120879120879121,
+            "precision": 0.950381679389313,
+            "time_ratio": 0.9597069597069597,
+            "inflated": false,
+            "granularity_pp": 0.3663003663003663,
+            "passes": true,
+            "usable": true
+          },
+          "ukladanie_pretow": {
+            "support": 179,
+            "tp": 177,
+            "predicted": 195,
+            "recall": 0.9888268156424581,
+            "precision": 0.9076923076923077,
+            "time_ratio": 1.089385474860335,
+            "inflated": false,
+            "granularity_pp": 0.5586592178770949,
+            "passes": true,
+            "usable": true
+          },
+          "sciaganie_elementu": {
+            "support": 30,
+            "tp": 20,
+            "predicted": 34,
+            "recall": 0.6666666666666666,
+            "precision": 0.5882352941176471,
+            "time_ratio": 1.1333333333333333,
+            "inflated": false,
+            "granularity_pp": 3.3333333333333335,
+            "passes": false,
+            "usable": false
+          },
+          "inna_czynnosc": {
+            "support": 42,
+            "tp": 13,
+            "predicted": 68,
+            "recall": 0.30952380952380953,
+            "precision": 0.19117647058823528,
+            "time_ratio": 1.619047619047619,
+            "inflated": true,
+            "granularity_pp": 2.380952380952381,
+            "passes": false,
+            "usable": false
+          },
+          "postoj": {
+            "support": 16,
+            "tp": 1,
+            "predicted": 41,
+            "recall": 0.0625,
+            "precision": 0.024390243902439025,
+            "time_ratio": 2.5625,
+            "inflated": true,
+            "granularity_pp": 6.25,
+            "passes": false,
+            "usable": false
+          },
+          "brak_na_stanowisku": {
+            "support": 2,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 50.0,
+            "passes": false,
+            "usable": false
+          },
+          "nierozpoznane": {
+            "support": 58,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 1.7241379310344827,
+            "passes": false,
+            "usable": false
+          }
+        },
+        "W3": {
+          "spawanie": {
+            "support": 247,
+            "tp": 68,
+            "predicted": 166,
+            "recall": 0.27530364372469635,
+            "precision": 0.40963855421686746,
+            "time_ratio": 0.6720647773279352,
+            "inflated": false,
+            "granularity_pp": 0.4048582995951417,
+            "passes": false,
+            "usable": false
+          },
+          "ukladanie_pretow": {
+            "support": 193,
+            "tp": 125,
+            "predicted": 298,
+            "recall": 0.6476683937823834,
+            "precision": 0.41946308724832215,
+            "time_ratio": 1.544041450777202,
+            "inflated": true,
+            "granularity_pp": 0.5181347150259067,
+            "passes": false,
+            "usable": false
+          },
+          "sciaganie_elementu": {
+            "support": 58,
+            "tp": 14,
+            "predicted": 17,
+            "recall": 0.2413793103448276,
+            "precision": 0.8235294117647058,
+            "time_ratio": 0.29310344827586204,
+            "inflated": false,
+            "granularity_pp": 1.7241379310344827,
+            "passes": false,
+            "usable": false
+          },
+          "inna_czynnosc": {
+            "support": 70,
+            "tp": 3,
+            "predicted": 19,
+            "recall": 0.04285714285714286,
+            "precision": 0.15789473684210525,
+            "time_ratio": 0.2714285714285714,
+            "inflated": false,
+            "granularity_pp": 1.4285714285714286,
+            "passes": false,
+            "usable": false
+          },
+          "postoj": {
+            "support": 4,
+            "tp": 0,
+            "predicted": 39,
+            "recall": 0.0,
+            "precision": 0.0,
+            "time_ratio": 9.75,
+            "inflated": true,
+            "granularity_pp": 25.0,
+            "passes": false,
+            "usable": false
+          },
+          "brak_na_stanowisku": {
+            "support": 24,
+            "tp": 6,
+            "predicted": 11,
+            "recall": 0.25,
+            "precision": 0.5454545454545454,
+            "time_ratio": 0.4583333333333333,
+            "inflated": false,
+            "granularity_pp": 4.166666666666667,
+            "passes": false,
+            "usable": false
+          },
+          "nierozpoznane": {
+            "support": 4,
+            "tp": 3,
+            "predicted": 50,
+            "recall": 0.75,
+            "precision": 0.06,
+            "time_ratio": 12.5,
+            "inflated": true,
+            "granularity_pp": 25.0,
+            "passes": false,
+            "usable": false
+          }
         }
       },
       "confusion": {
         "spawanie": {
-          "spawanie": 470,
-          "ukladanie_pretow": 3,
-          "inna_czynnosc": 22,
-          "nierozpoznane": 1,
-          "sciaganie_elementu": 1
+          "spawanie": 536,
+          "ukladanie_pretow": 126,
+          "inna_czynnosc": 24,
+          "sciaganie_elementu": 6,
+          "nierozpoznane": 26,
+          "brak_na_stanowisku": 5,
+          "postoj": 21
         },
         "inna_czynnosc": {
-          "ukladanie_pretow": 12,
-          "inna_czynnosc": 28,
-          "spawanie": 28,
-          "sciaganie_elementu": 11,
-          "postoj": 12,
-          "nierozpoznane": 16
+          "ukladanie_pretow": 48,
+          "spawanie": 60,
+          "inna_czynnosc": 24,
+          "sciaganie_elementu": 8,
+          "nierozpoznane": 24,
+          "postoj": 13
         },
         "postoj": {
-          "ukladanie_pretow": 8,
-          "nierozpoznane": 34,
-          "spawanie": 1,
-          "postoj": 7,
-          "inna_czynnosc": 6,
-          "sciaganie_elementu": 2
-        },
-        "sciaganie_elementu": {
-          "ukladanie_pretow": 5,
-          "sciaganie_elementu": 38,
-          "inna_czynnosc": 6,
-          "nierozpoznane": 1,
-          "spawanie": 2
-        },
-        "ukladanie_pretow": {
-          "ukladanie_pretow": 346,
-          "inna_czynnosc": 6,
-          "spawanie": 4,
-          "nierozpoznane": 1,
+          "ukladanie_pretow": 6,
+          "nierozpoznane": 28,
+          "spawanie": 18,
+          "inna_czynnosc": 8,
           "sciaganie_elementu": 1,
           "postoj": 1
         },
+        "sciaganie_elementu": {
+          "ukladanie_pretow": 21,
+          "sciaganie_elementu": 51,
+          "inna_czynnosc": 5,
+          "nierozpoznane": 3,
+          "spawanie": 26,
+          "postoj": 4
+        },
+        "ukladanie_pretow": {
+          "ukladanie_pretow": 471,
+          "spawanie": 54,
+          "inna_czynnosc": 14,
+          "sciaganie_elementu": 1,
+          "nierozpoznane": 7,
+          "postoj": 5
+        },
         "brak_na_stanowisku": {
-          "nierozpoznane": 66,
-          "postoj": 2
+          "brak_na_stanowisku": 9,
+          "spawanie": 63,
+          "ukladanie_pretow": 3,
+          "inna_czynnosc": 2,
+          "nierozpoznane": 9,
+          "postoj": 6
         },
         "nierozpoznane": {
-          "postoj": 34,
-          "ukladanie_pretow": 4,
-          "inna_czynnosc": 18,
-          "brak_na_stanowisku": 1,
-          "sciaganie_elementu": 1
+          "postoj": 30,
+          "ukladanie_pretow": 1,
+          "sciaganie_elementu": 3,
+          "inna_czynnosc": 25,
+          "nierozpoznane": 3
         }
       },
       "boundaries": {
-        "n": 175,
-        "truth_boundaries": 175,
-        "pred_boundaries": 186,
+        "n": 249,
+        "truth_boundaries": 249,
+        "pred_boundaries": 382,
         "median_s": 0.0,
-        "p90_s": 8.0,
-        "max_s": 18.0,
-        "within_2s_frac": 0.8374542124542125,
-        "spurious": 17
+        "p90_s": 10.0,
+        "max_s": 24.0,
+        "within_2s_frac": 0.7952925452925453,
+        "spurious": 124
       },
       "hardware": {
         "verdict": "OK",
         "reason": "710 MiB peak on one card"
       },
-      "gpu_seconds_per_video_hour": 445.3422370617696,
+      "gpu_seconds_per_video_hour": 555.3255425709516,
       "box": "cctv-vps",
-      "abstention": 0.09924937447873228,
+      "abstention": 0.055586436909394105,
       "unpredicted": 0
     },
     {
       "name": "tcn-rich",
       "windows": [
         "W1",
-        "W2"
+        "W2",
+        "W3"
       ],
       "scores": {
         "spawanie": {
-          "support": 497,
-          "tp": 474,
-          "predicted": 505,
-          "recall": 0.9537223340040242,
-          "precision": 0.9386138613861386,
-          "time_ratio": 1.0160965794768613,
+          "support": 744,
+          "tp": 586,
+          "predicted": 776,
+          "recall": 0.7876344086021505,
+          "precision": 0.7551546391752577,
+          "time_ratio": 1.043010752688172,
           "inflated": false,
-          "granularity_pp": 0.2012072434607646,
-          "passes": true,
-          "usable": true
+          "granularity_pp": 0.13440860215053763,
+          "passes": false,
+          "usable": false
         },
         "ukladanie_pretow": {
-          "support": 359,
-          "tp": 342,
-          "predicted": 382,
-          "recall": 0.9526462395543176,
-          "precision": 0.8952879581151832,
-          "time_ratio": 1.064066852367688,
+          "support": 552,
+          "tp": 437,
+          "predicted": 587,
+          "recall": 0.7916666666666666,
+          "precision": 0.7444633730834753,
+          "time_ratio": 1.0634057971014492,
           "inflated": false,
-          "granularity_pp": 0.2785515320334262,
-          "passes": true,
-          "usable": true
+          "granularity_pp": 0.18115942028985507,
+          "passes": false,
+          "usable": false
         },
         "sciaganie_elementu": {
-          "support": 52,
-          "tp": 38,
-          "predicted": 51,
-          "recall": 0.7307692307692307,
-          "precision": 0.7450980392156863,
-          "time_ratio": 0.9807692307692307,
+          "support": 110,
+          "tp": 40,
+          "predicted": 58,
+          "recall": 0.36363636363636365,
+          "precision": 0.6896551724137931,
+          "time_ratio": 0.5272727272727272,
           "inflated": false,
-          "granularity_pp": 1.9230769230769231,
+          "granularity_pp": 0.9090909090909091,
           "passes": false,
           "usable": false
         },
         "inna_czynnosc": {
-          "support": 107,
+          "support": 177,
           "tp": 29,
-          "predicted": 91,
-          "recall": 0.27102803738317754,
-          "precision": 0.31868131868131866,
-          "time_ratio": 0.8504672897196262,
+          "predicted": 138,
+          "recall": 0.1638418079096045,
+          "precision": 0.21014492753623187,
+          "time_ratio": 0.7796610169491526,
           "inflated": false,
-          "granularity_pp": 0.9345794392523364,
+          "granularity_pp": 0.5649717514124294,
           "passes": false,
           "usable": false
         },
         "postoj": {
-          "support": 58,
-          "tp": 4,
-          "predicted": 48,
-          "recall": 0.06896551724137931,
-          "precision": 0.08333333333333333,
-          "time_ratio": 0.8275862068965517,
-          "inflated": false,
-          "granularity_pp": 1.7241379310344827,
+          "support": 62,
+          "tp": 3,
+          "predicted": 107,
+          "recall": 0.04838709677419355,
+          "precision": 0.028037383177570093,
+          "time_ratio": 1.7258064516129032,
+          "inflated": true,
+          "granularity_pp": 1.6129032258064515,
           "passes": false,
           "usable": false
         },
         "brak_na_stanowisku": {
-          "support": 68,
-          "tp": 0,
-          "predicted": 1,
-          "recall": 0.0,
-          "precision": 0.0,
-          "time_ratio": 0.014705882352941176,
+          "support": 92,
+          "tp": 6,
+          "predicted": 15,
+          "recall": 0.06521739130434782,
+          "precision": 0.4,
+          "time_ratio": 0.16304347826086957,
           "inflated": false,
-          "granularity_pp": 1.4705882352941178,
+          "granularity_pp": 1.0869565217391304,
           "passes": false,
           "usable": false
         },
         "nierozpoznane": {
-          "support": 58,
+          "support": 62,
           "tp": 0,
-          "predicted": 121,
+          "predicted": 118,
           "recall": 0.0,
           "precision": 0.0,
-          "time_ratio": 2.086206896551724,
+          "time_ratio": 1.903225806451613,
           "inflated": true,
-          "granularity_pp": 1.7241379310344827,
+          "granularity_pp": 1.6129032258064515,
           "passes": false,
           "usable": false
+        }
+      },
+      "per_window_boundaries": {
+        "W1": {
+          "n": 84,
+          "median_s": 0.0,
+          "p90_s": 8.0,
+          "max_s": 22.0,
+          "within_2s_frac": 0.7976190476190477,
+          "spurious": 4,
+          "pred_boundaries": 78,
+          "truth_boundaries": 84
+        },
+        "W2": {
+          "n": 91,
+          "median_s": 0.0,
+          "p90_s": 2.0,
+          "max_s": 14.0,
+          "within_2s_frac": 0.9230769230769231,
+          "spurious": 20,
+          "pred_boundaries": 118,
+          "truth_boundaries": 91
+        },
+        "W3": {
+          "n": 74,
+          "median_s": 2.0,
+          "p90_s": 6.0,
+          "max_s": 12.0,
+          "within_2s_frac": 0.8108108108108109,
+          "spurious": 109,
+          "pred_boundaries": 212,
+          "truth_boundaries": 74
+        }
+      },
+      "per_window_scores": {
+        "W1": {
+          "spawanie": {
+            "support": 224,
+            "tp": 218,
+            "predicted": 265,
+            "recall": 0.9732142857142857,
+            "precision": 0.8226415094339623,
+            "time_ratio": 1.1830357142857142,
+            "inflated": false,
+            "granularity_pp": 0.44642857142857145,
+            "passes": true,
+            "usable": true
+          },
+          "ukladanie_pretow": {
+            "support": 180,
+            "tp": 164,
+            "predicted": 177,
+            "recall": 0.9111111111111111,
+            "precision": 0.9265536723163842,
+            "time_ratio": 0.9833333333333333,
+            "inflated": false,
+            "granularity_pp": 0.5555555555555556,
+            "passes": true,
+            "usable": true
+          },
+          "sciaganie_elementu": {
+            "support": 22,
+            "tp": 15,
+            "predicted": 23,
+            "recall": 0.6818181818181818,
+            "precision": 0.6521739130434783,
+            "time_ratio": 1.0454545454545454,
+            "inflated": false,
+            "granularity_pp": 4.545454545454546,
+            "passes": false,
+            "usable": false
+          },
+          "inna_czynnosc": {
+            "support": 65,
+            "tp": 11,
+            "predicted": 27,
+            "recall": 0.16923076923076924,
+            "precision": 0.4074074074074074,
+            "time_ratio": 0.4153846153846154,
+            "inflated": false,
+            "granularity_pp": 1.5384615384615385,
+            "passes": false,
+            "usable": false
+          },
+          "postoj": {
+            "support": 42,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 2.380952380952381,
+            "passes": false,
+            "usable": false
+          },
+          "brak_na_stanowisku": {
+            "support": 66,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 1.5151515151515151,
+            "passes": false,
+            "usable": false
+          },
+          "nierozpoznane": {
+            "support": 0,
+            "tp": 0,
+            "predicted": 107,
+            "recall": null,
+            "precision": 0.0,
+            "time_ratio": null,
+            "inflated": false,
+            "granularity_pp": null,
+            "passes": false,
+            "usable": false
+          }
+        },
+        "W2": {
+          "spawanie": {
+            "support": 273,
+            "tp": 253,
+            "predicted": 257,
+            "recall": 0.9267399267399268,
+            "precision": 0.9844357976653697,
+            "time_ratio": 0.9413919413919414,
+            "inflated": false,
+            "granularity_pp": 0.3663003663003663,
+            "passes": true,
+            "usable": true
+          },
+          "ukladanie_pretow": {
+            "support": 179,
+            "tp": 173,
+            "predicted": 197,
+            "recall": 0.9664804469273743,
+            "precision": 0.8781725888324873,
+            "time_ratio": 1.100558659217877,
+            "inflated": false,
+            "granularity_pp": 0.5586592178770949,
+            "passes": true,
+            "usable": true
+          },
+          "sciaganie_elementu": {
+            "support": 30,
+            "tp": 24,
+            "predicted": 32,
+            "recall": 0.8,
+            "precision": 0.75,
+            "time_ratio": 1.0666666666666667,
+            "inflated": false,
+            "granularity_pp": 3.3333333333333335,
+            "passes": false,
+            "usable": false
+          },
+          "inna_czynnosc": {
+            "support": 42,
+            "tp": 15,
+            "predicted": 72,
+            "recall": 0.35714285714285715,
+            "precision": 0.20833333333333334,
+            "time_ratio": 1.7142857142857142,
+            "inflated": true,
+            "granularity_pp": 2.380952380952381,
+            "passes": false,
+            "usable": false
+          },
+          "postoj": {
+            "support": 16,
+            "tp": 3,
+            "predicted": 40,
+            "recall": 0.1875,
+            "precision": 0.075,
+            "time_ratio": 2.5,
+            "inflated": true,
+            "granularity_pp": 6.25,
+            "passes": false,
+            "usable": false
+          },
+          "brak_na_stanowisku": {
+            "support": 2,
+            "tp": 0,
+            "predicted": 2,
+            "recall": 0.0,
+            "precision": 0.0,
+            "time_ratio": 1.0,
+            "inflated": false,
+            "granularity_pp": 50.0,
+            "passes": false,
+            "usable": false
+          },
+          "nierozpoznane": {
+            "support": 58,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 1.7241379310344827,
+            "passes": false,
+            "usable": false
+          }
+        },
+        "W3": {
+          "spawanie": {
+            "support": 247,
+            "tp": 115,
+            "predicted": 254,
+            "recall": 0.46558704453441296,
+            "precision": 0.452755905511811,
+            "time_ratio": 1.0283400809716599,
+            "inflated": false,
+            "granularity_pp": 0.4048582995951417,
+            "passes": false,
+            "usable": false
+          },
+          "ukladanie_pretow": {
+            "support": 193,
+            "tp": 100,
+            "predicted": 213,
+            "recall": 0.5181347150259067,
+            "precision": 0.4694835680751174,
+            "time_ratio": 1.1036269430051813,
+            "inflated": false,
+            "granularity_pp": 0.5181347150259067,
+            "passes": false,
+            "usable": false
+          },
+          "sciaganie_elementu": {
+            "support": 58,
+            "tp": 1,
+            "predicted": 3,
+            "recall": 0.017241379310344827,
+            "precision": 0.3333333333333333,
+            "time_ratio": 0.05172413793103448,
+            "inflated": false,
+            "granularity_pp": 1.7241379310344827,
+            "passes": false,
+            "usable": false
+          },
+          "inna_czynnosc": {
+            "support": 70,
+            "tp": 3,
+            "predicted": 39,
+            "recall": 0.04285714285714286,
+            "precision": 0.07692307692307693,
+            "time_ratio": 0.5571428571428572,
+            "inflated": false,
+            "granularity_pp": 1.4285714285714286,
+            "passes": false,
+            "usable": false
+          },
+          "postoj": {
+            "support": 4,
+            "tp": 0,
+            "predicted": 67,
+            "recall": 0.0,
+            "precision": 0.0,
+            "time_ratio": 16.75,
+            "inflated": true,
+            "granularity_pp": 25.0,
+            "passes": false,
+            "usable": false
+          },
+          "brak_na_stanowisku": {
+            "support": 24,
+            "tp": 6,
+            "predicted": 13,
+            "recall": 0.25,
+            "precision": 0.46153846153846156,
+            "time_ratio": 0.5416666666666666,
+            "inflated": false,
+            "granularity_pp": 4.166666666666667,
+            "passes": false,
+            "usable": false
+          },
+          "nierozpoznane": {
+            "support": 4,
+            "tp": 0,
+            "predicted": 11,
+            "recall": 0.0,
+            "precision": 0.0,
+            "time_ratio": 2.75,
+            "inflated": true,
+            "granularity_pp": 25.0,
+            "passes": false,
+            "usable": false
+          }
         }
       },
       "confusion": {
         "spawanie": {
-          "spawanie": 474,
-          "ukladanie_pretow": 9,
-          "inna_czynnosc": 14
+          "spawanie": 586,
+          "ukladanie_pretow": 82,
+          "inna_czynnosc": 40,
+          "brak_na_stanowisku": 3,
+          "postoj": 29,
+          "nierozpoznane": 4
         },
         "inna_czynnosc": {
-          "ukladanie_pretow": 19,
+          "ukladanie_pretow": 36,
           "inna_czynnosc": 29,
-          "spawanie": 23,
-          "sciaganie_elementu": 9,
+          "spawanie": 62,
+          "sciaganie_elementu": 13,
           "nierozpoznane": 17,
-          "postoj": 10
+          "postoj": 20
         },
         "postoj": {
           "ukladanie_pretow": 5,
-          "nierozpoznane": 36,
-          "spawanie": 2,
-          "inna_czynnosc": 9,
-          "postoj": 4,
-          "sciaganie_elementu": 2
+          "nierozpoznane": 27,
+          "inna_czynnosc": 13,
+          "spawanie": 13,
+          "sciaganie_elementu": 1,
+          "postoj": 3
         },
         "sciaganie_elementu": {
-          "ukladanie_pretow": 5,
-          "sciaganie_elementu": 38,
-          "inna_czynnosc": 6,
-          "nierozpoznane": 1,
-          "spawanie": 2
+          "ukladanie_pretow": 26,
+          "sciaganie_elementu": 40,
+          "inna_czynnosc": 9,
+          "nierozpoznane": 3,
+          "spawanie": 27,
+          "postoj": 5
         },
         "ukladanie_pretow": {
-          "ukladanie_pretow": 342,
-          "inna_czynnosc": 10,
-          "spawanie": 4,
+          "ukladanie_pretow": 437,
+          "inna_czynnosc": 19,
+          "spawanie": 82,
           "nierozpoznane": 1,
           "sciaganie_elementu": 1,
-          "postoj": 1
+          "postoj": 11,
+          "brak_na_stanowisku": 1
         },
         "brak_na_stanowisku": {
           "nierozpoznane": 66,
-          "postoj": 1,
-          "inna_czynnosc": 1
+          "spawanie": 6,
+          "postoj": 14,
+          "brak_na_stanowisku": 6
         },
         "nierozpoznane": {
-          "sciaganie_elementu": 1,
-          "inna_czynnosc": 22,
-          "postoj": 32,
-          "ukladanie_pretow": 2,
-          "brak_na_stanowisku": 1
+          "sciaganie_elementu": 3,
+          "inna_czynnosc": 28,
+          "postoj": 25,
+          "brak_na_stanowisku": 5,
+          "ukladanie_pretow": 1
         }
       },
       "boundaries": {
-        "n": 175,
-        "truth_boundaries": 175,
-        "pred_boundaries": 200,
+        "n": 249,
+        "truth_boundaries": 249,
+        "pred_boundaries": 408,
         "median_s": 0.0,
         "p90_s": 8.0,
-        "max_s": 18.0,
-        "within_2s_frac": 0.8548534798534799,
-        "spurious": 25
+        "max_s": 22.0,
+        "within_2s_frac": 0.8438355938355939,
+        "spurious": 133
       },
       "hardware": {
         "verdict": "UNMEASURED",
         "reason": "`peak_vram_mib` missing"
       },
-      "gpu_seconds_per_video_hour": 5.409015025041736,
+      "gpu_seconds_per_video_hour": 9.61602671118531,
       "box": "cctv-vps",
-      "abstention": 0.10091743119266056,
+      "abstention": 0.06559199555308505,
       "unpredicted": 0
     },
     {
-      "name": "vlm-qwen2.5-vl-3b",
+      "name": "vlm-qwen2.5-vl-3b-v1",
       "windows": [
         "W1",
-        "W2"
+        "W2",
+        "W3"
       ],
       "scores": {
         "spawanie": {
-          "support": 497,
-          "tp": 472,
-          "predicted": 979,
-          "recall": 0.9496981891348089,
-          "precision": 0.4821246169560776,
-          "time_ratio": 1.9698189134808852,
+          "support": 744,
+          "tp": 713,
+          "predicted": 1567,
+          "recall": 0.9583333333333334,
+          "precision": 0.45500957243139756,
+          "time_ratio": 2.1061827956989245,
           "inflated": true,
-          "granularity_pp": 0.2012072434607646,
+          "granularity_pp": 0.13440860215053763,
           "passes": true,
           "usable": false
         },
         "ukladanie_pretow": {
-          "support": 359,
+          "support": 552,
           "tp": 2,
           "predicted": 2,
-          "recall": 0.005571030640668524,
+          "recall": 0.0036231884057971015,
           "precision": 1.0,
-          "time_ratio": 0.005571030640668524,
+          "time_ratio": 0.0036231884057971015,
           "inflated": false,
-          "granularity_pp": 0.2785515320334262,
+          "granularity_pp": 0.18115942028985507,
           "passes": false,
           "usable": false
         },
         "sciaganie_elementu": {
-          "support": 52,
-          "tp": 5,
-          "predicted": 62,
-          "recall": 0.09615384615384616,
-          "precision": 0.08064516129032258,
-          "time_ratio": 1.1923076923076923,
+          "support": 110,
+          "tp": 6,
+          "predicted": 71,
+          "recall": 0.05454545454545454,
+          "precision": 0.08450704225352113,
+          "time_ratio": 0.6454545454545455,
           "inflated": false,
-          "granularity_pp": 1.9230769230769231,
+          "granularity_pp": 0.9090909090909091,
           "passes": false,
           "usable": false
         },
         "inna_czynnosc": {
-          "support": 107,
+          "support": 177,
           "tp": 21,
-          "predicted": 154,
-          "recall": 0.19626168224299065,
-          "precision": 0.13636363636363635,
-          "time_ratio": 1.439252336448598,
-          "inflated": true,
-          "granularity_pp": 0.9345794392523364,
+          "predicted": 157,
+          "recall": 0.11864406779661017,
+          "precision": 0.1337579617834395,
+          "time_ratio": 0.8870056497175142,
+          "inflated": false,
+          "granularity_pp": 0.5649717514124294,
           "passes": false,
           "usable": false
         },
         "postoj": {
-          "support": 58,
+          "support": 62,
           "tp": 2,
           "predicted": 2,
-          "recall": 0.034482758620689655,
+          "recall": 0.03225806451612903,
           "precision": 1.0,
-          "time_ratio": 0.034482758620689655,
+          "time_ratio": 0.03225806451612903,
           "inflated": false,
-          "granularity_pp": 1.7241379310344827,
+          "granularity_pp": 1.6129032258064515,
           "passes": false,
           "usable": false
         },
         "brak_na_stanowisku": {
-          "support": 68,
+          "support": 92,
           "tp": 0,
           "predicted": 0,
           "recall": 0.0,
           "precision": null,
           "time_ratio": 0.0,
           "inflated": false,
-          "granularity_pp": 1.4705882352941178,
+          "granularity_pp": 1.0869565217391304,
           "passes": false,
           "usable": false
         },
         "nierozpoznane": {
-          "support": 58,
+          "support": 62,
           "tp": 0,
           "predicted": 0,
           "recall": 0.0,
           "precision": null,
           "time_ratio": 0.0,
           "inflated": false,
-          "granularity_pp": 1.7241379310344827,
+          "granularity_pp": 1.6129032258064515,
           "passes": false,
           "usable": false
         }
       },
+      "per_window_boundaries": {
+        "W1": {
+          "n": 84,
+          "median_s": 4.0,
+          "p90_s": 18.0,
+          "max_s": 40.0,
+          "within_2s_frac": 0.4880952380952381,
+          "spurious": 18,
+          "pred_boundaries": 69,
+          "truth_boundaries": 84
+        },
+        "W2": {
+          "n": 91,
+          "median_s": 4.0,
+          "p90_s": 28.0,
+          "max_s": 62.0,
+          "within_2s_frac": 0.4835164835164835,
+          "spurious": 64,
+          "pred_boundaries": 127,
+          "truth_boundaries": 91
+        },
+        "W3": {
+          "n": 74,
+          "median_s": 28.0,
+          "p90_s": 140.0,
+          "max_s": 186.0,
+          "within_2s_frac": 0.05405405405405406,
+          "spurious": 11,
+          "pred_boundaries": 19,
+          "truth_boundaries": 74
+        }
+      },
+      "per_window_scores": {
+        "W1": {
+          "spawanie": {
+            "support": 224,
+            "tp": 221,
+            "predicted": 466,
+            "recall": 0.9866071428571429,
+            "precision": 0.4742489270386266,
+            "time_ratio": 2.080357142857143,
+            "inflated": true,
+            "granularity_pp": 0.44642857142857145,
+            "passes": true,
+            "usable": false
+          },
+          "ukladanie_pretow": {
+            "support": 180,
+            "tp": 2,
+            "predicted": 2,
+            "recall": 0.011111111111111112,
+            "precision": 1.0,
+            "time_ratio": 0.011111111111111112,
+            "inflated": false,
+            "granularity_pp": 0.5555555555555556,
+            "passes": false,
+            "usable": false
+          },
+          "sciaganie_elementu": {
+            "support": 22,
+            "tp": 2,
+            "predicted": 10,
+            "recall": 0.09090909090909091,
+            "precision": 0.2,
+            "time_ratio": 0.45454545454545453,
+            "inflated": false,
+            "granularity_pp": 4.545454545454546,
+            "passes": false,
+            "usable": false
+          },
+          "inna_czynnosc": {
+            "support": 65,
+            "tp": 17,
+            "predicted": 119,
+            "recall": 0.26153846153846155,
+            "precision": 0.14285714285714285,
+            "time_ratio": 1.8307692307692307,
+            "inflated": true,
+            "granularity_pp": 1.5384615384615385,
+            "passes": false,
+            "usable": false
+          },
+          "postoj": {
+            "support": 42,
+            "tp": 2,
+            "predicted": 2,
+            "recall": 0.047619047619047616,
+            "precision": 1.0,
+            "time_ratio": 0.047619047619047616,
+            "inflated": false,
+            "granularity_pp": 2.380952380952381,
+            "passes": false,
+            "usable": false
+          },
+          "brak_na_stanowisku": {
+            "support": 66,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 1.5151515151515151,
+            "passes": false,
+            "usable": false
+          },
+          "nierozpoznane": {
+            "support": 0,
+            "tp": 0,
+            "predicted": 0,
+            "recall": null,
+            "precision": null,
+            "time_ratio": null,
+            "inflated": false,
+            "granularity_pp": null,
+            "passes": false,
+            "usable": false
+          }
+        },
+        "W2": {
+          "spawanie": {
+            "support": 273,
+            "tp": 251,
+            "predicted": 513,
+            "recall": 0.9194139194139194,
+            "precision": 0.48927875243664715,
+            "time_ratio": 1.879120879120879,
+            "inflated": true,
+            "granularity_pp": 0.3663003663003663,
+            "passes": true,
+            "usable": false
+          },
+          "ukladanie_pretow": {
+            "support": 179,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 0.5586592178770949,
+            "passes": false,
+            "usable": false
+          },
+          "sciaganie_elementu": {
+            "support": 30,
+            "tp": 3,
+            "predicted": 52,
+            "recall": 0.1,
+            "precision": 0.057692307692307696,
+            "time_ratio": 1.7333333333333334,
+            "inflated": true,
+            "granularity_pp": 3.3333333333333335,
+            "passes": false,
+            "usable": false
+          },
+          "inna_czynnosc": {
+            "support": 42,
+            "tp": 4,
+            "predicted": 35,
+            "recall": 0.09523809523809523,
+            "precision": 0.11428571428571428,
+            "time_ratio": 0.8333333333333334,
+            "inflated": false,
+            "granularity_pp": 2.380952380952381,
+            "passes": false,
+            "usable": false
+          },
+          "postoj": {
+            "support": 16,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 6.25,
+            "passes": false,
+            "usable": false
+          },
+          "brak_na_stanowisku": {
+            "support": 2,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 50.0,
+            "passes": false,
+            "usable": false
+          },
+          "nierozpoznane": {
+            "support": 58,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 1.7241379310344827,
+            "passes": false,
+            "usable": false
+          }
+        },
+        "W3": {
+          "spawanie": {
+            "support": 247,
+            "tp": 241,
+            "predicted": 588,
+            "recall": 0.9757085020242915,
+            "precision": 0.4098639455782313,
+            "time_ratio": 2.380566801619433,
+            "inflated": true,
+            "granularity_pp": 0.4048582995951417,
+            "passes": true,
+            "usable": false
+          },
+          "ukladanie_pretow": {
+            "support": 193,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 0.5181347150259067,
+            "passes": false,
+            "usable": false
+          },
+          "sciaganie_elementu": {
+            "support": 58,
+            "tp": 1,
+            "predicted": 9,
+            "recall": 0.017241379310344827,
+            "precision": 0.1111111111111111,
+            "time_ratio": 0.15517241379310345,
+            "inflated": false,
+            "granularity_pp": 1.7241379310344827,
+            "passes": false,
+            "usable": false
+          },
+          "inna_czynnosc": {
+            "support": 70,
+            "tp": 0,
+            "predicted": 3,
+            "recall": 0.0,
+            "precision": 0.0,
+            "time_ratio": 0.04285714285714286,
+            "inflated": false,
+            "granularity_pp": 1.4285714285714286,
+            "passes": false,
+            "usable": false
+          },
+          "postoj": {
+            "support": 4,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 25.0,
+            "passes": false,
+            "usable": false
+          },
+          "brak_na_stanowisku": {
+            "support": 24,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 4.166666666666667,
+            "passes": false,
+            "usable": false
+          },
+          "nierozpoznane": {
+            "support": 4,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 25.0,
+            "passes": false,
+            "usable": false
+          }
+        }
+      },
       "confusion": {
         "spawanie": {
-          "spawanie": 472,
-          "inna_czynnosc": 3,
-          "sciaganie_elementu": 22
+          "spawanie": 713,
+          "inna_czynnosc": 4,
+          "sciaganie_elementu": 27
         },
         "inna_czynnosc": {
-          "spawanie": 80,
+          "spawanie": 149,
           "inna_czynnosc": 21,
-          "sciaganie_elementu": 6
+          "sciaganie_elementu": 7
         },
         "postoj": {
-          "spawanie": 23,
+          "spawanie": 27,
           "inna_czynnosc": 33,
           "postoj": 2
         },
         "sciaganie_elementu": {
-          "spawanie": 45,
-          "sciaganie_elementu": 5,
+          "spawanie": 102,
+          "sciaganie_elementu": 6,
           "inna_czynnosc": 2
         },
         "ukladanie_pretow": {
-          "spawanie": 333,
-          "sciaganie_elementu": 20,
-          "inna_czynnosc": 4,
+          "spawanie": 524,
+          "sciaganie_elementu": 21,
+          "inna_czynnosc": 5,
           "ukladanie_pretow": 2
         },
         "brak_na_stanowisku": {
-          "inna_czynnosc": 66,
-          "sciaganie_elementu": 2
+          "inna_czynnosc": 67,
+          "sciaganie_elementu": 3,
+          "spawanie": 22
         },
         "nierozpoznane": {
-          "spawanie": 26,
+          "spawanie": 30,
           "inna_czynnosc": 25,
           "sciaganie_elementu": 7
         }
       },
       "boundaries": {
-        "n": 175,
-        "truth_boundaries": 175,
-        "pred_boundaries": 196,
+        "n": 249,
+        "truth_boundaries": 249,
+        "pred_boundaries": 215,
         "median_s": 4.0,
-        "p90_s": 28.0,
-        "max_s": 62.0,
-        "within_2s_frac": 0.4858058608058608,
-        "spurious": 82
+        "p90_s": 140.0,
+        "max_s": 186.0,
+        "within_2s_frac": 0.3418885918885919,
+        "spurious": 93
       },
       "hardware": {
         "verdict": "OK",
@@ -475,138 +1368,432 @@
     {
       "name": "vlm-qwen2.5-vl-3b-v2",
       "windows": [
-        "W2"
+        "W1",
+        "W2",
+        "W3"
       ],
       "scores": {
         "spawanie": {
-          "support": 273,
-          "tp": 270,
-          "predicted": 516,
-          "recall": 0.989010989010989,
-          "precision": 0.5232558139534884,
-          "time_ratio": 1.89010989010989,
+          "support": 744,
+          "tp": 741,
+          "predicted": 1549,
+          "recall": 0.9959677419354839,
+          "precision": 0.47837314396384767,
+          "time_ratio": 2.081989247311828,
           "inflated": true,
-          "granularity_pp": 0.3663003663003663,
+          "granularity_pp": 0.13440860215053763,
           "passes": true,
           "usable": false
         },
         "ukladanie_pretow": {
-          "support": 179,
+          "support": 552,
           "tp": 0,
           "predicted": 0,
           "recall": 0.0,
           "precision": null,
           "time_ratio": 0.0,
           "inflated": false,
-          "granularity_pp": 0.5586592178770949,
+          "granularity_pp": 0.18115942028985507,
           "passes": false,
           "usable": false
         },
         "sciaganie_elementu": {
-          "support": 30,
+          "support": 110,
           "tp": 0,
           "predicted": 0,
           "recall": 0.0,
           "precision": null,
           "time_ratio": 0.0,
           "inflated": false,
-          "granularity_pp": 3.3333333333333335,
+          "granularity_pp": 0.9090909090909091,
           "passes": false,
           "usable": false
         },
         "inna_czynnosc": {
-          "support": 42,
+          "support": 177,
           "tp": 0,
           "predicted": 0,
           "recall": 0.0,
           "precision": null,
           "time_ratio": 0.0,
           "inflated": false,
-          "granularity_pp": 2.380952380952381,
+          "granularity_pp": 0.5649717514124294,
           "passes": false,
           "usable": false
         },
         "postoj": {
-          "support": 16,
+          "support": 62,
           "tp": 0,
           "predicted": 0,
           "recall": 0.0,
           "precision": null,
           "time_ratio": 0.0,
           "inflated": false,
-          "granularity_pp": 6.25,
+          "granularity_pp": 1.6129032258064515,
           "passes": false,
           "usable": false
         },
         "brak_na_stanowisku": {
-          "support": 2,
-          "tp": 2,
-          "predicted": 84,
+          "support": 92,
+          "tp": 92,
+          "predicted": 250,
           "recall": 1.0,
-          "precision": 0.023809523809523808,
-          "time_ratio": 42.0,
+          "precision": 0.368,
+          "time_ratio": 2.717391304347826,
           "inflated": true,
-          "granularity_pp": 50.0,
+          "granularity_pp": 1.0869565217391304,
           "passes": true,
           "usable": false
         },
         "nierozpoznane": {
-          "support": 58,
+          "support": 62,
           "tp": 0,
           "predicted": 0,
           "recall": 0.0,
           "precision": null,
           "time_ratio": 0.0,
           "inflated": false,
-          "granularity_pp": 1.7241379310344827,
+          "granularity_pp": 1.6129032258064515,
           "passes": false,
           "usable": false
+        }
+      },
+      "per_window_boundaries": {
+        "W1": {
+          "n": 84,
+          "median_s": 4.0,
+          "p90_s": 30.0,
+          "max_s": 40.0,
+          "within_2s_frac": 0.4642857142857143,
+          "spurious": 6,
+          "pred_boundaries": 40,
+          "truth_boundaries": 84
+        },
+        "W2": {
+          "n": 91,
+          "median_s": 4.0,
+          "p90_s": 32.0,
+          "max_s": 64.0,
+          "within_2s_frac": 0.4725274725274725,
+          "spurious": 7,
+          "pred_boundaries": 45,
+          "truth_boundaries": 91
+        },
+        "W3": {
+          "n": 74,
+          "median_s": 16.0,
+          "p90_s": 42.0,
+          "max_s": 84.0,
+          "within_2s_frac": 0.2702702702702703,
+          "spurious": 2,
+          "pred_boundaries": 18,
+          "truth_boundaries": 74
+        }
+      },
+      "per_window_scores": {
+        "W1": {
+          "spawanie": {
+            "support": 224,
+            "tp": 224,
+            "predicted": 468,
+            "recall": 1.0,
+            "precision": 0.47863247863247865,
+            "time_ratio": 2.0892857142857144,
+            "inflated": true,
+            "granularity_pp": 0.44642857142857145,
+            "passes": true,
+            "usable": false
+          },
+          "ukladanie_pretow": {
+            "support": 180,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 0.5555555555555556,
+            "passes": false,
+            "usable": false
+          },
+          "sciaganie_elementu": {
+            "support": 22,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 4.545454545454546,
+            "passes": false,
+            "usable": false
+          },
+          "inna_czynnosc": {
+            "support": 65,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 1.5384615384615385,
+            "passes": false,
+            "usable": false
+          },
+          "postoj": {
+            "support": 42,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 2.380952380952381,
+            "passes": false,
+            "usable": false
+          },
+          "brak_na_stanowisku": {
+            "support": 66,
+            "tp": 66,
+            "predicted": 131,
+            "recall": 1.0,
+            "precision": 0.5038167938931297,
+            "time_ratio": 1.9848484848484849,
+            "inflated": true,
+            "granularity_pp": 1.5151515151515151,
+            "passes": true,
+            "usable": false
+          },
+          "nierozpoznane": {
+            "support": 0,
+            "tp": 0,
+            "predicted": 0,
+            "recall": null,
+            "precision": null,
+            "time_ratio": null,
+            "inflated": false,
+            "granularity_pp": null,
+            "passes": false,
+            "usable": false
+          }
+        },
+        "W2": {
+          "spawanie": {
+            "support": 273,
+            "tp": 270,
+            "predicted": 516,
+            "recall": 0.989010989010989,
+            "precision": 0.5232558139534884,
+            "time_ratio": 1.89010989010989,
+            "inflated": true,
+            "granularity_pp": 0.3663003663003663,
+            "passes": true,
+            "usable": false
+          },
+          "ukladanie_pretow": {
+            "support": 179,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 0.5586592178770949,
+            "passes": false,
+            "usable": false
+          },
+          "sciaganie_elementu": {
+            "support": 30,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 3.3333333333333335,
+            "passes": false,
+            "usable": false
+          },
+          "inna_czynnosc": {
+            "support": 42,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 2.380952380952381,
+            "passes": false,
+            "usable": false
+          },
+          "postoj": {
+            "support": 16,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 6.25,
+            "passes": false,
+            "usable": false
+          },
+          "brak_na_stanowisku": {
+            "support": 2,
+            "tp": 2,
+            "predicted": 84,
+            "recall": 1.0,
+            "precision": 0.023809523809523808,
+            "time_ratio": 42.0,
+            "inflated": true,
+            "granularity_pp": 50.0,
+            "passes": true,
+            "usable": false
+          },
+          "nierozpoznane": {
+            "support": 58,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 1.7241379310344827,
+            "passes": false,
+            "usable": false
+          }
+        },
+        "W3": {
+          "spawanie": {
+            "support": 247,
+            "tp": 247,
+            "predicted": 565,
+            "recall": 1.0,
+            "precision": 0.43716814159292033,
+            "time_ratio": 2.2874493927125505,
+            "inflated": true,
+            "granularity_pp": 0.4048582995951417,
+            "passes": true,
+            "usable": false
+          },
+          "ukladanie_pretow": {
+            "support": 193,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 0.5181347150259067,
+            "passes": false,
+            "usable": false
+          },
+          "sciaganie_elementu": {
+            "support": 58,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 1.7241379310344827,
+            "passes": false,
+            "usable": false
+          },
+          "inna_czynnosc": {
+            "support": 70,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 1.4285714285714286,
+            "passes": false,
+            "usable": false
+          },
+          "postoj": {
+            "support": 4,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 25.0,
+            "passes": false,
+            "usable": false
+          },
+          "brak_na_stanowisku": {
+            "support": 24,
+            "tp": 24,
+            "predicted": 35,
+            "recall": 1.0,
+            "precision": 0.6857142857142857,
+            "time_ratio": 1.4583333333333333,
+            "inflated": true,
+            "granularity_pp": 4.166666666666667,
+            "passes": true,
+            "usable": false
+          },
+          "nierozpoznane": {
+            "support": 4,
+            "tp": 0,
+            "predicted": 0,
+            "recall": 0.0,
+            "precision": null,
+            "time_ratio": 0.0,
+            "inflated": false,
+            "granularity_pp": 25.0,
+            "passes": false,
+            "usable": false
+          }
         }
       },
       "confusion": {
-        "ukladanie_pretow": {
-          "spawanie": 176,
+        "spawanie": {
+          "spawanie": 741,
           "brak_na_stanowisku": 3
-        },
-        "postoj": {
-          "spawanie": 10,
-          "brak_na_stanowisku": 6
         },
         "inna_czynnosc": {
-          "spawanie": 32,
-          "brak_na_stanowisku": 10
+          "spawanie": 146,
+          "brak_na_stanowisku": 31
+        },
+        "postoj": {
+          "spawanie": 20,
+          "brak_na_stanowisku": 42
         },
         "sciaganie_elementu": {
-          "spawanie": 27,
-          "brak_na_stanowisku": 3
+          "spawanie": 97,
+          "brak_na_stanowisku": 13
         },
-        "spawanie": {
-          "spawanie": 270,
-          "brak_na_stanowisku": 3
-        },
-        "nierozpoznane": {
-          "brak_na_stanowisku": 57,
-          "spawanie": 1
+        "ukladanie_pretow": {
+          "spawanie": 544,
+          "brak_na_stanowisku": 8
         },
         "brak_na_stanowisku": {
-          "brak_na_stanowisku": 2
+          "brak_na_stanowisku": 92
+        },
+        "nierozpoznane": {
+          "brak_na_stanowisku": 61,
+          "spawanie": 1
         }
       },
       "boundaries": {
-        "n": 91,
+        "n": 249,
+        "truth_boundaries": 249,
+        "pred_boundaries": 103,
         "median_s": 4.0,
-        "p90_s": 32.0,
-        "max_s": 64.0,
-        "within_2s_frac": 0.4725274725274725,
-        "spurious": 7,
-        "pred_boundaries": 45,
-        "truth_boundaries": 91
+        "p90_s": 42.0,
+        "max_s": 84.0,
+        "within_2s_frac": 0.4023611523611524,
+        "spurious": 15
       },
       "hardware": {
         "verdict": "OK",
         "reason": "7554 MiB peak on one card"
       },
-      "gpu_seconds_per_video_hour": 754.2285237698081,
+      "gpu_seconds_per_video_hour": 774.3906510851418,
       "box": "cctv-vps",
       "abstention": 0.0,
       "unpredicted": 0
@@ -642,6 +1829,20 @@
           "passes": false,
           "usable": false,
           "f1": 0.5382585751978892
+        },
+        "W3": {
+          "threshold": 3.648975,
+          "support": 247,
+          "tp": 93,
+          "predicted": 276,
+          "recall": 0.3765182186234818,
+          "precision": 0.33695652173913043,
+          "time_ratio": 1.1174089068825912,
+          "inflated": false,
+          "granularity_pp": 0.4048582995951417,
+          "passes": false,
+          "usable": false,
+          "f1": 0.35564053537284895
         }
       },
       "oracle_f1": {
@@ -672,31 +1873,45 @@
           "passes": true,
           "usable": false,
           "f1": 0.6325581395348837
+        },
+        "W3": {
+          "threshold": 0.0432,
+          "support": 247,
+          "tp": 230,
+          "predicted": 518,
+          "recall": 0.9311740890688259,
+          "precision": 0.444015444015444,
+          "time_ratio": 2.097165991902834,
+          "inflated": true,
+          "granularity_pp": 0.4048582995951417,
+          "passes": true,
+          "usable": false,
+          "f1": 0.6013071895424836
         }
       }
     },
     "union": {
       "conservative": {
-        "support": 497,
-        "tp": 201,
-        "predicted": 216,
-        "recall": 0.4044265593561368,
-        "precision": 0.9305555555555556,
-        "time_ratio": 0.4346076458752515,
+        "support": 744,
+        "tp": 294,
+        "predicted": 492,
+        "recall": 0.3951612903225806,
+        "precision": 0.5975609756097561,
+        "time_ratio": 0.6612903225806451,
         "inflated": false,
-        "granularity_pp": 0.2012072434607646,
+        "granularity_pp": 0.13440860215053763,
         "passes": false,
         "usable": false
       },
       "oracle_f1": {
-        "support": 497,
-        "tp": 494,
-        "predicted": 1084,
-        "recall": 0.993963782696177,
-        "precision": 0.45571955719557194,
-        "time_ratio": 2.181086519114688,
+        "support": 744,
+        "tp": 724,
+        "predicted": 1602,
+        "recall": 0.9731182795698925,
+        "precision": 0.4519350811485643,
+        "time_ratio": 2.153225806451613,
         "inflated": true,
-        "granularity_pp": 0.2012072434607646,
+        "granularity_pp": 0.13440860215053763,
         "passes": true,
         "usable": false
       }

@@ -145,8 +145,13 @@ Three rules worth knowing before reading its output:
   and 600/600 samples at a 2 s stride. W3 is second-shift material with a
   different operator, recovered from the appliance buffer after the C.0 report
   named the missing afternoon footage as the open question. Split is **3-fold**,
-  amended 2026-09-02 — and that amendment came *after* three arms had been
-  measured, so its figures are not comparable to the published 2-fold ones. See
-  the integrity note in `hala-prawe-v1/METHODOLOGY.md` before quoting anything
-  from it. Three arms measured; two activities clear the bar, four do not
-  (`#117`).
+  amended 2026-09-02 — that amendment came *after* three arms had been measured
+  on 2-fold, so the two sets of figures are not comparable and every arm was
+  rerun rather than rescored.
+  **The folds disagree, and that is the result:** `spawanie` scores 97.8% and
+  91.2% where the held-out window is morning material, and **27.5%** where it is
+  the evening window no fold trained on. Pose detection on W3 is normal (86.5%)
+  and the VLM arm, which trains on nothing, gets 97.6% there, so the footage
+  reads fine and it is the trained model that fails to transfer. Read the
+  finding section in `hala-prawe-v1/METHODOLOGY.md` before quoting any single
+  number from this fixture, including the 72% union (`#117`).

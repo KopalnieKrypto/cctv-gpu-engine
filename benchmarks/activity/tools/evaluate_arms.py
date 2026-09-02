@@ -674,6 +674,7 @@ def main() -> int:
         # this fixture those differ by 70 points on `spawanie` - the mean of the
         # two describes neither, and reporting only the mean hides the finding.
         per_window_pairs: dict[str, list[tuple[str, str]]] = {}
+        per_window_boundaries: dict[str, dict] = {}
         unpredicted = 0
         boundary_stats: list[dict] = []
         gpu_blocks = [p["gpu"] for p in preds if p["gpu"]]
@@ -687,7 +688,9 @@ def main() -> int:
                     got = "__brak_predykcji__"
                 pairs.append((gt, got))
                 wp.append((gt, got))
-            boundary_stats.append(boundary_errors(truth["intervals"], pred["intervals"]))
+            b = boundary_errors(truth["intervals"], pred["intervals"])
+            boundary_stats.append(b)
+            per_window_boundaries[pred["window"]] = b
 
         windows = sorted(p["window"] for p in preds)
         held_out = {f["held_out"][0] for f in manifest["split"].get("folds", [])}
@@ -723,6 +726,7 @@ def main() -> int:
                 "name": name,
                 "windows": windows,
                 "scores": per_activity_scores(pairs, classes),
+                "per_window_boundaries": per_window_boundaries,
                 "per_window_scores": {
                     w: per_activity_scores(wp, classes)
                     for w, wp in sorted(per_window_pairs.items())

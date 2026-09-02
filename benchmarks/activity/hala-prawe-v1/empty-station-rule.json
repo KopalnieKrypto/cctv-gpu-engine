@@ -1,0 +1,37 @@
+{
+  "rule": "no person detected in the station ROI -> brak_na_stanowisku",
+  "parameters": "none - nothing is fitted, so this is quotable over every window at once",
+  "source_cache": "pose-seq-9a74c7a74124.npz",
+  "per_window": {
+    "W1": {
+      "truth_samples": 66,
+      "rule_fires": 85,
+      "hit": 65,
+      "recall": 0.9848484848484849,
+      "time_ratio": 1.2878787878787878
+    },
+    "W2": {
+      "truth_samples": 2,
+      "rule_fires": 17,
+      "hit": 0,
+      "recall": 0.0,
+      "time_ratio": 8.5
+    },
+    "W3": {
+      "truth_samples": 24,
+      "rule_fires": 81,
+      "hit": 23,
+      "recall": 0.9583333333333334,
+      "time_ratio": 3.375
+    }
+  },
+  "union": {
+    "truth_samples": 92,
+    "rule_fires": 183,
+    "hit": 88,
+    "recall": 0.9565217391304348,
+    "time_ratio": 1.9891304347826086
+  },
+  "verdict": "recall passes, reported time inflated",
+  "note": "Replaces the 98.5% that appeared in the 2026-09-01 client report. That figure was the detector's W1-only hit rate, in-sample, quoted beside held-out classifier accuracies."
+}

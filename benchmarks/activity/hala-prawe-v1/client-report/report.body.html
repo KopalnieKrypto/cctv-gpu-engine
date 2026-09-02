@@ -1,0 +1,233 @@
+<body>
+
+<div class="page">
+
+  <div class="osd">
+    <span class="rec"><span class="dot"></span>Wynik pomiaru</span>
+    <span class="sep">/</span>
+    <span>Chronometraż procesu</span>
+    <span class="push">2026&#8209;09&#8209;02</span>
+    <span class="sep">/</span>
+    <span>Wersja dla&nbsp;Klienta</span>
+  </div>
+
+  <div class="hero">
+    <span class="br-tr"></span><span class="br-br"></span>
+    <p class="eyebrow">Badanie wykonalności na kamerze „hala prawe skrzydło”</p>
+    <h1>Zmierzyliśmy, ile z Państwa siedmiu czynności da się rozpoznać automatycznie</h1>
+    <p class="lede">Odpowiedź jest warunkowa. <strong>Spawanie i układanie prętów rozpoznajemy z trafnością około 95%, ale tylko na zmianie, którą program wcześniej zobaczył.</strong> Na zmianie, której nie widział, trafność na spawaniu spadła do @@REC_SPAW_N@@. Pozostałych czynności nie rozdzielamy w żadnym układzie.</p>
+  </div>
+
+  <div class="cards">
+    <div class="card good">
+      <span class="tag">Działa</span>
+      <h3>Spawanie i układanie prętów</h3>
+      <p>@@REC_SPAW_Z@@ i @@REC_UKL_Z@@ poprawnych rozpoznań na zmianie, którą program zna. To razem 72% czasu na stanowisku.</p>
+    </div>
+    <div class="card warn">
+      <span class="tag">Uwaga</span>
+      <h3>Nowa zmiana, nowy pracownik</h3>
+      <p>Program uczony na dwóch nagraniach porannych rozpoznał spawanie na nagraniu wieczornym w @@REC_SPAW_N@@ przypadków. Materiał do nauki musi obejmować tę zmianę, którą program ma mierzyć.</p>
+    </div>
+    <div class="card warn">
+      <span class="tag">Nie działa</span>
+      <h3>Podział czasu nieprodukcyjnego</h3>
+      <p>Postoju, innej czynności i ściągania elementu nie oddzielamy od siebie: @@REC_POST_Z@@, @@REC_INNA_Z@@ i @@REC_SCI_Z@@ trafności. Trzy różne podejścia dały ten sam wynik.</p>
+    </div>
+    <div class="card do">
+      <span class="tag">Do decyzji</span>
+      <h3>Zakres wdrożenia</h3>
+      <p>Trzy kategorie na każdą zmianę, po jednorazowym opisaniu dwudziestu minut nagrania z tej zmiany. Postój proponujemy skreślić z listy.</p>
+    </div>
+  </div>
+
+  <h2>Najważniejsze, co znaleźliśmy</h2>
+
+  <p>Program uczy się na dwóch nagraniach, a sprawdzamy go na trzecim, którego wcześniej nie widział. Każde z trzech nagrań wchodzi w tę rolę po kolei. Wyniki rozeszły się na tyle mocno, że jedna uśredniona liczba nie opisywałaby żadnego z nich.</p>
+
+  <div class="tablewrap">
+    <table>
+      <caption>Ta sama metoda, te same ustawienia, trzy przebiegi. Różni je wyłącznie to, jaki materiał program widział podczas uczenia.</caption>
+      <thead>
+        <tr><th>Program uczony na</th><th>Sprawdzany na</th><th class="num">Spawanie</th><th class="num">Układanie prętów</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>10:20 i 18:25</td><td>nagranie poranne 09:00</td><td class="num">@@F_C_SPAW@@</td><td class="num">@@F_C_UKL@@</td></tr>
+        <tr><td>09:00 i 18:25</td><td>nagranie poranne 10:20</td><td class="num">@@F_B_SPAW@@</td><td class="num">@@F_B_UKL@@</td></tr>
+        <tr><td>09:00 i 10:20</td><td>nagranie wieczorne 18:25</td><td class="num">@@F_A_SPAW@@</td><td class="num">@@F_A_UKL@@</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>Program radzi sobie z materiałem podobnym do tego, na którym się uczył, i przestaje sobie radzić, gdy warunki się zmieniają. Nagranie wieczorne różni się od porannych i zmianą, i pracownikiem, więc nie rozdzielimy, co dokładnie o tym zdecydowało. Jedno nagranie to za mało, żeby to rozstrzygnąć, i nie będziemy tego zgadywać.</p>
+
+  <p>Kierunek wynika jednak z dwóch pierwszych wierszy i jest jednoznaczny. <strong>Modele, które w nauce widziały materiał wieczorny, poradziły sobie z porannym tak dobrze jak wcześniej.</strong> Ograniczeniem jest zakres materiału, na którym program się uczy, a nie sama metoda.</p>
+
+  <div class="callout">
+    <p><strong>Sprawdziliśmy jeszcze jedno, żeby wykluczyć prostsze wyjaśnienie.</strong> Wieczorne nagranie powstało przy innym oświetleniu i mogłoby być po prostu trudniejsze do odczytania. Puściliśmy więc na nim model, który niczego się nie uczy i tylko opisuje obraz. Rozpoznał spawanie w <strong>@@VLM_W3_SPAW@@ przypadków</strong>, czyli tak samo dobrze jak na nagraniach porannych.</p>
+    <p>Wieczorne nagranie nie jest zatem trudniejsze do odczytania. Trudność bierze się z tego, że uczony program nie widział wcześniej ani tego pracownika, ani tego oświetlenia. Ten sam opisujący model zgłasza przy tym @@VLM_W3_RAT@@ tyle czasu spawania, ile go było, więc do pomiaru czasu się nie nadaje i nie proponujemy go jako rozwiązania.</p>
+  </div>
+
+  <h2>Decyzja, o którą prosimy</h2>
+  <p class="sub">Do rozstrzygnięcia jest jedna rzecz: czy wdrażamy zakres, który jest zmierzony, wraz z jego kosztem wejścia.</p>
+
+  <div class="tablewrap">
+    <table>
+      <caption>Oba warianty korzystają z tej samej kamery i tego samego sprzętu.</caption>
+      <thead>
+        <tr><th>Wariant</th><th>Co Państwo dostają</th><th>Czego wymaga</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Trzy kategorie<br><span class="pill ok">rekomendowany</span></td>
+          <td>Czas spawania i czas układania prętów z trafnością około 95%, reszta czasu jako jedna pozycja zbiorcza</td>
+          <td>Jednorazowe opisanie ręką około dwudziestu minut nagrania dla każdej zmiany i każdego operatora, którego pomiar ma obejmować</td>
+        </tr>
+        <tr>
+          <td>Siedem kategorii</td>
+          <td>Pełny podział czasu nieprodukcyjnego na postój, inną czynność i ściąganie elementu</td>
+          <td>Terminu nie podajemy. Trzy niezależne podejścia dały tu ten sam wynik, więc nie jest to kwestia dostrojenia programu</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <p><strong>Rekomendujemy wariant pierwszy.</strong> Praca dodająca wartość to na tym stanowisku 78% czasu: spawanie, układanie prętów i ściąganie elementu. Dwie pierwsze, obejmujące 72% czasu, rozpoznajemy pewnie. Ściąganie elementu, czyli pozostałe 6%, wpada do pozycji zbiorczej, więc w tym wariancie ta część pracy produkcyjnej liczy się razem z czynnościami pomocniczymi.</p>
+    <p>To jest realny koszt tego wariantu i wolimy nazwać go wprost. Na pytanie „ile czasu to spawanie i układanie prętów” odpowiadamy już dziś. Na pytanie „na co dokładnie schodzi reszta” jeszcze nie.</p>
+    <p><strong>Drugi koszt dotyczy samego czasu spawania: program zawyża go o @@ERR_SPAW@@.</strong> Czas układania prętów podaje z błędem @@ERR_UKL@@. Mieści się to w progu, który sami sobie postawiliśmy, ale przy porównywaniu zmian między sobą jest to błąd systematyczny w jedną stronę i trzeba go znać.</p>
+    <p><strong>Postój proponujemy usunąć z listy pozycji raportu dla tego stanowiska.</strong> Materiał z drugiej zmiany pokazał, że ta czynność tu praktycznie nie występuje, i piszemy o tym niżej. Osobna pozycja „postój” byłaby pozycją bliską zeru niezależnie od tego, jak dobry byłby program.</p>
+  </div>
+
+  <h2>Co dokładnie zmierzyliśmy</h2>
+
+  <p>Trzy dwudziestominutowe fragmenty nagrania z Państwa kamery. Dwa z pierwszej zmiany 28 sierpnia, o <strong>09:00–09:20</strong> i <strong>10:20–10:40</strong>. Trzeci z drugiej zmiany 1 września, o <strong>18:25–18:45</strong>, przy innym pracowniku. Człowiek opisał ręcznie każde dwie sekundy każdego nagrania, razem <strong>1799 oznaczeń</strong>. To jest wzorzec, do którego porównujemy program.</p>
+
+  <p>Zasada, której pilnowaliśmy: <strong>program uczy się na dwóch nagraniach, a sprawdzamy go na trzecim</strong>, którego wcześniej nie widział. Każde nagranie wchodzi w tę rolę po kolei, więc każda sekunda materiału jest oceniona przez model, który jej nie znał. Bez tego liczby w tym raporcie mówiłyby tylko tyle, czy program zapamiętał odpowiedzi.</p>
+
+  <div class="callout">
+    <p><strong>Kadr stanowiska, nie widok całej hali.</strong> Państwa kamera obejmuje całą halę, więc pojedynczy pracownik jest na niej mały. Zamiast prosić o przestawienie kamery, wycinamy programowo fragment obrazu wokół stanowiska spawalniczego z pełnej rozdzielczości 4K. Operator ma wtedy około 700 pikseli wysokości, czyli dość, żeby rozpoznać, co robi. W Państwa instalacji nic nie zmienialiśmy.</p>
+  </div>
+
+  <h2>Wynik dla każdej czynności z osobna</h2>
+
+  <div class="tablewrap">
+    <table>
+      <caption>Trafność liczona zawsze na nagraniu, którego program nie widział podczas uczenia. „Czas” pokazuje, ile razy program zawyżył lub zaniżył sumaryczny czas czynności; 1,00× oznacza zgodność. „Materiał” to liczba dwusekundowych próbek z daną czynnością w całym nagraniu.</caption>
+      <thead>
+        <tr><th>Czynność</th><th class="num">Zmiana znana</th><th class="num">Czas</th><th class="num">Zmiana nowa</th><th class="num">Materiał</th><th>Ocena</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Spawanie</td><td class="num">@@REC_SPAW_Z@@</td><td class="num">@@RAT_SPAW_Z@@</td><td class="num">@@REC_SPAW_N@@</td><td class="num">744</td><td>@@PILL_SPAW@@</td></tr>
+        <tr><td>Układanie prętów</td><td class="num">@@REC_UKL_Z@@</td><td class="num">@@RAT_UKL_Z@@</td><td class="num">@@REC_UKL_N@@</td><td class="num">552</td><td>@@PILL_UKL@@</td></tr>
+        <tr><td>Ściąganie elementu</td><td class="num">@@REC_SCI_Z@@</td><td class="num">@@RAT_SCI_Z@@</td><td class="num">@@REC_SCI_N@@</td><td class="num">110</td><td>@@PILL_SCI@@</td></tr>
+        <tr><td>Brak na stanowisku</td><td class="num">@@REC_BRAK_Z@@</td><td class="num">@@RAT_BRAK_Z@@</td><td class="num">@@REC_BRAK_N@@</td><td class="num">92</td><td>@@PILL_BRAK@@</td></tr>
+        <tr><td>Inna czynność</td><td class="num">@@REC_INNA_Z@@</td><td class="num">@@RAT_INNA_Z@@</td><td class="num">@@REC_INNA_N@@</td><td class="num">177</td><td>@@PILL_INNA@@</td></tr>
+        <tr><td>Postój</td><td class="num">@@REC_POST_Z@@</td><td class="num">@@RAT_POST_Z@@</td><td class="num">@@REC_POST_N@@</td><td class="num">62</td><td>@@PILL_POST@@</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>Umówiony próg to <strong>85% dla każdej czynności z osobna</strong>. Osiągają go dwie pozycje i tylko na zmianie znanej programowi, więc w pierwotnym zakresie siedmiu czynności badanie wypada negatywnie. Nie uśredniamy tych liczb. Jedna średnia ukryłaby to, że jedną czynność rozpoznajemy prawie zawsze, a inną prawie nigdy, a to jest właśnie ta informacja, na której da się oprzeć decyzję.</p>
+
+  <p class="note">Siódma pozycja słownika, „nierozpoznane”, nie jest czynnością. To uczciwe „nie wiem” człowieka opisującego nagranie i programu, i nigdy nie liczymy jej ani jako pracy, ani jako przestoju. W całym materiale objęła 62 próbki, czyli 3,4% czasu.</p>
+
+  <h2>Dlaczego podajemy dwie liczby zamiast jednej</h2>
+
+  <div class="callout">
+    <p><strong>Sama „trafność” daje się oszukać i sprawdziliśmy to na własnym systemie.</strong> Najprostszy możliwy program, reagujący wyłącznie na jasny błysk łuku spawalniczego, osiąga 99% trafności na spawaniu. Robi to jednak, nazywając spawaniem <strong>2,18 raza więcej czasu, niż spawanie faktycznie trwało</strong>. Formalnie złapał prawie każdą sekundę spawania. W praktyce dałby Państwu raport mówiący, że pracownik spawał dwa razy dłużej niż w rzeczywistości.</p>
+    <p>Dlatego przy każdej czynności podajemy też, jak sumaryczny czas ma się do rzeczywistego. Chronometraż jest raportem o tym, <em>ile czasu</em> zajęła praca, a liczba pomylona dwukrotnie jest bezużyteczna nawet przy wysokiej trafności. To doprecyzowanie Państwa wymagania, nie odejście od niego.</p>
+  </div>
+
+  <h2>Puste stanowisko i poprawka do poprzedniej wersji</h2>
+
+  <p>W poprzedniej wersji tego raportu podaliśmy dla pozycji „brak na stanowisku” trafność 98,5% i oznaczyliśmy ją jako gotową. <strong>Ta liczba nie opisywała trafności programu.</strong> Pochodziła z innego pomiaru, na jednym nagraniu, i trafiła do tabeli obok liczb liczonych zupełnie inaczej. Prostujemy to tutaj, bo jest to dokładnie ten błąd, przed którym ostrzega akapit powyżej.</p>
+
+  <p>Puste stanowisko rozpoznajemy prostą regułą: nie widzimy człowieka, więc stanowisko jest puste. Reguła łapie <strong>@@BRAK_RULE_REC@@ momentów, w których stanowisko faktycznie było puste</strong>. Zgłasza jednak <strong>@@BRAK_RULE_RAT@@ tyle pustego czasu, ile go było</strong>, bo operator bywa niewidoczny także wtedy, gdy pracuje: schylony, zasłonięty przez konstrukcję albo na skraju kadru.</p>
+
+  <p>Przy takim zawyżeniu ta pozycja nie nadaje się dziś do raportu o czasie i nie umieszczamy jej w rekomendowanym zakresie. Reguła nadaje się natomiast do tego, do czego jest prosta: do zaznaczenia na osi czasu momentów, którym warto się przyjrzeć.</p>
+
+  <h2>Czego nie umiemy i dlaczego</h2>
+
+  <p>Trzech czynności ręcznych nie rozdzielamy: postoju, innej czynności i ściągania elementu. Sprawdziliśmy to trzema niezależnymi podejściami: modelem opisującym obraz językiem naturalnym, modelem analizującym sylwetkę pracownika oraz modelem analizującym sylwetkę wraz z jej ruchem w czasie.</p>
+
+  <div class="tablewrap">
+    <table>
+      <caption>Trzy podejścia, ten sam wynik na czynnościach ręcznych, liczony na zmianie znanej programowi. Ostatnie z nich dołożyło informację o ruchu, bo „postój” jest z definicji bezruchem. Nie pomogło.</caption>
+      <thead>
+        <tr><th>Czynność</th><th class="num">Opis obrazu</th><th class="num">Sylwetka</th><th class="num">Sylwetka i ruch</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Spawanie</td><td class="num">@@V_SPAW@@</td><td class="num">@@P_SPAW@@</td><td class="num">@@R_SPAW@@</td></tr>
+        <tr><td>Układanie prętów</td><td class="num">@@V_UKL@@</td><td class="num">@@P_UKL@@</td><td class="num">@@R_UKL@@</td></tr>
+        <tr><td>Ściąganie elementu</td><td class="num">@@V_SCI@@</td><td class="num">@@P_SCI@@</td><td class="num">@@R_SCI@@</td></tr>
+        <tr><td>Inna czynność</td><td class="num">@@V_INNA@@</td><td class="num">@@P_INNA@@</td><td class="num">@@R_INNA@@</td></tr>
+        <tr><td>Postój</td><td class="num">@@V_POST@@</td><td class="num">@@P_POST@@</td><td class="num">@@R_POST@@</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>Problem nie leży więc w wyborze metody. Z góry kamery, przy tej odległości, <strong>„stoi z pustymi rękami” i „stoi trzymając pręt” wyglądają niemal identycznie</strong>. Człowiek rozróżnia je, oglądając sąsiednie klatki i wiedząc, co dzieje się na stanowisku. Program widzi układ ciała i jego ruch, i to nie wystarcza.</p>
+
+  <h2>Materiał z drugiej zmiany i odpowiedź, której się nie spodziewaliśmy</h2>
+
+  <p>Zostawało pytanie, czy przeszkodą jest sam obraz z kamery, czy ilość materiału. Rozstrzygnęliśmy je nagraniem z drugiej połowy dnia: 1 września, 18:25–18:45, to samo stanowisko, inny pracownik. Opisaliśmy je ręcznie tak samo jak dwa poprzednie. To nagranie odpowiedziało na dwa pytania naraz, w tym na jedno, którego nie zadaliśmy.</p>
+
+  <div class="callout">
+    <p><strong>Postój wystąpił w tych dwudziestu minutach przez osiem sekund.</strong> Łącznie, na godzinie nagrań z tego stanowiska, mamy go przez dwie minuty. To nie jest brak danych do nadrobienia. <strong>To jest czynność, która na tym stanowisku praktycznie nie występuje.</strong> Kolejne godziny materiału dołożyłyby do niej kilkanaście sekund.</p>
+  </div>
+
+  <div class="tablewrap">
+    <table>
+      <caption>Co wniosło trzecie nagranie. „Wystąpienia” to liczba dwusekundowych próbek z daną czynnością w całym zebranym materiale.</caption>
+      <thead>
+        <tr><th>Czynność</th><th class="num">Dwa nagrania</th><th class="num">Trzy nagrania</th><th>Co to zmienia</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Ściąganie elementu</td><td class="num">52</td><td class="num">110</td><td>ponad dwa razy więcej przykładów do nauki</td></tr>
+        <tr><td>Brak na stanowisku</td><td class="num">68</td><td class="num">92</td><td>daje się wreszcie rzetelnie zmierzyć</td></tr>
+        <tr><td>Postój</td><td class="num">58</td><td class="num">62</td><td><span class="pill pause">praktycznie bez zmian</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>Drugą odpowiedzią było to, co opisaliśmy na początku: różnica między zmianami okazała się większa niż różnica między metodami. Bez tego nagrania wysłalibyśmy Państwu raport obiecujący 95% na każdej zmianie, oparty wyłącznie na materiale sprzed przerwy śniadaniowej.</p>
+
+  <p>Przy okazji sprawdziliśmy, czy wieczorem tempo spada. <strong>Nie spada.</strong> Spawanie utrzymuje się równomiernie od 18:20 do 21:20, bez wyhamowania pod koniec zmiany. To obserwacja z pomiaru jasności łuku, a nie z pełnej analizy, więc traktujemy ją jako przesłankę, nie jako ustalenie.</p>
+
+  <p>Zachowaliśmy całe trzy godziny z tego wieczoru, więc kolejne okna można wyciąć bez ponownego czekania na właściwy moment.</p>
+
+  <h2>Co dostarczamy w rekomendowanym zakresie</h2>
+
+  <div class="tablewrap">
+    <table>
+      <caption>Zakres gotowy do wdrożenia na sprzęcie, który już mamy, dla zmiany opisanej wcześniej ręką.</caption>
+      <thead>
+        <tr><th>Element raportu</th><th>Stan</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Czas spawania</td><td>Trafność @@REC_SPAW_Z@@, czas zawyżony o @@ERR_SPAW@@</td></tr>
+        <tr><td>Czas układania prętów</td><td>Trafność @@REC_UKL_Z@@, czas z dokładnością @@ERR_UKL@@</td></tr>
+        <tr><td>Czas pozostałych czynności</td><td>Jako jedna pozycja zbiorcza</td></tr>
+        <tr><td>Momenty rozpoczęcia i zakończenia</td><td>Błąd poniżej 2 sekund w @@BOUND@@ przejść</td></tr>
+        <tr><td>Koszt obliczeń</td><td>Około @@GPUMIN@@ pracy karty graficznej na godzinę nagrania</td></tr>
+        <tr><td>Sprzęt</td><td>Jedna karta, @@VRAM@@ pamięci w szczycie</td></tr>
+        <tr><td>Wejście dla nowej zmiany</td><td>Około dwudziestu minut nagrania opisanego ręką, jednorazowo</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Zastrzeżenia, które zostają przy tych liczbach</h2>
+
+  <div class="note">
+    <p><strong>Jedno stanowisko, godzina materiału.</strong> To badanie wykonalności, nie pomiar produkcyjny. Pokazuje, że metoda działa na tym stanowisku, a nie że przeniesie się bez zmian na inne.</p>
+    <p><strong>Spadek na trzecim nagraniu opieramy na jednym nagraniu.</strong> Kierunek jest wyraźny, ale skali nie znamy: drugie nagranie wieczorne mogłoby wypaść lepiej albo gorzej. Zanim ten koszt wejścia trafi do umowy, warto go potwierdzić na drugiej parze zmian.</p>
+    <p><strong>Rzadkie czynności mierzymy niepewnie.</strong> Przy kilkudziesięciu wystąpieniach jedna pomyłka przesuwa wynik o kilka punktów procentowych, więc liczby dla postoju traktujemy jako przesłankę, nie jako ustalenie.</p>
+  </div>
+
+  <p class="kicker">Raport oparty na pomiarach z 1 i 2 września 2026 na trzech nagraniach z Państwa kamery. Pełną dokumentację metody, macierze pomyłek i dane źródłowe udostępnimy na życzenie.</p>
+
+</div>
+
+</body>
+</html>

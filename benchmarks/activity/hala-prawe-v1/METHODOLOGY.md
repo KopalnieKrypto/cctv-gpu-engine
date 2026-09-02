@@ -119,6 +119,56 @@ source material is gone permanently.**
   no unlabelled gap on the timeline.
 - **The split is 3-fold** (`manifest.source.json` → `split`), amended 2026-09-02.
   Read the integrity note below before quoting any figure produced under it.
+- **All arms re-measured under 3-fold on 2026-09-02.** The result is not the 2-fold
+  result with a third window added; see the section below.
+
+### The finding: the folds disagree, and the disagreement is the result
+
+Every arm was rerun so that each of the three windows is predicted once by a model
+trained on the other two. `spawanie`, `tcn-pose`, per held-out window:
+
+| Trained on | Held out | `spawanie` | `ukladanie_pretow` |
+|---|---|---:|---:|
+| W2 + W3 | W1 (morning) | 97.8% | 93.9% |
+| W1 + W3 | W2 (morning) | 91.2% | 98.9% |
+| W1 + W2 | **W3 (evening)** | **27.5%** | **64.8%** |
+
+The union over all three folds is 72.0%, and it describes none of these runs. The
+two folds whose training set includes evening material hold at the level the 2-fold
+measurement reported; the one fold trained on mornings alone collapses on the
+evening window.
+
+**Three checks rule out the boring explanations.** Pose detection on W3 is 86.5%,
+against 85.8% on W1, so the clip decodes and the ROI still frames the station.
+Training-set size is identical across folds (1199 samples each), so it is not data
+volume. And the VLM arm, which trains on nothing, scores **97.6%** on `spawanie` on
+that same W3 - the evening footage reads fine, it is the *trained* model that does
+not transfer. (That VLM reports 2.38× the true welding time, so it is not an
+alternative; it is a control.)
+
+What the fixture cannot say is *why*. W3 differs from W1/W2 in both shift and
+operator, and one window is one window. "The model needs training material covering
+the conditions it will run on" is supported; "evenings are harder" is not.
+
+**`tcn-rich` degrades more gracefully** on the unseen window (46.5% vs 27.5% on
+`spawanie`) and slightly worse on `ukladanie_pretow` (51.8% vs 64.8%). Neither is
+near the bar, so the arm ranking does not change.
+
+### What the 3-fold numbers cost the headline claims
+
+Not a rescoring of the same result. Three claims moved:
+
+- `spawanie` **time ratio 1.02× → 1.19×** on the morning windows. Recall is
+  unchanged (94.6% → 94.2%), but the model trained with evening material over-calls
+  welding on mornings. It still clears `INFLATION_LIMIT`, with much less room.
+- `brak_na_stanowisku` was **never measurable** under 2-fold (0.0%, the classes were
+  used disjointly by the two windows) and is 4.4% / 25.0% under 3-fold. The 98.5%
+  that reached the client report was the detector's own W1 hit rate, not any arm's
+  score. `empty_station_rule.py` now measures the rule that number came from:
+  **95.7% recall at 1.99× the true empty time**, which fails the same inflation test
+  that disqualifies the arc-flash baseline.
+- Boundary timing on the recommended configuration is **82%** within 2 s, computed on
+  the two morning windows only rather than merged across a fold that collapsed.
 
 ### The split, and the two amendments behind it
 

@@ -1,7 +1,11 @@
 {
   "arm": "tcn-pose",
   "window": "W1",
-  "fold": "B",
+  "fold": "C",
+  "trained_on": [
+    "W2",
+    "W3"
+  ],
   "model": "dilated temporal CNN, pose features over YOLO-pose",
   "feature_set": "pose",
   "hyperparameters": {
@@ -34,11 +38,11 @@
     },
     {
       "t_s": 6,
-      "activity_id": "spawanie"
+      "activity_id": "ukladanie_pretow"
     },
     {
       "t_s": 8,
-      "activity_id": "spawanie"
+      "activity_id": "ukladanie_pretow"
     },
     {
       "t_s": 10,
@@ -94,7 +98,7 @@
     },
     {
       "t_s": 36,
-      "activity_id": "inna_czynnosc"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 38,
@@ -182,7 +186,7 @@
     },
     {
       "t_s": 80,
-      "activity_id": "sciaganie_elementu"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 82,
@@ -206,7 +210,7 @@
     },
     {
       "t_s": 92,
-      "activity_id": "nierozpoznane"
+      "activity_id": "ukladanie_pretow"
     },
     {
       "t_s": 94,
@@ -354,19 +358,19 @@
     },
     {
       "t_s": 166,
-      "activity_id": "sciaganie_elementu"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 168,
-      "activity_id": "postoj"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 170,
-      "activity_id": "inna_czynnosc"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 172,
-      "activity_id": "sciaganie_elementu"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 174,
@@ -450,7 +454,7 @@
     },
     {
       "t_s": 214,
-      "activity_id": "inna_czynnosc"
+      "activity_id": "ukladanie_pretow"
     },
     {
       "t_s": 216,
@@ -622,7 +626,7 @@
     },
     {
       "t_s": 300,
-      "activity_id": "inna_czynnosc"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 302,
@@ -978,7 +982,7 @@
     },
     {
       "t_s": 478,
-      "activity_id": "inna_czynnosc"
+      "activity_id": "ukladanie_pretow"
     },
     {
       "t_s": 480,
@@ -1086,11 +1090,11 @@
     },
     {
       "t_s": 532,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 534,
-      "activity_id": "inna_czynnosc"
+      "activity_id": "sciaganie_elementu"
     },
     {
       "t_s": 536,
@@ -1102,303 +1106,303 @@
     },
     {
       "t_s": 540,
-      "activity_id": "nierozpoznane"
+      "activity_id": "brak_na_stanowisku"
     },
     {
       "t_s": 542,
-      "activity_id": "nierozpoznane"
+      "activity_id": "brak_na_stanowisku"
     },
     {
       "t_s": 544,
-      "activity_id": "nierozpoznane"
+      "activity_id": "brak_na_stanowisku"
     },
     {
       "t_s": 546,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 548,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 550,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 552,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 554,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 556,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 558,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 560,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 562,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 564,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 566,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 568,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 570,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 572,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 574,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 576,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 578,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 580,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 582,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 584,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 586,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 588,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 590,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 592,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 594,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 596,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 598,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 600,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 602,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 604,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 606,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 608,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 610,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 612,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 614,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 616,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 618,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 620,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 622,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 624,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 626,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 628,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 630,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 632,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 634,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 636,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 638,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 640,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 642,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 644,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 646,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 648,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 650,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 652,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 654,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 656,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 658,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 660,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 662,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 664,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 666,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 668,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 670,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 672,
-      "activity_id": "ukladanie_pretow"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 674,
-      "activity_id": "ukladanie_pretow"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 676,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 678,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 680,
-      "activity_id": "postoj"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 682,
-      "activity_id": "postoj"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 684,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 686,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 688,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 690,
@@ -1410,7 +1414,7 @@
     },
     {
       "t_s": 694,
-      "activity_id": "ukladanie_pretow"
+      "activity_id": "nierozpoznane"
     },
     {
       "t_s": 696,
@@ -1582,7 +1586,7 @@
     },
     {
       "t_s": 780,
-      "activity_id": "inna_czynnosc"
+      "activity_id": "nierozpoznane"
     },
     {
       "t_s": 782,
@@ -1806,11 +1810,11 @@
     },
     {
       "t_s": 892,
-      "activity_id": "ukladanie_pretow"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 894,
-      "activity_id": "ukladanie_pretow"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 896,
@@ -1818,7 +1822,7 @@
     },
     {
       "t_s": 898,
-      "activity_id": "nierozpoznane"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 900,
@@ -1898,7 +1902,7 @@
     },
     {
       "t_s": 938,
-      "activity_id": "sciaganie_elementu"
+      "activity_id": "nierozpoznane"
     },
     {
       "t_s": 940,
@@ -1954,7 +1958,7 @@
     },
     {
       "t_s": 966,
-      "activity_id": "ukladanie_pretow"
+      "activity_id": "inna_czynnosc"
     },
     {
       "t_s": 968,
@@ -2142,7 +2146,7 @@
     },
     {
       "t_s": 1060,
-      "activity_id": "inna_czynnosc"
+      "activity_id": "spawanie"
     },
     {
       "t_s": 1062,
@@ -2230,7 +2234,7 @@
     },
     {
       "t_s": 1104,
-      "activity_id": "inna_czynnosc"
+      "activity_id": "nierozpoznane"
     },
     {
       "t_s": 1106,
@@ -2382,7 +2386,7 @@
     },
     {
       "t_s": 1180,
-      "activity_id": "inna_czynnosc"
+      "activity_id": "nierozpoznane"
     },
     {
       "t_s": 1182,
@@ -2421,12 +2425,12 @@
     "box": "cctv-vps",
     "gpu_index": 1,
     "gpus_used": 1,
-    "gpu_seconds": 148.2,
-    "pose_seconds_total": 293.0,
-    "fit_seconds": 1.7,
+    "gpu_seconds": 184.8,
+    "pose_seconds_total": 545.0,
+    "fit_seconds": 3.1,
     "video_seconds": 1198,
     "peak_vram_mib": 710,
     "peak_vram_note": "whole process, nvidia-smi per PID: ONNX pose session + TCN",
-    "torch_allocator_peak_mib": 17
+    "torch_allocator_peak_mib": 25
   }
 }
