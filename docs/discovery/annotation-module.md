@@ -128,7 +128,31 @@ The export shape decides which model families are reachable:
   TimeSformer, VideoSwin).
 
 Cheaper to design for clips now than to retrofit. But it multiplies storage.
-Worth asking whether video models are ever plausibly in scope.
+
+**Partial evidence exists as of 2026-09-02** (`#120`, rung 1). A frozen DINOv2
+linear probe over single stills, scored on the same folds as everything else:
+
+| Class | geometry (pose keypoints) | pixels, single still |
+|---|---:|---:|
+| `brak_na_stanowisku` | 4.4% | **97.1%** |
+| `inna_czynnosc` | 19.6% | 28.0% |
+| `postoj` | 1.7% | 8.6% |
+| `sciaganie_elementu` | 71.2% | 55.8% |
+
+Stills alone already carry a lot — one class goes from unusable to 97.1% with no
+temporal context whatsoever. They did not rescue the two hard hand-work classes,
+but the probe was handicapped (one frame against a 64-sample receptive field), so
+that half is not settled.
+
+**Guidance: treat clip export as a capability to keep *reachable*, not one to
+build or drop in this session.** Rung 2 of `#120` — temporal modelling over image
+embeddings, about a day — is what actually decides it. The interview should
+establish how expensive it would be to add clips later, and whether that cost is
+acceptable, rather than guessing which way the experiment lands.
+
+One more datum for open decision 1 below: the pixel probe **transferred better**
+to the unseen shift than the fitted geometry model (60.7% vs 27.5% on the main
+activity), because a frozen general backbone was never fitted to that camera.
 
 ### 4. How opinionated should the tool be
 
