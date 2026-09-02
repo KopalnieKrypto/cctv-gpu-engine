@@ -134,9 +134,13 @@ def main() -> int:
         sys.exit(f"{ARM} hardware verdict is {hw['verdict']}: {hw['reason']}")
     sub["VRAM"] = hw["reason"].split(" peak")[0]
 
-    u = rule["union"]
+    u = rule["held_out_union"]
     sub["BRAK_RULE_REC"] = pct(u["recall"])
-    sub["BRAK_RULE_RAT"] = f"{u['time_ratio']:.1f}".replace(".", ",") + " raza"
+    # Stated as "how much too much", which is what a chronometraż reader feels,
+    # rather than as a multiplier they have to convert in their head.
+    sub["BRAK_RULE_OVER"] = f"{(u['time_ratio'] - 1) * 100:.0f}%"
+    sub["BRAK_NAIVE_OVER"] = f"{(rule['naive']['union']['time_ratio'] - 1) * 100:.0f}%"
+    sub["BRAK_LIMIT"] = f"{(INFLATION - 1) * 100:.0f}%"
 
     text = TEMPLATE.read_text()
     for k, v in sub.items():

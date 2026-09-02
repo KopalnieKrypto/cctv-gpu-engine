@@ -141,9 +141,13 @@
 
   <h2>Puste stanowisko</h2>
 
-  <p>Puste stanowisko rozpoznajemy prostą regułą: nie widzimy człowieka, więc stanowisko jest puste. Reguła łapie <strong>@@BRAK_RULE_REC@@ momentów, w których stanowisko faktycznie było puste</strong>. Zgłasza jednak <strong>@@BRAK_RULE_RAT@@ tyle pustego czasu, ile go było</strong>, bo operator bywa niewidoczny także wtedy, gdy pracuje: schylony, zasłonięty przez konstrukcję albo na skraju kadru.</p>
+  <p>Puste stanowisko rozpoznajemy prostą regułą: jeśli przez kilka kolejnych próbek nie widzimy człowieka, uznajemy stanowisko za puste. Reguła łapie <strong>@@BRAK_RULE_REC@@ momentów, w których stanowisko faktycznie było puste</strong>, i zgłasza przy tym <strong>o @@BRAK_RULE_OVER@@ więcej pustego czasu, niż go było</strong>.</p>
 
-  <p>Przy takim zawyżeniu ta pozycja nie nadaje się dziś do raportu o czasie i nie umieszczamy jej w rekomendowanym zakresie. Reguła nadaje się natomiast do tego, do czego jest prosta: do zaznaczenia na osi czasu momentów, którym warto się przyjrzeć.</p>
+  <p>Wymóg kilku kolejnych próbek jest tu istotny. Bez niego, reagując na każdą pojedynczą klatkę bez człowieka, ta sama reguła zgłaszała o @@BRAK_NAIVE_OVER@@ więcej pustego czasu. Operator znika bowiem z kadru na moment także wtedy, gdy pracuje: schylony, zasłonięty przez konstrukcję albo na skraju kadru.</p>
+
+  <p>@@BRAK_RULE_OVER@@ to wciąż za dużo jak na raport o czasie. Nasz próg wynosi @@BRAK_LIMIT@@ i nie przesuwamy go po fakcie, więc <strong>ta pozycja nie wchodzi do rekomendowanego zakresu</strong>. Zabrakło niewiele i z tego samego powodu, co przy głównym pomiarze: wymaganą długość przerwy w wykrywaniu dobraliśmy na nagraniach porannych, a na wieczornym okazała się za krótka.</p>
+
+  <p>Reguła nadaje się natomiast do tego, do czego jest prosta: do zaznaczenia na osi czasu momentów, którym warto się przyjrzeć.</p>
 
   <h2>Czego nie umiemy i dlaczego</h2>
 

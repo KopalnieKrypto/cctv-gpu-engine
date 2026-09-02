@@ -164,9 +164,42 @@ Not a rescoring of the same result. Three claims moved:
 - `brak_na_stanowisku` was **never measurable** under 2-fold (0.0%, the classes were
   used disjointly by the two windows) and is 4.4% / 25.0% under 3-fold. The 98.5%
   that reached the client report was the detector's own W1 hit rate, not any arm's
-  score. `empty_station_rule.py` now measures the rule that number came from:
-  **95.7% recall at 1.99× the true empty time**, which fails the same inflation test
-  that disqualifies the arc-flash baseline.
+  score. `empty_station_rule.py` measures the rule that number came from; see below.
+
+### The empty-station rule: a dwell filter halves the inflation and still misses
+
+The naive rule (any single undetected sample means empty) scores **95.7% recall at
+1.99×** the true empty time. Requiring the sample to sit inside a run of at least
+`dwell` undetected samples removes the momentary dropouts, which is where nearly all
+of the over-reporting comes from: the operator vanishes for one sample while crouched
+behind the jig or occluded by the cage.
+
+`dwell` is chosen **per fold on that fold's training windows only**, by the highest
+training recall among dwells whose training `time_ratio` stays inside
+`INFLATION_LIMIT`. F1 was the first choice and is the wrong one: on this fixture it
+peaks at a dwell whose recall is 82.6%, under the bar. The selector matches the
+acceptance criterion instead, which is not hindsight - both halves of that criterion
+predate this measurement.
+
+| | recall | time ratio | verdict |
+|---|---:|---:|---|
+| naive, `dwell=1` | 95.7% | 1.99× | fails |
+| **held-out union, `dwell` per fold** | **95.7%** | **1.28×** | **fails, barely** |
+
+Recall is unchanged and the inflation is more than halved, which is a real gain, but
+1.28× is still outside the 1.25× limit and the position stays out of the recommended
+scope. **The reason it misses is the fixture's main finding again:** fold A trains on
+the two morning windows, picks `dwell=2`, and that dwell over-fires on the evening
+window at 2.08×. Folds B and C, whose training includes W3, pick 3 and 4 and land at
+1.50× (n=2, noise) and 0.98×.
+
+A whole-fixture sweep does contain a passing row (`dwell=3`: 91.3% recall, 1.17×).
+It is recorded in `empty-station-rule.json` under `sweep_whole_fixture` with a note
+that reading the best row off it and quoting it is fitting on the test set. It is not
+quoted anywhere, and the client report carries the 1.28× instead.
+
+Absence at this station is mostly short, which is why no dwell wins outright: the true
+runs are one of 66 samples in W1, one of 2 in W2, and eight of 2 to 4 in W3.
 - Boundary timing on the recommended configuration is **82%** within 2 s, computed on
   the two morning windows only rather than merged across a fold that collapsed.
 
