@@ -2436,12 +2436,14 @@
     "box": "cctv-vps",
     "gpu_index": 1,
     "gpus_used": 1,
-    "gpu_seconds": 15.3,
-    "embed_seconds_total": 35.7,
-    "fit_seconds": 3.4,
+    "gpu_seconds": 145.9,
+    "gpu_seconds_note": null,
+    "embed_seconds_total": 4.8,
+    "pose_seconds_total": 422.4,
+    "fit_seconds": 3.5,
     "video_seconds": 1200,
-    "peak_vram_mib": 1110,
-    "peak_vram_note": "whole process, nvidia-smi per PID: backbone + TCN",
-    "torch_allocator_peak_mib": 719
+    "peak_vram_mib": null,
+    "peak_vram_note": "backbone not loaded (cache hit) - end-to-end peak unmeasured",
+    "torch_allocator_peak_mib": 43
   }
 }

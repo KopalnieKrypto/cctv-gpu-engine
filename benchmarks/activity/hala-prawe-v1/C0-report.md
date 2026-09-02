@@ -139,9 +139,9 @@ The annotation's own boundaries are only accurate to ±1 s (2 s stride, boundary
 
 *2 of #120 - the C.0 model with pixels in place of geometry*
 
-**Hardware verdict: OK** — 1110 MiB peak on one card
+**Hardware verdict: UNMEASURED** — `peak_vram_mib` missing
 
-**Cost: 46 GPU-seconds per video-hour**, measured on **cctv-vps**.
+**Cost: 438 GPU-seconds per video-hour**, measured on **cctv-vps**.
 
 Abstention (`nierozpoznane` predicted): 3.6% of samples.
 

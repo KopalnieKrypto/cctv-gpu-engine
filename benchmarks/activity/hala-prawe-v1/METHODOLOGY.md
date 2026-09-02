@@ -209,6 +209,17 @@ memorisation of the two training windows is the first thing to look at.
 against `tcn-pose`'s 555.3 GPU-seconds at 710 MiB. Eleven times cheaper, because no
 pose detection runs at all; more VRAM, still far inside the one-card budget.
 
+**A cost figure that was wrong, and how.** `tcn-fused-518` first reported **45.7**
+GPU-seconds per video-hour, which made the most expensive arm look like the
+cheapest and nearly decided a production model choice. The arm consumes pose
+geometry and therefore cannot run without a pose pass, but `build_sequences` hit
+the cache and the pass went untimed. Re-measured with a cold pose cache it is
+**437.8**, and even that understates it, because the embedding pass came from cache
+on the re-run. `run_tcn_pixel_arm.py` now times the pose pass, adds it, and
+withholds the total entirely when the pass is cached rather than reporting a
+number missing a mandatory stage. The lesson generalises: a cached stage is still a
+stage the arm pays for in production.
+
 **Reruns are not bit-identical.** Re-running `fused-518` cold to measure its VRAM
 changed 1 of 600 predictions on W3 (cuDNN picks conv algorithms nondeterministically).
 Differences of a few tenths of a point between arms are not resolvable by this

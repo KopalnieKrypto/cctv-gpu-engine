@@ -1378,10 +1378,10 @@
         "spurious": 112
       },
       "hardware": {
-        "verdict": "OK",
-        "reason": "1110 MiB peak on one card"
+        "verdict": "UNMEASURED",
+        "reason": "`peak_vram_mib` missing"
       },
-      "gpu_seconds_per_video_hour": 45.67612687813021,
+      "gpu_seconds_per_video_hour": 437.82971619365605,
       "box": "cctv-vps",
       "abstention": 0.03557531962201223,
       "unpredicted": 0
