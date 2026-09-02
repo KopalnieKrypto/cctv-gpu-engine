@@ -1,16 +1,26 @@
 name: Build Docker images
 
+# The path filter must list everything the image is built FROM, not just the
+# application code. `gpu-service/Dockerfile` COPYs pyproject.toml + uv.lock and
+# then `uv sync --frozen`s against them, so a dependency change that is missing
+# here produces a green CI and an unchanged image — and the fleet keeps running
+# the old dependency set with nothing reporting it.
+# `build_config_test.py::TestDockerWorkflowRebuildsOnItsInputs` enforces this.
 on:
   push:
     branches: [main]
     paths:
       - "pipeline/**"
       - "gpu-service/**"
+      - "pyproject.toml"
+      - "uv.lock"
   pull_request:
     branches: [main]
     paths:
       - "pipeline/**"
       - "gpu-service/**"
+      - "pyproject.toml"
+      - "uv.lock"
   workflow_dispatch:
 
 env:

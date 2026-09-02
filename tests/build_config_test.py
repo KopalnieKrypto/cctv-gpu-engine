@@ -889,3 +889,56 @@ class TestOnnxExportDependency:
             f"{spec!r} should not be Linux-gated: it is pure Python, and gating it "
             "would break a CPU export on a dev box for no resolution benefit."
         )
+
+
+class TestDockerWorkflowRebuildsOnItsInputs:
+    """Every file the image is built FROM must trigger a rebuild.
+
+    `docker.yml` filters on paths. It listed `pipeline/**` and `gpu-service/**`
+    but not `pyproject.toml` / `uv.lock`, which the Dockerfile COPYs and then
+    `uv sync --frozen`s against - so a dependency change produced a green CI and
+    an unchanged image, and the fleet kept running the old dependency set with
+    nothing reporting it. Found while adding onnxscript to the gpu extra.
+    """
+
+    @staticmethod
+    def _dockerfile_copy_sources() -> list[str]:
+        sources: list[str] = []
+        for line in GPU_SERVICE_DOCKERFILE.read_text().splitlines():
+            if not line.startswith("COPY ") or "--from=" in line:
+                continue
+            # `COPY a b c ./` - every argument but the destination is a source.
+            sources += line.split()[1:-1]
+        return sources
+
+    @staticmethod
+    def _workflow_paths() -> list[str]:
+        import yaml
+
+        workflow = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "docker.yml").read_text())
+        # `on` is parsed by PyYAML as the boolean True (YAML 1.1 truthiness).
+        triggers = workflow.get("on") or workflow.get(True)
+        return triggers["push"]["paths"]
+
+    def test_every_dockerfile_input_triggers_a_rebuild(self):
+        patterns = self._workflow_paths()
+
+        def covered(src: str) -> bool:
+            for p in patterns:
+                if p == src:
+                    return True
+                if p.endswith("/**") and (src == p[:-3] or src.startswith(p[:-3] + "/")):
+                    return True
+            return False
+
+        # README.md is copied only because `uv sync` wants the package's readme
+        # to exist; its content cannot change the image, so rebuilding the whole
+        # thing on a docs edit would be waste rather than safety.
+        uncovered = [
+            s for s in self._dockerfile_copy_sources() if s != "README.md" and not covered(s)
+        ]
+        assert not uncovered, (
+            f"gpu-service/Dockerfile builds from {uncovered}, but docker.yml only "
+            f"rebuilds on {patterns}. A change to those files would ship a green CI "
+            "and an unchanged image."
+        )
