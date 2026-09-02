@@ -1,0 +1,2434 @@
+{
+  "arm": "pixel-probe-dinov2-224",
+  "window": "W2",
+  "fold": "B",
+  "trained_on": [
+    "W1",
+    "W3"
+  ],
+  "model": "frozen facebook/dinov2-base CLS embedding + linear probe, single frame",
+  "rung": "1 of #120 - diagnostic, not a candidate model",
+  "image_size": 224,
+  "hyperparameters": {
+    "epochs": 400,
+    "lr": 0.001,
+    "weight_decay": 0.01,
+    "seed": 117,
+    "backbone_frozen": true,
+    "temporal_context": null,
+    "fixed_before_run": true
+  },
+  "samples": [
+    {
+      "t_s": 0,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 2,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 4,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 6,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 8,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 10,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 12,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 14,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 16,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 18,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 20,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 22,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 24,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 26,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 28,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 30,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 32,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 34,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 36,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 38,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 40,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 42,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 44,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 46,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 48,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 50,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 52,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 54,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 56,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 58,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 60,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 62,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 64,
+      "activity_id": "sciaganie_elementu"
+    },
+    {
+      "t_s": 66,
+      "activity_id": "postoj"
+    },
+    {
+      "t_s": 68,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 70,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 72,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 74,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 76,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 78,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 80,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 82,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 84,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 86,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 88,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 90,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 92,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 94,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 96,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 98,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 100,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 102,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 104,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 106,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 108,
+      "activity_id": "sciaganie_elementu"
+    },
+    {
+      "t_s": 110,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 112,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 114,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 116,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 118,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 120,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 122,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 124,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 126,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 128,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 130,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 132,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 134,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 136,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 138,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 140,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 142,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 144,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 146,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 148,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 150,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 152,
+      "activity_id": "postoj"
+    },
+    {
+      "t_s": 154,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 156,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 158,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 160,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 162,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 164,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 166,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 168,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 170,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 172,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 174,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 176,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 178,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 180,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 182,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 184,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 186,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 188,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 190,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 192,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 194,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 196,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 198,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 200,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 202,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 204,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 206,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 208,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 210,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 212,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 214,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 216,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 218,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 220,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 222,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 224,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 226,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 228,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 230,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 232,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 234,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 236,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 238,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 240,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 242,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 244,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 246,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 248,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 250,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 252,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 254,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 256,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 258,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 260,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 262,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 264,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 266,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 268,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 270,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 272,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 274,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 276,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 278,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 280,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 282,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 284,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 286,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 288,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 290,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 292,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 294,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 296,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 298,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 300,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 302,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 304,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 306,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 308,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 310,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 312,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 314,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 316,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 318,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 320,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 322,
+      "activity_id": "sciaganie_elementu"
+    },
+    {
+      "t_s": 324,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 326,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 328,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 330,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 332,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 334,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 336,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 338,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 340,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 342,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 344,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 346,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 348,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 350,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 352,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 354,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 356,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 358,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 360,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 362,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 364,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 366,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 368,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 370,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 372,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 374,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 376,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 378,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 380,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 382,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 384,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 386,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 388,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 390,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 392,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 394,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 396,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 398,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 400,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 402,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 404,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 406,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 408,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 410,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 412,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 414,
+      "activity_id": "sciaganie_elementu"
+    },
+    {
+      "t_s": 416,
+      "activity_id": "sciaganie_elementu"
+    },
+    {
+      "t_s": 418,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 420,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 422,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 424,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 426,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 428,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 430,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 432,
+      "activity_id": "sciaganie_elementu"
+    },
+    {
+      "t_s": 434,
+      "activity_id": "postoj"
+    },
+    {
+      "t_s": 436,
+      "activity_id": "sciaganie_elementu"
+    },
+    {
+      "t_s": 438,
+      "activity_id": "sciaganie_elementu"
+    },
+    {
+      "t_s": 440,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 442,
+      "activity_id": "postoj"
+    },
+    {
+      "t_s": 444,
+      "activity_id": "postoj"
+    },
+    {
+      "t_s": 446,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 448,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 450,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 452,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 454,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 456,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 458,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 460,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 462,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 464,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 466,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 468,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 470,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 472,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 474,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 476,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 478,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 480,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 482,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 484,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 486,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 488,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 490,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 492,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 494,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 496,
+      "activity_id": "sciaganie_elementu"
+    },
+    {
+      "t_s": 498,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 500,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 502,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 504,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 506,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 508,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 510,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 512,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 514,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 516,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 518,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 520,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 522,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 524,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 526,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 528,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 530,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 532,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 534,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 536,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 538,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 540,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 542,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 544,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 546,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 548,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 550,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 552,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 554,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 556,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 558,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 560,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 562,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 564,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 566,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 568,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 570,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 572,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 574,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 576,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 578,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 580,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 582,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 584,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 586,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 588,
+      "activity_id": "sciaganie_elementu"
+    },
+    {
+      "t_s": 590,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 592,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 594,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 596,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 598,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 600,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 602,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 604,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 606,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 608,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 610,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 612,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 614,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 616,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 618,
+      "activity_id": "sciaganie_elementu"
+    },
+    {
+      "t_s": 620,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 622,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 624,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 626,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 628,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 630,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 632,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 634,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 636,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 638,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 640,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 642,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 644,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 646,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 648,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 650,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 652,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 654,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 656,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 658,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 660,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 662,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 664,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 666,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 668,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 670,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 672,
+      "activity_id": "sciaganie_elementu"
+    },
+    {
+      "t_s": 674,
+      "activity_id": "sciaganie_elementu"
+    },
+    {
+      "t_s": 676,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 678,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 680,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 682,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 684,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 686,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 688,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 690,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 692,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 694,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 696,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 698,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 700,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 702,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 704,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 706,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 708,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 710,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 712,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 714,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 716,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 718,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 720,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 722,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 724,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 726,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 728,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 730,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 732,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 734,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 736,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 738,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 740,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 742,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 744,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 746,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 748,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 750,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 752,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 754,
+      "activity_id": "sciaganie_elementu"
+    },
+    {
+      "t_s": 756,
+      "activity_id": "sciaganie_elementu"
+    },
+    {
+      "t_s": 758,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 760,
+      "activity_id": "sciaganie_elementu"
+    },
+    {
+      "t_s": 762,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 764,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 766,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 768,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 770,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 772,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 774,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 776,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 778,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 780,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 782,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 784,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 786,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 788,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 790,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 792,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 794,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 796,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 798,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 800,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 802,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 804,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 806,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 808,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 810,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 812,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 814,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 816,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 818,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 820,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 822,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 824,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 826,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 828,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 830,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 832,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 834,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 836,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 838,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 840,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 842,
+      "activity_id": "postoj"
+    },
+    {
+      "t_s": 844,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 846,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 848,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 850,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 852,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 854,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 856,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 858,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 860,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 862,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 864,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 866,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 868,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 870,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 872,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 874,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 876,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 878,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 880,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 882,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 884,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 886,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 888,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 890,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 892,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 894,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 896,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 898,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 900,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 902,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 904,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 906,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 908,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 910,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 912,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 914,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 916,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 918,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 920,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 922,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 924,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 926,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 928,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 930,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 932,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 934,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 936,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 938,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 940,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 942,
+      "activity_id": "postoj"
+    },
+    {
+      "t_s": 944,
+      "activity_id": "postoj"
+    },
+    {
+      "t_s": 946,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 948,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 950,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 952,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 954,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 956,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 958,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 960,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 962,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 964,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 966,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 968,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 970,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 972,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 974,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 976,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 978,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 980,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 982,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 984,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 986,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 988,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 990,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 992,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 994,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 996,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 998,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1000,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1002,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1004,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1006,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1008,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1010,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1012,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1014,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1016,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1018,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1020,
+      "activity_id": "nierozpoznane"
+    },
+    {
+      "t_s": 1022,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 1024,
+      "activity_id": "postoj"
+    },
+    {
+      "t_s": 1026,
+      "activity_id": "postoj"
+    },
+    {
+      "t_s": 1028,
+      "activity_id": "postoj"
+    },
+    {
+      "t_s": 1030,
+      "activity_id": "postoj"
+    },
+    {
+      "t_s": 1032,
+      "activity_id": "postoj"
+    },
+    {
+      "t_s": 1034,
+      "activity_id": "postoj"
+    },
+    {
+      "t_s": 1036,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1038,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1040,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1042,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1044,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1046,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 1048,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1050,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1052,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1054,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 1056,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1058,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1060,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1062,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1064,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1066,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 1068,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1070,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1072,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1074,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1076,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1078,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1080,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1082,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1084,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1086,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1088,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1090,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1092,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1094,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1096,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1098,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1100,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1102,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1104,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1106,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 1108,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1110,
+      "activity_id": "nierozpoznane"
+    },
+    {
+      "t_s": 1112,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1114,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 1116,
+      "activity_id": "postoj"
+    },
+    {
+      "t_s": 1118,
+      "activity_id": "postoj"
+    },
+    {
+      "t_s": 1120,
+      "activity_id": "postoj"
+    },
+    {
+      "t_s": 1122,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1124,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1126,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1128,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1130,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1132,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1134,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1136,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1138,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1140,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1142,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1144,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1146,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1148,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1150,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1152,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1154,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1156,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1158,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1160,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1162,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1164,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1166,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1168,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1170,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1172,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1174,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1176,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1178,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1180,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1182,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1184,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1186,
+      "activity_id": "spawanie"
+    },
+    {
+      "t_s": 1188,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1190,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1192,
+      "activity_id": "inna_czynnosc"
+    },
+    {
+      "t_s": 1194,
+      "activity_id": "ukladanie_pretow"
+    },
+    {
+      "t_s": 1196,
+      "activity_id": "postoj"
+    },
+    {
+      "t_s": 1198,
+      "activity_id": "postoj"
+    }
+  ],
+  "gpu": {
+    "box": "cctv-vps",
+    "gpu_index": 1,
+    "gpus_used": 1,
+    "gpu_seconds": 12.8,
+    "embed_seconds_total": 37.7,
+    "fit_seconds": 0.2,
+    "video_seconds": 1200,
+    "peak_vram_mib": 1098,
+    "peak_vram_note": "whole process, nvidia-smi per PID: backbone + probe"
+  }
+}

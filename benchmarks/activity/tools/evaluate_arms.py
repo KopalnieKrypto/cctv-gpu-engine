@@ -187,6 +187,10 @@ def load_prediction(path: Path, truth: dict) -> dict:
         "grid": grid,
         "intervals": intervals,
         "gpu": doc.get("gpu"),
+        # What the arm says it is, rendered under its heading. A diagnostic
+        # scored in the same table as the candidates has to say so, or the next
+        # reader counts it as a candidate.
+        "what": doc.get("rung") or doc.get("model"),
         "path": path,
     }
 
@@ -425,6 +429,9 @@ def render(report: dict) -> str:
     for arm in report["arms"]:
         add(f"## Arm: `{arm['name']}`")
         add("")
+        if arm.get("what"):
+            add(f"*{arm['what']}*")
+            add("")
         hw = arm["hardware"]
         add(f"**Hardware verdict: {hw['verdict']}** — {hw['reason']}")
         cost = arm["gpu_seconds_per_video_hour"]
@@ -660,6 +667,15 @@ def main() -> int:
     by_arm: dict[str, list[dict]] = {}
     for p in args.predictions:
         head = json.loads(p.read_text())
+        # Names the file rather than raising a bare KeyError. The usual cause is
+        # a shell glob that swallowed this tool's own --json-out sitting in the
+        # same directory as the predictions.
+        if "window" not in head:
+            sys.exit(
+                f"{p}: no `window` key - this is not a prediction file. "
+                "If it is this tool's own --json-out, write it outside the "
+                "directory the --predictions glob covers."
+            )
         window = head["window"]
         if window not in truths:
             sys.exit(f"{p}: window {window} is not annotated")
@@ -724,6 +740,7 @@ def main() -> int:
         arms.append(
             {
                 "name": name,
+                "what": next((p["what"] for p in preds if p.get("what")), None),
                 "windows": windows,
                 "scores": per_activity_scores(pairs, classes),
                 "per_window_boundaries": per_window_boundaries,

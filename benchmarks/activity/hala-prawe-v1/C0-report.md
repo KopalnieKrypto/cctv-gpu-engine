@@ -21,7 +21,123 @@ Protocol: **3-fold cross-validation over the three windows**, declared 2026-09-0
 
 Per-activity accuracy is computed on the UNION of the three folds' held-out predictions - every labelled sample is predicted exactly once, by a model that never saw it. One confusion matrix per arm over that union, plus the per-fold matrices so a fold-specific collapse is visible.
 
+## Arm: `pixel-probe-dinov2-224`
+
+*1 of #120 - diagnostic, not a candidate model*
+
+**Hardware verdict: OK** — 1098 MiB peak on one card
+
+**Cost: 38 GPU-seconds per video-hour**, measured on **cctv-vps**.
+
+Abstention (`nierozpoznane` predicted): 14.8% of samples.
+
+### Per-activity accuracy (held-out union)
+
+| Activity | Support | Recall (the bar) | Precision | Time reported | 1 error = | Verdict |
+|---|---:|---:|---:|---:|---:|:---:|
+| `spawanie` | 744 | 65.1% | 91.7% | 0.71× | 0.1 pp | ❌ |
+| `ukladanie_pretow` | 552 | 75.5% | 75.4% | 1.00× | 0.2 pp | ❌ |
+| `sciaganie_elementu` | 110 | 42.7% | 37.6% | 1.14× | 0.9 pp | ❌ |
+| `inna_czynnosc` | 177 | 27.7% | 21.3% | 1.30× | 0.6 pp | ❌ |
+| `postoj` | 62 | 8.1% | 5.4% | 1.50× | 1.6 pp | ❌ |
+| `brak_na_stanowisku` | 92 | 1.1% | 25.0% | 0.04× | 1.1 pp | ❌ |
+| `nierozpoznane` | 62 | 4.8% | 1.1% | 4.29× | 1.6 pp | — |
+
+*Time reported* is predicted seconds over true seconds for the activity — the number a chronometraż client feels. Above 1.25× a passing recall is marked **gamed**: the class was bought by over-calling it, and a work-study that over-reports productive time is worse than one that under-reports it.
+
+### Per held-out window
+
+The union above is one number over folds that held out different material. Where those folds disagree, the mean describes neither.
+
+| Activity | W1 | W2 | W3 |
+|---|---:|---:|---:|
+| `spawanie` | 86.6% (n=224) | 76.9% (n=273) | 32.4% (n=247) |
+| `ukladanie_pretow` | 83.3% (n=180) | 81.6% (n=179) | 62.7% (n=193) |
+| `sciaganie_elementu` | 81.8% (n=22) | 13.3% (n=30) | 43.1% (n=58) |
+| `inna_czynnosc` | 7.7% (n=65) | 59.5% (n=42) | 27.1% (n=70) |
+| `postoj` | 7.1% (n=42) | 12.5% (n=16) | 0.0% (n=4) |
+| `brak_na_stanowisku` | 0.0% (n=66) | 0.0% (n=2) | 4.2% (n=24) |
+
+**Fails the bar on:** `spawanie`, `ukladanie_pretow`, `sciaganie_elementu`, `inna_czynnosc`, `postoj`, `brak_na_stanowisku`. An 84% class fails even if the average clears.
+
+### Confusion matrix
+
+| truth ↓ / pred → | `brak_na_stanowisku` | `inna_czynnosc` | `nierozpoznane` | `postoj` | `sciaganie_elementu` | `spawanie` | `ukladanie_pretow` |
+|---|---|---|---|---|---|---|---|
+| `brak_na_stanowisku` | 1 | 2 | 88 | 0 | 0 | 0 | 1 |
+| `inna_czynnosc` | 0 | 49 | 37 | 16 | 11 | 23 | 41 |
+| `nierozpoznane` | 0 | 33 | 3 | 16 | 4 | 3 | 3 |
+| `postoj` | 0 | 12 | 36 | 5 | 1 | 1 | 7 |
+| `sciaganie_elementu` | 0 | 14 | 11 | 5 | 47 | 0 | 33 |
+| `spawanie` | 2 | 76 | 58 | 47 | 26 | 484 | 51 |
+| `ukladanie_pretow` | 1 | 44 | 33 | 4 | 36 | 17 | 417 |
+
+### Boundary timing error
+
+249 real activity changes, 695 predicted. Median error **0.0 s**, p90 4.0 s, max 14.0 s; 90.4% land within 2 s. Spurious boundaries (no real change within 4 s): **339**.
+
+The annotation's own boundaries are only accurate to ±1 s (2 s stride, boundary at the sample midpoint), so error below 1 s is not resolvable by this fixture and should not be read as precision.
+
+## Arm: `pixel-probe-dinov2-518`
+
+*1 of #120 - diagnostic, not a candidate model*
+
+**Hardware verdict: OK** — 1098 MiB peak on one card
+
+**Cost: 36 GPU-seconds per video-hour**, measured on **cctv-vps**.
+
+Abstention (`nierozpoznane` predicted): 0.4% of samples.
+
+### Per-activity accuracy (held-out union)
+
+| Activity | Support | Recall (the bar) | Precision | Time reported | 1 error = | Verdict |
+|---|---:|---:|---:|---:|---:|:---:|
+| `spawanie` | 744 | 82.4% | 86.2% | 0.96× | 0.1 pp | ❌ |
+| `ukladanie_pretow` | 552 | 79.0% | 75.6% | 1.05× | 0.2 pp | ❌ |
+| `sciaganie_elementu` | 110 | 29.1% | 47.8% | 0.61× | 0.9 pp | ❌ |
+| `inna_czynnosc` | 177 | 24.3% | 19.3% | 1.26× | 0.6 pp | ❌ |
+| `postoj` | 62 | 3.2% | 2.7% | 1.18× | 1.6 pp | ❌ |
+| `brak_na_stanowisku` | 92 | 71.7% | 47.1% | 1.52× | 1.1 pp | ❌ |
+| `nierozpoznane` | 62 | 0.0% | 0.0% | 0.13× | 1.6 pp | — |
+
+*Time reported* is predicted seconds over true seconds for the activity — the number a chronometraż client feels. Above 1.25× a passing recall is marked **gamed**: the class was bought by over-calling it, and a work-study that over-reports productive time is worse than one that under-reports it.
+
+### Per held-out window
+
+The union above is one number over folds that held out different material. Where those folds disagree, the mean describes neither.
+
+| Activity | W1 | W2 | W3 |
+|---|---:|---:|---:|
+| `spawanie` | 97.8% (n=224) | 89.4% (n=273) | 60.7% (n=247) |
+| `ukladanie_pretow` | 71.1% (n=180) | 87.2% (n=179) | 78.8% (n=193) |
+| `sciaganie_elementu` | 68.2% (n=22) | 46.7% (n=30) | 5.2% (n=58) |
+| `inna_czynnosc` | 12.3% (n=65) | 26.2% (n=42) | 34.3% (n=70) |
+| `postoj` | 2.4% (n=42) | 6.2% (n=16) | 0.0% (n=4) |
+| `brak_na_stanowisku` | 100.0% (n=66) | 0.0% (n=2) | 0.0% (n=24) |
+
+**Fails the bar on:** `spawanie`, `ukladanie_pretow`, `sciaganie_elementu`, `inna_czynnosc`, `postoj`, `brak_na_stanowisku`. An 84% class fails even if the average clears.
+
+### Confusion matrix
+
+| truth ↓ / pred → | `brak_na_stanowisku` | `inna_czynnosc` | `nierozpoznane` | `postoj` | `sciaganie_elementu` | `spawanie` | `ukladanie_pretow` |
+|---|---|---|---|---|---|---|---|
+| `brak_na_stanowisku` | 66 | 0 | 0 | 19 | 0 | 0 | 7 |
+| `inna_czynnosc` | 20 | 43 | 0 | 11 | 9 | 56 | 38 |
+| `nierozpoznane` | 0 | 42 | 0 | 4 | 5 | 0 | 11 |
+| `postoj` | 35 | 14 | 1 | 2 | 3 | 2 | 5 |
+| `sciaganie_elementu` | 4 | 5 | 0 | 21 | 32 | 6 | 42 |
+| `spawanie` | 0 | 80 | 0 | 8 | 5 | 613 | 38 |
+| `ukladanie_pretow` | 15 | 39 | 7 | 8 | 13 | 34 | 436 |
+
+### Boundary timing error
+
+249 real activity changes, 554 predicted. Median error **0.0 s**, p90 4.0 s, max 18.0 s; 92.0% land within 2 s. Spurious boundaries (no real change within 4 s): **237**.
+
+The annotation's own boundaries are only accurate to ±1 s (2 s stride, boundary at the sample midpoint), so error below 1 s is not resolvable by this fixture and should not be read as precision.
+
 ## Arm: `tcn-pose`
+
+*dilated temporal CNN, pose features over YOLO-pose*
 
 **Hardware verdict: OK** — 710 MiB peak on one card
 
@@ -78,6 +194,8 @@ The annotation's own boundaries are only accurate to ±1 s (2 s stride, boundary
 
 ## Arm: `tcn-rich`
 
+*dilated temporal CNN, rich features over YOLO-pose*
+
 **Hardware verdict: UNMEASURED** — `peak_vram_mib` missing
 
 **Cost: 10 GPU-seconds per video-hour**, measured on **cctv-vps**.
@@ -132,6 +250,8 @@ The union above is one number over folds that held out different material. Where
 The annotation's own boundaries are only accurate to ±1 s (2 s stride, boundary at the sample midpoint), so error below 1 s is not resolvable by this fixture and should not be read as precision.
 
 ## Arm: `vlm-qwen2.5-vl-3b-v1`
+
+*Qwen/Qwen2.5-VL-3B-Instruct*
 
 **Hardware verdict: OK** — 7542 MiB peak on one card
 
@@ -188,6 +308,8 @@ The union above is one number over folds that held out different material. Where
 The annotation's own boundaries are only accurate to ±1 s (2 s stride, boundary at the sample midpoint), so error below 1 s is not resolvable by this fixture and should not be read as precision.
 
 ## Arm: `vlm-qwen2.5-vl-3b-v2`
+
+*Qwen/Qwen2.5-VL-3B-Instruct*
 
 **Hardware verdict: OK** — 7554 MiB peak on one card
 
