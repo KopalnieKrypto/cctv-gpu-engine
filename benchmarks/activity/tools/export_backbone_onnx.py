@@ -74,7 +74,19 @@ def main() -> int:
         # interpolated for a given size, and the head was fitted at this one.
         dynamic_axes={"pixel_values": {0: "batch"}, "cls": {0: "batch"}},
         opset_version=OPSET,
+        # One file, or `setup-models.sh` cannot pin it. torch defaults to writing
+        # the weights beside the graph as `<name>.onnx.data`, which would ship a
+        # 1 MiB graph whose sha256 says nothing about the 346 MiB of weights next
+        # to it - exactly the substitution the pins exist to catch.
+        external_data=False,
     )
+    stray = args.out.with_suffix(".onnx.data")
+    if stray.exists():
+        sys.exit(
+            f"{stray} was written: the weights are external, so `{args.out.name}` is "
+            "a graph without them and its sha256 would verify nothing. Export must "
+            "produce a single self-contained file."
+        )
     digest = hashlib.sha256(args.out.read_bytes()).hexdigest()
     size = args.out.stat().st_size
     print(f"wrote {args.out} ({size / 1024 / 1024:.0f} MiB)")
