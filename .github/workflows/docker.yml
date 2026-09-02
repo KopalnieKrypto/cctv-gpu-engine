@@ -67,7 +67,17 @@ jobs:
         with:
           context: .
           file: gpu-service/Dockerfile
-          push: ${{ github.event_name == 'push' }}
+          # A manual rebuild has to be able to publish, or it cannot fix the one
+          # situation it exists for: a dependency landed without a qualifying
+          # path change, `:latest` is behind, and no legitimate push is pending.
+          # Dispatch is gated to the default branch, so a run from a feature
+          # branch still builds without publishing, exactly like a pull request.
+          # The `:latest` tag carries its own `is_default_branch` guard above;
+          # this condition governs whether anything is pushed at all.
+          push: >-
+            ${{ github.event_name == 'push'
+            || (github.event_name == 'workflow_dispatch'
+            && github.ref == 'refs/heads/main') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           # Disable provenance + SBOM attestations: every main-branch push of

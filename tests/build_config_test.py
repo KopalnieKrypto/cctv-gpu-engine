@@ -942,3 +942,41 @@ class TestDockerWorkflowRebuildsOnItsInputs:
             f"rebuilds on {patterns}. A change to those files would ship a green CI "
             "and an unchanged image."
         )
+
+
+class TestDockerWorkflowManualPublish:
+    """A manual rebuild must be able to publish, or it cannot fix a stale image.
+
+    `push:` was `github.event_name == 'push'`, so `workflow_dispatch` built the
+    image and threw it away. That is the one situation where a manual rebuild is
+    wanted: a dependency landed without a qualifying path change, `:latest` is
+    behind, and there is nothing to push that would legitimately trigger a
+    rebuild. Dispatch is gated to the default branch so a run from a feature
+    branch still builds without publishing, exactly like a pull request.
+    """
+
+    @staticmethod
+    def _publish_condition() -> str:
+        import yaml
+
+        workflow = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "docker.yml").read_text())
+        for step in workflow["jobs"]["gpu-service"]["steps"]:
+            if str(step.get("uses", "")).startswith("docker/build-push-action"):
+                return str(step["with"]["push"])
+        raise AssertionError("docker.yml has no docker/build-push-action step")
+
+    def test_manual_dispatch_publishes(self):
+        condition = self._publish_condition()
+        assert "workflow_dispatch" in condition, (
+            f"the build-push step publishes on {condition!r}, so a manual rebuild "
+            "builds the image and discards it - which is useless in the one case "
+            "a manual rebuild is for."
+        )
+
+    def test_manual_dispatch_publishes_only_from_the_default_branch(self):
+        condition = self._publish_condition()
+        assert "refs/heads/main" in condition, (
+            f"the build-push step publishes on {condition!r} without gating "
+            "workflow_dispatch to main. A dispatch from a feature branch would "
+            "publish from unreviewed code."
+        )
