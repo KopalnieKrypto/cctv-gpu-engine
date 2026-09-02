@@ -37,6 +37,23 @@ sys.path.insert(0, str(Path(__file__).parent))
 from evaluate_arms import NON_ACTIVITY, collapse_classes  # noqa: E402
 
 
+def assert_single_file(onnx_path: Path) -> None:
+    """Refuse an export whose weights landed in a sibling file.
+
+    torch writes them beside the graph as `<name>.onnx.data` unless told not to.
+    A 36 KiB graph whose sha256 says nothing about the 1.8 MB of weights next to
+    it is precisely the substitution `setup-models.sh` pins exist to catch, and
+    that script verifies one file per model.
+    """
+    stray = onnx_path.with_suffix(".onnx.data")
+    if stray.exists():
+        sys.exit(
+            f"{stray.name} was written alongside {onnx_path.name}: the weights are "
+            "external, so the graph's sha256 verifies nothing. Export with "
+            "`external_data=False` so the artefact is one self-contained file."
+        )
+
+
 def _require_figures(scores: dict, where: str) -> None:
     """Refuse to emit a card with a hole in it.
 

@@ -328,3 +328,21 @@ class TestModelCard:
         report["arms"][0]["collapsed"]["per_window_scores"]["W1"]["spawanie"]["recall"] = None
         with pytest.raises(SystemExit):
             sh.build_card(_manifest(), report, "tcn-pixel-518", TRAINING)
+
+
+class TestSelfContainedArtifact:
+    def test_externalised_weights_are_refused(self, tmp_path: Path):
+        # torch writes weights beside the graph as `<name>.onnx.data` by default.
+        # A 36 KiB graph whose sha256 says nothing about the 1.8 MB of weights
+        # next to it is exactly the substitution the pins exist to catch, and
+        # setup-models.sh can only verify one file.
+        onnx = tmp_path / "head.onnx"
+        onnx.write_bytes(b"graph")
+        (tmp_path / "head.onnx.data").write_bytes(b"weights")
+        with pytest.raises(SystemExit):
+            sh.assert_single_file(onnx)
+
+    def test_a_self_contained_export_passes(self, tmp_path: Path):
+        onnx = tmp_path / "head.onnx"
+        onnx.write_bytes(b"graph with weights inline")
+        sh.assert_single_file(onnx)

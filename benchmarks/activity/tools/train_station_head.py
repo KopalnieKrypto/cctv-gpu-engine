@@ -74,7 +74,12 @@ from run_tcn_arm import (  # noqa: E402
     WINDOW,
     fit_model,
 )
-from station_head import build_card, choose_vocabulary, remap_labels  # noqa: E402
+from station_head import (  # noqa: E402
+    assert_single_file,
+    build_card,
+    choose_vocabulary,
+    remap_labels,
+)
 
 IMAGE_SIZE = 518
 OPSET = 18
@@ -194,7 +199,10 @@ def main() -> int:
         # is scored with overlapping segments.
         dynamic_axes={"embeddings": {0: "batch", 2: "time"}, "logits": {0: "batch", 2: "time"}},
         opset_version=OPSET,
+        # One file: setup-models.sh verifies one sha256 per model.
+        external_data=False,
     )
+    assert_single_file(onnx_path)
     digest = hashlib.sha256(onnx_path.read_bytes()).hexdigest()
     size = onnx_path.stat().st_size
     print(f"wrote {onnx_path} ({size / 1024:.0f} KiB, sha256 {digest[:16]}…)")
