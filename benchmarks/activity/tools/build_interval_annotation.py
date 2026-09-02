@@ -62,6 +62,7 @@ import shutil
 import statistics
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 # Seconds between samples. 2 s keeps boundary error at +/-1 s (A3's accepted
@@ -128,6 +129,66 @@ def _extract_samples(clip: Path, roi: dict, stride: int, out_dir: Path) -> int:
         ]
     )
     return len(list(out_dir.glob("t*.jpg")))
+
+
+def _arc_rows_present(arc_csv: Path | None, window: str) -> bool:
+    if arc_csv is None or not arc_csv.exists():
+        return False
+    with arc_csv.open() as fh:
+        return any(row.get("window") == window for row in csv.DictReader(fh))
+
+
+def _compute_arc_series(clip: Path, roi: dict, window: str, arc_csv: Path) -> int:
+    """Measure and APPEND this window's arc timeline, then return the row count.
+
+    `arc-timeline.csv` was hand-made for W1 and W2 and nothing in the repo could
+    reproduce it, so a new window silently got no `spawanie` hints at all - the
+    annotator would have been told there was no arc rather than that nobody had
+    measured. This closes that gap, using the method the manifest already
+    specifies: saturated-pixel fraction (Y>235) inside `station_roi`, at 1 fps.
+
+    `lutyuv` maps Y>235 to white and everything else to black, so `signalstats`
+    YAVG over the result is exactly 255x the saturated fraction. The emitted
+    `arc_metric` is that fraction as a percentage, which is the scale the
+    existing W1/W2 rows already use (W1 peaks at 4.91, W2 at 9.79).
+
+    The threshold stays clip-relative downstream - the metric is comparable
+    within a clip and NOT across clips, which is why only the raw series is
+    stored and the cut-off is derived per window at read time.
+    """
+    crop = f"crop={roi['w']}:{roi['h']}:{roi['x']}:{roi['y']}"
+    with tempfile.TemporaryDirectory() as tmp:
+        stats = Path(tmp) / "sat.txt"
+        _run(
+            [
+                "ffmpeg",
+                "-loglevel",
+                "error",
+                "-i",
+                str(clip),
+                "-vf",
+                f"fps=1,{crop},lutyuv=y='if(gt(val,235),255,0)':u=128:v=128,"
+                f"signalstats,metadata=print:key=lavfi.signalstats.YAVG:file={stats}",
+                "-an",
+                "-f",
+                "null",
+                "-",
+            ]
+        )
+        values = [
+            float(line.split("=")[1]) * 100.0 / 255.0
+            for line in stats.read_text().splitlines()
+            if "YAVG" in line
+        ]
+
+    is_new = not arc_csv.exists()
+    with arc_csv.open("a", newline="") as fh:
+        writer = csv.writer(fh)
+        if is_new:
+            writer.writerow(["window", "t_s", "arc_metric"])
+        for t, v in enumerate(values):
+            writer.writerow([window, t, f"{v:.4f}"])
+    return len(values)
 
 
 def _load_arc_suggestions(
@@ -331,6 +392,11 @@ def main() -> None:
     ap.add_argument("--slot", required=True, help="clip slot to annotate, e.g. W1")
     ap.add_argument("--clip", type=Path, help="override the clip path")
     ap.add_argument("--arc-csv", type=Path, help="arc-timeline.csv for spawanie hints")
+    ap.add_argument(
+        "--no-arc",
+        action="store_true",
+        help="skip measuring the arc series for a window missing from the CSV",
+    )
     ap.add_argument("--stride", type=int, default=DEFAULT_STRIDE_S)
     ap.add_argument("--out", type=Path, help="output dir (default: manifest's dir)")
     args = ap.parse_args()
@@ -365,11 +431,14 @@ def main() -> None:
     if count == 0:
         raise SystemExit("ffmpeg produced no samples")
 
-    arc_csv = args.arc_csv
-    if arc_csv is None:
-        candidate = out_dir / "arc-timeline.csv"
-        arc_csv = candidate if candidate.exists() else None
-    hints, threshold = _load_arc_suggestions(arc_csv, args.slot, args.stride, count)
+    arc_csv = args.arc_csv or (out_dir / "arc-timeline.csv")
+    if not _arc_rows_present(arc_csv, args.slot) and not args.no_arc:
+        print(f"arc:        measuring {args.slot} (not in {arc_csv.name}) ...", file=sys.stderr)
+        rows = _compute_arc_series(clip_path, roi, args.slot, arc_csv)
+        print(f"arc:        {rows} rows appended", file=sys.stderr)
+    hints, threshold = _load_arc_suggestions(
+        arc_csv if arc_csv.exists() else None, args.slot, args.stride, count
+    )
 
     activities = [a for a in manifest.get("activities", []) if a.get("category") is not None]
     unresolved = [a for a in manifest.get("activities", []) if a.get("category") is None]
