@@ -856,3 +856,36 @@ class TestActivityMlpReleasePackaging:
         assert f"ACTIVITY_MODEL_PATH=/app/models/{self.MODEL_FILE}" in dockerfile
         assert f"ACTIVITY_MODEL_METADATA_PATH=/app/models/{self.METADATA_FILE}" in dockerfile
         assert "CLASSIFIER=vlm" in dockerfile
+
+
+class TestOnnxExportDependency:
+    """The GPU image must be able to export ONNX without an ad-hoc pip install.
+
+    `torch.onnx.export` routes through the dynamo exporter, which imports
+    `onnxscript`. The image did not carry it, so every station-head and backbone
+    export in #122 had to be prefixed with
+    `pip install --target /app/.venv/... onnxscript` — a step that is easy to
+    forget and produces a `ModuleNotFoundError` only after the model has already
+    trained.
+    """
+
+    def test_gpu_extra_carries_onnxscript(self):
+        pyproject = _load_pyproject()
+        gpu_specs: list[str] = pyproject["project"].get("optional-dependencies", {}).get("gpu", [])
+        assert "onnxscript" in set(_dep_names(gpu_specs)), (
+            "the gpu extra does not carry `onnxscript`, so `torch.onnx.export` "
+            "fails inside the image and the #122 export scripts need a manual "
+            "pip install to run."
+        )
+
+    def test_onnxscript_is_not_linux_gated(self):
+        # Unlike onnxruntime-gpu and the nvidia wheels, onnxscript is pure Python
+        # with universal wheels - there is no resolution failure to guard
+        # against, and `export_backbone_onnx.py` supports a CPU export.
+        pyproject = _load_pyproject()
+        gpu_specs: list[str] = pyproject["project"].get("optional-dependencies", {}).get("gpu", [])
+        spec = next(s for s in gpu_specs if _dep_names([s])[0] == "onnxscript")
+        assert not _has_linux_marker(spec), (
+            f"{spec!r} should not be Linux-gated: it is pure Python, and gating it "
+            "would break a CPU export on a dev box for no resolution benefit."
+        )

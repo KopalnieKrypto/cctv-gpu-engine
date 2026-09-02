@@ -179,8 +179,11 @@ python benchmarks/activity/tools/train_station_head.py \
   --version 1.0.0 --out-dir models
 ```
 
-The ONNX exports need `onnxscript`, which the GPU image does not carry: prefix
-the container command with
+The ONNX exports need `onnxscript` (`torch.onnx.export` routes through the
+dynamo exporter). It is in the `gpu` extra, so any image built after
+`8c642f2` carries it — on an older image the export dies with
+`ModuleNotFoundError` *after* the model has finished training, and the
+one-off workaround is to prefix the container command with
 `pip install --target /app/.venv/lib/python3.12/site-packages onnxscript`.
 
 Four things worth knowing about what comes out:

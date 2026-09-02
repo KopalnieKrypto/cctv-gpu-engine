@@ -74,6 +74,17 @@ gpu = [
     # macOS dev unit tests use the in-memory FakeMetricsCollector instead.
     "psutil>=6.0 ; sys_platform == 'linux'",
     "nvidia-ml-py>=12.0 ; sys_platform == 'linux'",
+    # `torch.onnx.export` routes through the dynamo exporter, which imports
+    # onnxscript — without it the station-head and backbone exports (#122) die
+    # with ModuleNotFoundError *after* the model has finished training. It lived
+    # as a `pip install --target ...` prefix on every container run until this
+    # entry; that is precisely the kind of step that gets forgotten once.
+    #
+    # Deliberately NOT Linux-gated, unlike the wheels above. Those carry the
+    # marker because no macOS wheel exists and resolution would fail; onnxscript
+    # is pure Python and universal, and `export_backbone_onnx.py` supports a CPU
+    # export, so a marker here would only break that for no benefit.
+    "onnxscript>=0.1",
 ]
 cpu-stub = [
     "onnxruntime>=1.17",
