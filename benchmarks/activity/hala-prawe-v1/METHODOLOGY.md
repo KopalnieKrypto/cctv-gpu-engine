@@ -229,6 +229,72 @@ Four configurations were declared in the script before any of them ran, and all 
 are in `C0-report.md`. Best-of-four on the same held-out folds is optimistically
 biased, so read them as a set.
 
+### `518` never meant 518 pixels (found while shipping #122)
+
+Every arm named `...-518` was described as seeing the station crop at 518 px,
+against 224 for the low-resolution arm. That is not what happened.
+
+`facebook/dinov2-base`'s image processor has `do_center_crop=True` with
+`crop_size=224`. Passing `size={"height": s, "width": s}` changes only the
+**resize** step; the tensor reaching the model is 224×224 whatever `s` is:
+
+| `--image-size` | resize | centre-crop | what the model sees |
+|---|---|---|---|
+| 224 | 224×224 | 224×224 | the whole 900×800 station, squashed |
+| 518 | 518×518 | 224×224 | **the middle 43% of the station, magnified** |
+
+So the two arms differ, and their measured difference is real — but the
+mechanism in `run_tcn_pixel_arm.py`'s docstring is wrong. What helped was not
+"more pixels of the whole station"; it was cropping to the centre at higher
+magnification and discarding the edges. Every 518 figure in this file and in
+`C0-report.md` is a figure for a **centre crop**, and reads that way or not at
+all.
+
+Two consequences worth separating:
+
+- **No measured number moves.** Resize-518-then-crop-224 is genuinely a
+  different image from resize-224-then-crop-224, both were measured honestly,
+  and the comparison between them stands.
+- **A configuration was never tested.** Actually feeding DINOv2 518×518 — by
+  disabling the centre crop — is a third arm nobody has run. Whether the edges
+  of the station carry signal is now an open question rather than a settled one,
+  and #120's ladder answered a different question than it recorded.
+
+The shipped artefacts pin the real contract: `setup-models.sh` and the model
+card both state *resize 518, centre-crop 224*, and `export_backbone_onnx.py`
+discovers the tensor shape by running the processor rather than trusting the
+flag — the export at 518 produced a model whose input the pipeline could never
+have supplied.
+
+### Training the three categories directly beats the collapse, and still does not ship (#122)
+
+#121 scored the delivered vocabulary by collapsing a seven-class model after the
+fact. #122 measured the alternative — the same folds, crops, embeddings,
+`train_fold`, window, dilations, kernel, epochs, lr and seed, with only the
+label space changed:
+
+| Category | collapsed (#121) | trained directly | Δ recall |
+|---|---|---|---|
+| `spawanie` | 89.0% / 1.06× | 91.8% / 1.11× | +2.8 pp |
+| `ukladanie_pretow` | 88.2% / 1.10× | 84.6% / 0.92× | **−3.6 pp** |
+| `pozostale` | 45.1% / 0.84× | **65.8% / 1.02×** | **+20.6 pp** |
+
+Training directly is clearly better on the collective line — the category that
+fails the bar, and 441 of 1,799 scored samples. It lifts `pozostale` by 20.6
+points and takes its reported time from 16% under to 2% off.
+
+It still does not ship. #122's rule is that the directly-trained vocabulary
+must regress on **no** delivered activity, on neither recall nor reported time,
+and it regresses on two: `ukladanie_pretow` recall (−3.6 pp) and `spawanie`
+reported time (1.06× → 1.11×, further from the truth and in the over-reporting
+direction). The burden of proof sits on the new model, so the collapsed one
+ships and the forgone +20.6 pp is recorded in the model card as a delta rather
+than lost.
+
+That is a conservative call on a fixture that cannot resolve small differences,
+and it is the one worth revisiting first if `pozostale` is the thing blocking
+delivery.
+
 ### What the 3-fold numbers cost the headline claims
 
 Not a rescoring of the same result. Three claims moved:

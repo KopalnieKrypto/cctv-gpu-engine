@@ -116,15 +116,6 @@ class TestSetupModels:
         assert result.returncode != 0
         assert "sha256 mismatch" in result.stderr
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "#122 OPEN: the DINOv2 release asset is not published yet, so there is "
-            "no sha256 to pin. `strict` makes this fail the moment the entry lands, "
-            "which is the signal to delete this marker - a placeholder pin must "
-            "never be able to sit here quietly."
-        ),
-    )
     def test_the_dinov2_backbone_is_fetched_and_pinned(self):
         # #122: the frozen backbone is half of the station classifier and never
         # changes, so it is pinned like YOLO and OSNet rather than resolved

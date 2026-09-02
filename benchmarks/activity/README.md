@@ -148,6 +148,59 @@ Four rules worth knowing before reading its output:
   productive time is the direction of error a work-study client actually pays
   for.
 
+## Shipping a station head (`hala-prawe-v1` / #122)
+
+The classifier is two pieces with very different lifecycles. The **frozen DINOv2
+backbone** is identical at every station, ships once inside the container image,
+and is pinned in `setup-models.sh` (`dinov2-base-v1.0`). What is
+station-specific is a **1.8 MB temporal head**. Onboarding a station is
+"annotate twenty minutes, train a head" — no new large model, no engine
+redeploy. Keep that separation; it is the economics of the offer.
+
+```bash
+# 1. the delivered vocabulary trained directly, for the comparison (GPU)
+python benchmarks/activity/tools/run_delivered_vocabulary_arm.py \
+  --manifest .../manifest.source.json --crops-root .../crops \
+  --out-dir .../predictions-delivered --cache-dir runs/tcn-pixel/cache \
+  --box cctv-vps --gpu-index 1
+
+# 2. score it into its own report (laptop) - its own, because a three-class arm
+#    predicts none of the four merged activities and would read as four
+#    catastrophic zeroes in a seven-category table
+uv run benchmarks/activity/tools/evaluate_arms.py \
+  --manifest .../manifest.source.json --predictions .../predictions-delivered/*.json \
+  --out .../C0-delivered-report.md --json-out .../C0-delivered-report.json
+
+# 3. train on ALL windows, export the head, generate the card (GPU)
+python benchmarks/activity/tools/train_station_head.py \
+  --manifest .../manifest.source.json --crops-root .../crops \
+  --cache-dir runs/tcn-pixel/cache \
+  --report .../C0-report.json --direct-report .../C0-delivered-report.json \
+  --version 1.0.0 --out-dir models
+```
+
+The ONNX exports need `onnxscript`, which the GPU image does not carry: prefix
+the container command with
+`pip install --target /app/.venv/lib/python3.12/site-packages onnxscript`.
+
+Four things worth knowing about what comes out:
+
+- **The shipped weights cannot be scored.** They train on every annotated window
+  and have no held-out material — they reach 100% on all three windows because
+  all three were in training. Every figure in the card is read from
+  `C0-report.json`, measured on the cross-validated folds, on models that are
+  not this file. The card says so next to the numbers, and refuses to build with
+  a blank where a measurement belongs.
+- **The head emits seven classes, not three.** The collapse happens after
+  argmax; the card carries both lists and the mapping. Training three directly
+  was measured and lost — see METHODOLOGY.
+- **Both artefacts are single self-contained files.** torch writes weights to a
+  sibling `.onnx.data` by default, which would leave a graph whose sha256
+  verifies nothing; `assert_single_file` refuses that.
+- **Preprocessing is resize 518 → centre-crop 224.** Both numbers, always. See
+  METHODOLOGY for why quoting only the first is a mistake this fixture already
+  made.
+
 ## Status
 
 - `magazyn-hall-v1` — scaffold generated (296 people, 264 posture-readable prior).

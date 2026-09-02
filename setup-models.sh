@@ -67,6 +67,24 @@ ACTIVITY_MLP_METADATA_FILE="${ACTIVITY_MLP_METADATA_FILE:-activity-mlp-v1.0.0.js
 ACTIVITY_MLP_METADATA_SHA256="${ACTIVITY_MLP_METADATA_SHA256:-d387b156934d8498e3afc0554324959164327848dd9fc57e1d507da9f789d8f4}"
 ACTIVITY_MLP_METADATA_URL="${ACTIVITY_MLP_METADATA_URL:-https://github.com/KopalnieKrypto/cctv-gpu-engine/releases/download/${ACTIVITY_MLP_TAG}/model-metadata.json}"
 
+# Frozen DINOv2 backbone for the station activity classifier (issue #122). It is
+# the half of that classifier which never changes: identical at every station,
+# shipped once, and not retrained when a station is onboarded. Pinned here rather
+# than resolved through `transformers` at build time for the reason this whole
+# script exists — a silently different backbone changes every embedding the
+# station head was fitted on, and nothing downstream would report it.
+#
+# CLS-only export, weights inline (one self-contained file, so this sha256
+# verifies the weights and not merely a graph pointing at them).
+# Preprocessing contract: resize the station crop to 518x518, then CENTRE-CROP to
+# 224x224 — the crop is what the model receives. Those are different numbers and
+# reading only the first is how this fixture's "518" arms came to be described as
+# seeing 518 pixels.
+DINOV2_TAG="${DINOV2_TAG:-dinov2-base-v1.0}"
+DINOV2_FILE="${DINOV2_FILE:-dinov2-base.onnx}"
+DINOV2_SHA256="${DINOV2_SHA256:-5d0ba2adf984402717701987eea1d2c9d8af3a4f8d955e91e8944e6fabb23bf9}"
+DINOV2_URL="${DINOV2_URL:-https://github.com/KopalnieKrypto/cctv-gpu-engine/releases/download/${DINOV2_TAG}/${DINOV2_FILE}}"
+
 DEST_DIR="models"
 
 mkdir -p "${DEST_DIR}"
@@ -131,3 +149,4 @@ fetch_model "${POSE_1280_URL}" "${POSE_1280_FILE}" "${POSE_1280_SHA256}" "POSE_1
 fetch_model "${OSNET_URL}" "${OSNET_FILE}" "${OSNET_SHA256}" "OSNET_SHA256"
 fetch_model "${ACTIVITY_MLP_URL}" "${ACTIVITY_MLP_FILE}" "${ACTIVITY_MLP_SHA256}" "ACTIVITY_MLP_SHA256"
 fetch_model "${ACTIVITY_MLP_METADATA_URL}" "${ACTIVITY_MLP_METADATA_FILE}" "${ACTIVITY_MLP_METADATA_SHA256}" "ACTIVITY_MLP_METADATA_SHA256"
+fetch_model "${DINOV2_URL}" "${DINOV2_FILE}" "${DINOV2_SHA256}" "DINOV2_SHA256"
