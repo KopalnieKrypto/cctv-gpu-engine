@@ -163,7 +163,7 @@ class TestTheStationHead:
         # weights its figures describe, so the two are checked against each other
         # rather than both read from the same file.
         script = SETUP_MODELS_SCRIPT.read_text()
-        assert "38e678de782d887d59b50c2992820d0a862fcf7b528f1de955c1e439877e2c0e" in script, (
+        assert "ef6d6f1edc1996563e7dc05c89685c2032e2cb1d3d503859a85b7e8d237adfaf" in script, (
             "the station head pin is not the sha256 the shipped model card names"
         )
 
@@ -179,5 +179,5 @@ class TestTheStationHead:
             r'STATION_CARD_SHA256="\$\{STATION_CARD_SHA256:-([0-9a-fA-F]{64})\}"', script
         )
         assert pin, "the station card entry has no pinned 64-hex sha256 default"
-        committed = REPO_ROOT / "models" / "station-head-hala-prawe-v1-v1.0.0.card.json"
+        committed = REPO_ROOT / "models" / "station-head-hala-prawe-v1-v2.0.0.card.json"
         assert pin.group(1) == hashlib.sha256(committed.read_bytes()).hexdigest()

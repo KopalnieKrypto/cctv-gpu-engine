@@ -80,9 +80,9 @@ ACTIVITY_MLP_METADATA_URL="${ACTIVITY_MLP_METADATA_URL:-https://github.com/Kopal
 # 224x224 — the crop is what the model receives. Those are different numbers and
 # reading only the first is how this fixture's "518" arms came to be described as
 # seeing 518 pixels.
-DINOV2_TAG="${DINOV2_TAG:-dinov2-base-v1.0}"
+DINOV2_TAG="${DINOV2_TAG:-dinov2-base-v2.0}"
 DINOV2_FILE="${DINOV2_FILE:-dinov2-base.onnx}"
-DINOV2_SHA256="${DINOV2_SHA256:-5d0ba2adf984402717701987eea1d2c9d8af3a4f8d955e91e8944e6fabb23bf9}"
+DINOV2_SHA256="${DINOV2_SHA256:-e45c7f09e79c7ce62a15ef2029d781cd8d7c27e280de598b16dce03283d443e1}"
 DINOV2_URL="${DINOV2_URL:-https://github.com/KopalnieKrypto/cctv-gpu-engine/releases/download/${DINOV2_TAG}/${DINOV2_FILE}}"
 
 # The station-specific half of that classifier (issues #122/#123): a ~1 MB
@@ -96,13 +96,13 @@ DINOV2_URL="${DINOV2_URL:-https://github.com/KopalnieKrypto/cctv-gpu-engine/rele
 # deployment would move those numbers with nothing in `result.json` to say so.
 # `--classifier station` refuses to run when the configured zone is not the
 # card's rectangle, which only means anything if the card is the pinned one.
-STATION_HEAD_TAG="${STATION_HEAD_TAG:-station-head-hala-prawe-v1-v1.0.0}"
-STATION_HEAD_FILE="${STATION_HEAD_FILE:-station-head-hala-prawe-v1-v1.0.0.onnx}"
-STATION_HEAD_SHA256="${STATION_HEAD_SHA256:-38e678de782d887d59b50c2992820d0a862fcf7b528f1de955c1e439877e2c0e}"
+STATION_HEAD_TAG="${STATION_HEAD_TAG:-station-head-hala-prawe-v1-v2.0.0}"
+STATION_HEAD_FILE="${STATION_HEAD_FILE:-station-head-hala-prawe-v1-v2.0.0.onnx}"
+STATION_HEAD_SHA256="${STATION_HEAD_SHA256:-ef6d6f1edc1996563e7dc05c89685c2032e2cb1d3d503859a85b7e8d237adfaf}"
 STATION_HEAD_URL="${STATION_HEAD_URL:-https://github.com/KopalnieKrypto/cctv-gpu-engine/releases/download/${STATION_HEAD_TAG}/${STATION_HEAD_FILE}}"
 
-STATION_CARD_FILE="${STATION_CARD_FILE:-station-head-hala-prawe-v1-v1.0.0.card.json}"
-STATION_CARD_SHA256="${STATION_CARD_SHA256:-2cf6297c1ae58e4a9e9df88ec5f19f289ea7a9eefccfbf0c8fd35d040b4e3c17}"
+STATION_CARD_FILE="${STATION_CARD_FILE:-station-head-hala-prawe-v1-v2.0.0.card.json}"
+STATION_CARD_SHA256="${STATION_CARD_SHA256:-7af6868795df90b6f9a92144481536b23fae3df60e824a4d4692b1a3d7758fa4}"
 STATION_CARD_URL="${STATION_CARD_URL:-https://github.com/KopalnieKrypto/cctv-gpu-engine/releases/download/${STATION_HEAD_TAG}/${STATION_CARD_FILE}}"
 
 DEST_DIR="models"

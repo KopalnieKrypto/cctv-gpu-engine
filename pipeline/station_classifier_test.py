@@ -33,7 +33,7 @@ from pipeline.station_classifier import (
 from pipeline.zones import ZoneConfig
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SHIPPED_CARD_NAME = "models/station-head-hala-prawe-v1-v1.0.0.card.json"
+SHIPPED_CARD_NAME = "models/station-head-hala-prawe-v1-v2.0.0.card.json"
 
 # The welding bench: 900x800 at (1700, 1360) in the 3840x2160 native frame,
 # written as a rectangle polygon because that is what a station zone is.
@@ -410,11 +410,11 @@ class _FakeOrt:
 
 
 def _artefacts(tmp_path: Path) -> tuple[Path, Path, Path]:
-    head = tmp_path / "station-head-hala-prawe-v1-v1.0.0.onnx"
+    head = tmp_path / "station-head-hala-prawe-v1-v2.0.0.onnx"
     head.write_bytes(b"head-weights")
     backbone = tmp_path / "dinov2-base.onnx"
     backbone.write_bytes(b"backbone-weights")
-    card = tmp_path / "station-head-hala-prawe-v1-v1.0.0.card.json"
+    card = tmp_path / "station-head-hala-prawe-v1-v2.0.0.card.json"
     # The real card with the one field a re-exported head carries. The shipped
     # v1.0.0 document predates the removal of the centre-crop and is refused by
     # `StationCard` on purpose, so these session tests - which are about CUDA and

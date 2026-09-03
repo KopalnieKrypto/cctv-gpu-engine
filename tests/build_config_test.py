@@ -999,8 +999,8 @@ class TestStationClassifierArtefactsAreBaked:
 
         for artefact in (
             "dinov2-base.onnx",
-            "station-head-hala-prawe-v1-v1.0.0.onnx",
-            "station-head-hala-prawe-v1-v1.0.0.card.json",
+            "station-head-hala-prawe-v1-v2.0.0.onnx",
+            "station-head-hala-prawe-v1-v2.0.0.card.json",
         ):
             assert artefact in dockerfile, (
                 f"{artefact} is not baked into the image. The gpu-agent spawns the "
@@ -1030,8 +1030,8 @@ class TestStationClassifierArtefactsAreBaked:
 
         for artefact in (
             "dinov2-base.onnx",
-            "station-head-hala-prawe-v1-v1.0.0.onnx",
-            "station-head-hala-prawe-v1-v1.0.0.card.json",
+            "station-head-hala-prawe-v1-v2.0.0.onnx",
+            "station-head-hala-prawe-v1-v2.0.0.card.json",
         ):
             assert re.search(rf"{re.escape(artefact)}\"? \| sha256sum -c -", dockerfile), (
                 f"{artefact} is downloaded without a sha256sum -c check, so a "
@@ -1043,9 +1043,9 @@ class TestStationClassifierArtefactsAreBaked:
         # var so an operator can mount different weights without a rebuild.
         dockerfile = self._dockerfile()
 
-        assert "STATION_HEAD_PATH=/app/models/station-head-hala-prawe-v1-v1.0.0.onnx" in dockerfile
+        assert "STATION_HEAD_PATH=/app/models/station-head-hala-prawe-v1-v2.0.0.onnx" in dockerfile
         assert (
-            "STATION_CARD_PATH=/app/models/station-head-hala-prawe-v1-v1.0.0.card.json"
+            "STATION_CARD_PATH=/app/models/station-head-hala-prawe-v1-v2.0.0.card.json"
             in dockerfile
         )
         assert "BACKBONE_PATH=/app/models/dinov2-base.onnx" in dockerfile

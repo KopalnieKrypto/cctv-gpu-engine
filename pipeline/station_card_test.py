@@ -21,7 +21,7 @@ import pytest
 from pipeline.station_card import StationCard, StationCardError
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SHIPPED_CARD = REPO_ROOT / "models" / "station-head-hala-prawe-v1-v1.0.0.card.json"
+SHIPPED_CARD = REPO_ROOT / "models" / "station-head-hala-prawe-v1-v2.0.0.card.json"
 
 
 def _shipped_document() -> dict:
@@ -29,26 +29,11 @@ def _shipped_document() -> dict:
     return json.loads(SHIPPED_CARD.read_text(encoding="utf-8"))
 
 
-def _current_document() -> dict:
-    """The real card brought up to the no-centre-crop contract.
-
-    The shipped v1.0.0 card predates it: its `preprocessing` names a 518 resize
-    and lets DINOv2's processor keep its own 224 `crop_size`, so the head read the
-    middle 43% of the rectangle the card advertised. That card is now refused by
-    construction (see :class:`TestACardFromBeforeTheCropWasRemoved`), so the
-    happy-path tests read the real artefact and apply the one field a re-exported
-    head will carry, rather than a document invented from nothing.
-    """
-    doc = _shipped_document()
-    doc["backbone"]["preprocessing"] = {"model_input": [420, 882], "center_crop": False}
-    return doc
-
-
 class TestTheShippedCard:
     def test_it_carries_everything_the_section_reports(self) -> None:
-        card = StationCard.from_dict(_current_document())
+        card = StationCard.load(SHIPPED_CARD)
 
-        assert card.version == "1.0.0"
+        assert card.version == "2.0.0"
         assert card.station_id == "hala-prawe-v1"
         assert card.stride_s == 2
 
@@ -66,11 +51,11 @@ class TestTheShippedCard:
 
         # The measured over-reporting, per delivered category. A total rendered
         # without this is a number the client cannot use safely.
-        assert card.time_ratios["spawanie"] == 1.0618279569892473
+        assert card.time_ratios["spawanie"] == 1.064516129032258
         assert set(card.time_ratios) == set(card.delivered_classes)
 
         assert card.window == 64
-        assert card.model_input == (420, 882)
+        assert card.model_input == (518, 1078)
 
         assert [w.slot for w in card.training_windows] == ["W1", "W2", "W3"]
         assert card.training_windows[0].window_local == "2026-08-28 09:00-09:20 Europe/Warsaw"
@@ -79,13 +64,12 @@ class TestTheShippedCard:
     def test_the_rectangle_is_the_one_the_head_was_fitted_on(self) -> None:
         """x, y, w, h in native pixels — the field the inference path gates on.
 
-        y is 1360 and not the 1400 the card shipped with. `crop=900:800:1700:1400`
-        does not fit a 2160-tall frame, and ffmpeg's crop filter slides the
-        rectangle back inside rather than failing, so every training crop was cut
-        at `in_h - h`. The card was regenerated against the released weights
-        (`--card-only`, sha256 unchanged) once that was measured.
+        Widened for v2.0.0 and approved by the client against a live frame. The
+        v1.0.0 rectangle was 900x800 at (1700, 1360), of which the head only ever
+        read the middle 389x346: DINOv2's processor centre-cropped to its own 224
+        default while every record said the whole rectangle.
         """
-        assert StationCard.from_dict(_current_document()).zone_rect == (1700, 1360, 900, 800)
+        assert StationCard.load(SHIPPED_CARD).zone_rect == (1030, 1360, 1670, 800)
 
 
 class TestACardWithAHoleInIt:
@@ -98,7 +82,7 @@ class TestACardWithAHoleInIt:
     """
 
     def test_a_null_time_ratio_is_refused(self) -> None:
-        doc = _current_document()
+        doc = _shipped_document()
         doc["accuracy"]["union"]["ukladanie_pretow"]["time_ratio"] = None
 
         with pytest.raises(StationCardError) as exc:
@@ -108,7 +92,7 @@ class TestACardWithAHoleInIt:
         assert "time_ratio" in str(exc.value)
 
     def test_a_category_absent_from_the_measurements_is_refused(self) -> None:
-        doc = _current_document()
+        doc = _shipped_document()
         del doc["accuracy"]["union"]["pozostale"]
 
         with pytest.raises(StationCardError) as exc:
@@ -132,14 +116,19 @@ class TestACardFromBeforeTheCropWasRemoved:
     report `spawanie: 0.0 s` across an hour of welding.
     """
 
-    def test_the_real_shipped_card_no_longer_loads(self) -> None:
+    def test_a_card_that_omits_the_flag_entirely_is_refused(self) -> None:
+        # The v1.0.0 shape: a `resize` and a `model_input`, and nothing saying
+        # what happened between them.
+        doc = _shipped_document()
+        doc["backbone"]["preprocessing"] = {"resize": 518, "model_input": [224, 224]}
+
         with pytest.raises(StationCardError) as exc:
-            StationCard.load(SHIPPED_CARD)
+            StationCard.from_dict(doc)
 
         assert "center_crop" in str(exc.value)
 
     def test_a_card_that_still_asks_for_a_centre_crop_is_refused(self) -> None:
-        doc = _current_document()
+        doc = _shipped_document()
         doc["backbone"]["preprocessing"]["center_crop"] = True
 
         with pytest.raises(StationCardError) as exc:
@@ -148,7 +137,7 @@ class TestACardFromBeforeTheCropWasRemoved:
         assert "center_crop" in str(exc.value)
 
     def test_a_card_without_a_tensor_size_is_refused(self) -> None:
-        doc = _current_document()
+        doc = _shipped_document()
         del doc["backbone"]["preprocessing"]["model_input"]
 
         with pytest.raises(StationCardError) as exc:
