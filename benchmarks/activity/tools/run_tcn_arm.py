@@ -122,6 +122,21 @@ def extract_native_crops(clip: Path, roi: dict, stride: int, out_dir: Path) -> l
     out_dir.mkdir(parents=True, exist_ok=True)
     existing = sorted(out_dir.glob("t*.jpg"))
     if existing:
+        # A cached crop set is only reusable if it is a crop of THIS rectangle.
+        # Returning it unchecked is how a widened ROI would silently train on the
+        # old pixels: the filenames, the count and the annotation all still line
+        # up, and nothing but the image dimensions disagrees.
+        from PIL import Image
+
+        with Image.open(existing[0]) as probe:
+            cached = probe.size
+        if cached != (int(roi["w"]), int(roi["h"])):
+            sys.exit(
+                f"{out_dir} holds {cached[0]}x{cached[1]} crops but the manifest's "
+                f"station_roi is {roi['w']}x{roi['h']}. These are crops of a "
+                "different rectangle - delete the directory and re-extract rather "
+                "than training on pixels the manifest no longer describes."
+            )
         return existing
     crop = f"crop={roi['w']}:{roi['h']}:{roi['x']}:{roi['y']}"
     subprocess.run(

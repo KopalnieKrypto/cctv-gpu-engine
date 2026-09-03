@@ -23,13 +23,14 @@ function the system actually calls.
 
     # inside the GPU container - CPU export works too, it is just slower
     python benchmarks/activity/tools/export_backbone_onnx.py \
-      --out models/dinov2-base-518.onnx --image-size 518
+      --out models/dinov2-base.onnx --image-size 420
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import sys
 from pathlib import Path
 
@@ -43,7 +44,15 @@ OPSET = 18
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", required=True, type=Path)
-    ap.add_argument("--image-size", type=int, default=518)
+    # Target HEIGHT of the tensor. The width follows from the station
+    # rectangle, so the export always matches what the pipeline feeds it.
+    ap.add_argument("--image-size", type=int, default=420)
+    ap.add_argument(
+        "--manifest",
+        type=Path,
+        default=Path("benchmarks/activity/hala-prawe-v1/manifest.source.json"),
+        help="fixture manifest whose station_roi.crop sets the aspect ratio",
+    )
     ap.add_argument("--backbone", default=BACKBONE)
     args = ap.parse_args()
 
@@ -60,28 +69,24 @@ def main() -> int:
         def forward(self, pixel_values):
             return self.model(pixel_values=pixel_values).last_hidden_state[:, 0]
 
-    # The tensor shape is discovered from the processor, never assumed from the
-    # flag. `--image-size` is the *resize* target, and DINOv2's processor then
-    # centre-crops to `crop_size` (224) - so `--image-size 518` produces a 224
-    # tensor, not a 518 one. Exporting at the flag's value would ship a model
-    # whose input the pipeline can never satisfy.
-    from PIL import Image
-    from transformers import AutoImageProcessor
+    # The tensor shape comes from the station rectangle, so the export cannot
+    # disagree with what the pipeline feeds it. `--image-size` is the target
+    # HEIGHT; the width is derived from the rectangle's aspect ratio.
+    #
+    # It used to be the resize target, with DINOv2's processor then centre-cropping
+    # to its own `crop_size` default of 224 - so `--image-size 518` shipped a 224
+    # model that read the middle 43% of the bench. This export now states the
+    # tensor outright and the processor's crop is switched off everywhere.
+    from pipeline.station_classifier import model_input_for_rect
 
-    processor = AutoImageProcessor.from_pretrained(args.backbone)
-    probe = processor(
-        images=[Image.new("RGB", (900, 800))],
-        return_tensors="pt",
-        size={"height": args.image_size, "width": args.image_size},
-    )["pixel_values"]
-    height, width = int(probe.shape[-2]), int(probe.shape[-1])
-    if (height, width) != (args.image_size, args.image_size):
-        print(
-            f"NOTE: --image-size {args.image_size} is the resize target; the "
-            f"processor centre-crops to {height}x{width}, which is what the model "
-            "actually sees and what this export takes as input.",
-            file=sys.stderr,
-        )
+    roi = json.loads(args.manifest.read_text())["station_roi"]["crop"]
+    rect = (int(roi["x"]), int(roi["y"]), int(roi["w"]), int(roi["h"]))
+    height, width = model_input_for_rect(rect, args.image_size)
+    print(
+        f"station rectangle {roi['w']}x{roi['h']} -> tensor {width}x{height} "
+        f"({width // 14}x{height // 14} patches), no centre-crop",
+        file=sys.stderr,
+    )
 
     model = ClsOnly(args.backbone).eval()
     dummy = torch.zeros(1, 3, height, width)
@@ -114,12 +119,12 @@ def main() -> int:
     size = args.out.stat().st_size
     print(f"wrote {args.out} ({size / 1024 / 1024:.0f} MiB)")
     print(f"sha256 {digest}")
-    # The whole preprocessing contract, printed together, because the resize and
-    # the crop are different numbers and reading only one of them is how the
-    # "518" arms came to be described as seeing 518 pixels.
+    # The whole preprocessing contract in one line, and it is now one step. Put
+    # this verbatim into the training record so the card states it.
     print(
-        f"\npreprocessing contract: resize {args.image_size}x{args.image_size} "
-        f"-> centre-crop {height}x{width} -> model input"
+        f"\npreprocessing contract: resize the whole {roi['w']}x{roi['h']} station "
+        f"rectangle to {width}x{height}, no centre-crop\n"
+        f'  "preprocessing": {{"model_input": [{height}, {width}], "center_crop": false}}'
     )
     print(f'\nPin it in setup-models.sh:\n  DINOV2_SHA256="{digest}"')
     return 0

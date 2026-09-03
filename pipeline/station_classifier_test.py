@@ -10,6 +10,7 @@ components rather than adding a fourth.
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -75,7 +76,6 @@ def _card(**overrides) -> StationCard:
             "nierozpoznane": 0.5,
         },
         "window": 64,
-        "resize_px": 518,
         "model_input": (224, 224),
         "training_windows": (),
         **overrides,
@@ -208,7 +208,7 @@ class TestPreprocessing:
     def test_the_tensor_has_the_shape_the_exported_backbone_declares(self) -> None:
         crop = np.zeros((800, 900, 3), dtype=np.uint8)
 
-        tensor = preprocess_crop(crop, resize_px=518, model_input=(224, 224))
+        tensor = preprocess_crop(crop, model_input=(224, 224))
 
         assert tensor.shape == (1, 3, 224, 224)
         assert tensor.dtype == np.float32
@@ -218,7 +218,7 @@ class TestPreprocessing:
         crop = np.zeros((800, 900, 3), dtype=np.uint8)
         crop[:, :, 2] = 255
 
-        tensor = preprocess_crop(crop, resize_px=518, model_input=(224, 224))[0]
+        tensor = preprocess_crop(crop, model_input=(224, 224))[0]
 
         assert tensor[0].mean() == pytest.approx((1.0 - 0.485) / 0.229, abs=1e-4)
         assert tensor[1].mean() == pytest.approx((0.0 - 0.456) / 0.224, abs=1e-4)
@@ -230,7 +230,7 @@ class TestPreprocessing:
         crop = np.zeros((800, 900, 3), dtype=np.uint8)
         crop[:, :450] = 255
 
-        tensor = preprocess_crop(crop, resize_px=518, model_input=(224, 224))[0]
+        tensor = preprocess_crop(crop, model_input=(224, 224))[0]
 
         white = (1.0 - 0.485) / 0.229
         black = (0.0 - 0.485) / 0.229
@@ -261,7 +261,7 @@ class TestPreprocessingMatchesTheRealProcessor:
             size={"height": 518, "width": 518},
         )["pixel_values"]
 
-        ours = preprocess_crop(crop, resize_px=518, model_input=(224, 224))
+        ours = preprocess_crop(crop, model_input=(224, 224))
 
         assert ours.shape == reference.shape
         assert np.abs(ours - reference).max() < 1e-5
@@ -415,7 +415,14 @@ def _artefacts(tmp_path: Path) -> tuple[Path, Path, Path]:
     backbone = tmp_path / "dinov2-base.onnx"
     backbone.write_bytes(b"backbone-weights")
     card = tmp_path / "station-head-hala-prawe-v1-v1.0.0.card.json"
-    card.write_text(REPO_ROOT.joinpath(SHIPPED_CARD_NAME).read_text(encoding="utf-8"))
+    # The real card with the one field a re-exported head carries. The shipped
+    # v1.0.0 document predates the removal of the centre-crop and is refused by
+    # `StationCard` on purpose, so these session tests - which are about CUDA and
+    # sha256, not about preprocessing - state the current contract rather than
+    # inheriting a document the loader is designed to reject.
+    document = json.loads(REPO_ROOT.joinpath(SHIPPED_CARD_NAME).read_text(encoding="utf-8"))
+    document["backbone"]["preprocessing"] = {"model_input": [420, 882], "center_crop": False}
+    card.write_text(json.dumps(document))
     return head, card, backbone
 
 

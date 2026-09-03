@@ -1733,7 +1733,6 @@ class TestStationClassifierMode:
                 "nierozpoznane": 0.5,
             },
             window=2,
-            resize_px=8,
             model_input=(4, 4),
             training_windows=(
                 TrainingWindow("W1", "2026-08-28 09:00-09:20 Europe/Warsaw", "2026-09-01", 599),

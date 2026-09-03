@@ -29,9 +29,24 @@ def _shipped_document() -> dict:
     return json.loads(SHIPPED_CARD.read_text(encoding="utf-8"))
 
 
+def _current_document() -> dict:
+    """The real card brought up to the no-centre-crop contract.
+
+    The shipped v1.0.0 card predates it: its `preprocessing` names a 518 resize
+    and lets DINOv2's processor keep its own 224 `crop_size`, so the head read the
+    middle 43% of the rectangle the card advertised. That card is now refused by
+    construction (see :class:`TestACardFromBeforeTheCropWasRemoved`), so the
+    happy-path tests read the real artefact and apply the one field a re-exported
+    head will carry, rather than a document invented from nothing.
+    """
+    doc = _shipped_document()
+    doc["backbone"]["preprocessing"] = {"model_input": [420, 882], "center_crop": False}
+    return doc
+
+
 class TestTheShippedCard:
     def test_it_carries_everything_the_section_reports(self) -> None:
-        card = StationCard.load(SHIPPED_CARD)
+        card = StationCard.from_dict(_current_document())
 
         assert card.version == "1.0.0"
         assert card.station_id == "hala-prawe-v1"
@@ -55,8 +70,7 @@ class TestTheShippedCard:
         assert set(card.time_ratios) == set(card.delivered_classes)
 
         assert card.window == 64
-        assert card.resize_px == 518
-        assert card.model_input == (224, 224)
+        assert card.model_input == (420, 882)
 
         assert [w.slot for w in card.training_windows] == ["W1", "W2", "W3"]
         assert card.training_windows[0].window_local == "2026-08-28 09:00-09:20 Europe/Warsaw"
@@ -71,7 +85,7 @@ class TestTheShippedCard:
         at `in_h - h`. The card was regenerated against the released weights
         (`--card-only`, sha256 unchanged) once that was measured.
         """
-        assert StationCard.load(SHIPPED_CARD).zone_rect == (1700, 1360, 900, 800)
+        assert StationCard.from_dict(_current_document()).zone_rect == (1700, 1360, 900, 800)
 
 
 class TestACardWithAHoleInIt:
@@ -84,7 +98,7 @@ class TestACardWithAHoleInIt:
     """
 
     def test_a_null_time_ratio_is_refused(self) -> None:
-        doc = _shipped_document()
+        doc = _current_document()
         doc["accuracy"]["union"]["ukladanie_pretow"]["time_ratio"] = None
 
         with pytest.raises(StationCardError) as exc:
@@ -94,10 +108,50 @@ class TestACardWithAHoleInIt:
         assert "time_ratio" in str(exc.value)
 
     def test_a_category_absent_from_the_measurements_is_refused(self) -> None:
-        doc = _shipped_document()
+        doc = _current_document()
         del doc["accuracy"]["union"]["pozostale"]
 
         with pytest.raises(StationCardError) as exc:
             StationCard.from_dict(doc)
 
         assert "pozostale" in str(exc.value)
+
+
+class TestACardFromBeforeTheCropWasRemoved:
+    """The v1.0.0 contract is refused, loudly, rather than reinterpreted.
+
+    Until 2026-09-03 `preprocessing` named a `resize` and a `model_input`, and the
+    gap between them was a centre-crop nobody chose: DINOv2's processor keeps its
+    own `crop_size` default of 224, so a card saying "resize 518" produced a head
+    that read the middle 43.2% of each axis — 18.7% of the rectangle's area. The
+    card, the panel and `zone_native_px` all reported the whole rectangle.
+
+    This build feeds the whole rectangle. Loading such a head anyway would score
+    it on a framing and a scale it was never fitted on, and it would not fail
+    while doing it — it would return confident logits, which is how a run came to
+    report `spawanie: 0.0 s` across an hour of welding.
+    """
+
+    def test_the_real_shipped_card_no_longer_loads(self) -> None:
+        with pytest.raises(StationCardError) as exc:
+            StationCard.load(SHIPPED_CARD)
+
+        assert "center_crop" in str(exc.value)
+
+    def test_a_card_that_still_asks_for_a_centre_crop_is_refused(self) -> None:
+        doc = _current_document()
+        doc["backbone"]["preprocessing"]["center_crop"] = True
+
+        with pytest.raises(StationCardError) as exc:
+            StationCard.from_dict(doc)
+
+        assert "center_crop" in str(exc.value)
+
+    def test_a_card_without_a_tensor_size_is_refused(self) -> None:
+        doc = _current_document()
+        del doc["backbone"]["preprocessing"]["model_input"]
+
+        with pytest.raises(StationCardError) as exc:
+            StationCard.from_dict(doc)
+
+        assert "model_input" in str(exc.value)

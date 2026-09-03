@@ -73,6 +73,50 @@ def _time_ratios(union: dict[str, Any], delivered: tuple[str, ...]) -> dict[str,
     return ratios
 
 
+def _model_input(preprocessing: dict[str, Any]) -> tuple[int, int]:
+    """The ``(height, width)`` the rectangle is resized to, or refuse the card.
+
+    A card must state ``center_crop: false`` to be loaded at all, and that is not
+    ceremony. Until 2026-09-03 the preprocessing named a 518 resize and let the
+    processor's own ``crop_size`` default to 224, so the head read the middle
+    43.2% of each axis while the card, the panel and `zone_native_px` all
+    reported the full rectangle. Nothing failed; a run just reported
+    ``spawanie: 0.0 s`` over an hour of welding.
+
+    So a card carrying the old two-step contract - or one that quietly omits the
+    flag - is refused rather than interpreted. The alternative is a head fitted
+    on centre-crops being fed whole rectangles, which produces confident numbers
+    about a feature space it never saw.
+
+    Raises:
+        StationCardError: when the flag is absent or true, or when
+            ``model_input`` is not a usable pair.
+    """
+    if preprocessing.get("center_crop") is not False:
+        raise StationCardError(
+            "the card's `backbone.preprocessing` does not declare "
+            "`center_crop: false`. Cards written before 2026-09-03 resized to "
+            "`resize` and then centre-cropped to `model_input`, so the head saw "
+            "the middle 43% of the station rectangle and not the rectangle. This "
+            "build feeds the whole rectangle, so such a head would be scored on "
+            "pixels at a scale and framing it was never fitted on. Re-export the "
+            "head and its card."
+        )
+    try:
+        height, width = (int(v) for v in preprocessing["model_input"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StationCardError(
+            "the card's `backbone.preprocessing.model_input` is not a "
+            "`[height, width]` pair, so there is no tensor size to resize the "
+            "station rectangle to."
+        ) from exc
+    if height < 1 or width < 1:
+        raise StationCardError(
+            f"the card's `model_input` is {height}x{width}, which is not an image."
+        )
+    return (height, width)
+
+
 @dataclass(frozen=True)
 class TrainingWindow:
     """One annotated recording the shipped weights were trained on."""
@@ -98,7 +142,9 @@ class StationCard:
     abstention: str
     time_ratios: dict[str, float]
     window: int
-    resize_px: int
+    #: ``(height, width)`` the whole station rectangle is resized to. One number
+    #: pair, not two steps: there is no separate resize target any more, because a
+    #: second step is what hid 57% of the rectangle for the life of v1.0.0.
     model_input: tuple[int, int]
     training_windows: tuple[TrainingWindow, ...]
 
@@ -141,8 +187,7 @@ class StationCard:
             abstention=vocabulary["not_in_bucket"],
             time_ratios=_time_ratios(union, delivered),
             window=int(data["head"]["hyperparameters"]["window"]),
-            resize_px=int(preprocessing["resize"]),
-            model_input=tuple(int(v) for v in preprocessing["model_input"]),  # type: ignore[arg-type]
+            model_input=_model_input(preprocessing),
             training_windows=tuple(
                 TrainingWindow(
                     slot=w["slot"],

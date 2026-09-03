@@ -165,7 +165,7 @@ def _manifest() -> dict:
 
 TRAINING = {
     "output_classes": ACTIVITY_IDS,
-    "preprocessing": {"resize": 518, "model_input": [224, 224]},
+    "preprocessing": {"model_input": [420, 882], "center_crop": False},
     "backbone": "facebook/dinov2-base",
     "image_size": 518,
     "hyperparameters": {"window": 64, "channels": 96, "epochs": 60, "seed": 117},
@@ -387,13 +387,23 @@ class TestCardMatchesTheArtifact:
         assert card["vocabulary"]["collapse_applied"] == "none - the head emits them directly"
 
     def test_card_carries_the_whole_preprocessing_contract(self):
-        # `image_size` alone is what let "518" be described as 518 pixels when
-        # the processor centre-crops to 224. Both numbers, or neither.
+        # One step, stated as one step. The old contract named a `resize` and a
+        # `model_input`, and the gap between them was a centre-crop nobody chose:
+        # 57% of the station rectangle, discarded, while the card advertised all
+        # of it.
         card = sh.build_card(_manifest(), _report(), "tcn-pixel-518", TRAINING)
         pre = card["backbone"]["preprocessing"]
-        assert pre["resize"] == 518
-        assert pre["model_input"] == [224, 224]
-        assert "centre-crop" in pre["note"]
+        assert pre["model_input"] == [420, 882]
+        assert pre["center_crop"] is False
+        assert "no centre-crop" in pre["note"]
+
+    def test_a_contract_that_still_centre_crops_is_refused(self):
+        # The pipeline refuses such a card too, so a generator that emitted one
+        # would only move the failure to the GPU node.
+        training = {**TRAINING, "preprocessing": {"model_input": [224, 224]}}
+        with pytest.raises(SystemExit) as exc:
+            sh.build_card(_manifest(), _report(), "tcn-pixel-518", training)
+        assert "center_crop" in str(exc.value)
 
     def test_a_missing_preprocessing_contract_is_an_error(self):
         training = {k: v for k, v in TRAINING.items() if k != "preprocessing"}

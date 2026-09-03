@@ -93,22 +93,57 @@ def zone_rect(zone: Zone) -> Rect:
 IMAGENET_MEAN = np.asarray([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGENET_STD = np.asarray([0.229, 0.224, 0.225], dtype=np.float32)
 
+#: DINOv2 splits its input into 14x14 patches, so both input dimensions have to
+#: be multiples of 14 or the position embeddings are interpolated to a grid the
+#: weights were not fitted on.
+PATCH = 14
 
-def preprocess_crop(
-    crop_bgr: np.ndarray, resize_px: int, model_input: tuple[int, int]
-) -> np.ndarray:
+
+def model_input_for_rect(rect: Rect, target_height: int) -> tuple[int, int]:
+    """The ``(height, width)`` tensor size for a station rectangle.
+
+    Derived from the rectangle rather than typed, so the tensor keeps the bench's
+    own aspect ratio to within one patch. Both dimensions are rounded to a
+    multiple of :data:`PATCH`, and the width is rounded to nearest rather than
+    down — down would shave a column of patches off the wider axis, which is the
+    axis the rectangle was widened along in the first place.
+
+    One function, used by the exporter, the training embedder and the card
+    generator, because the previous arrangement had two independent
+    implementations of one convention and they were both wrong in the same way.
+    """
+    _, _, width, height = rect
+    if width < 1 or height < 1:
+        raise ValueError(f"station rectangle {width}x{height} is not an image")
+    h = max(PATCH, round(target_height / PATCH) * PATCH)
+    w = max(PATCH, round(h * width / height / PATCH) * PATCH)
+    return (h, w)
+
+
+def preprocess_crop(crop_bgr: np.ndarray, model_input: tuple[int, int]) -> np.ndarray:
     """One station crop → the ``(1, 3, h, w)`` tensor the exported backbone takes.
 
-    Reproduces ``AutoImageProcessor.from_pretrained("facebook/dinov2-base")``
-    called with ``size={"height": resize_px, "width": resize_px}``: convert to
-    RGB, **bicubic** resize to ``resize_px`` square, centre-crop to
-    ``model_input``, rescale to ``[0, 1]``, normalise by the ImageNet statistics.
+    **The whole rectangle, resized once.** Convert to RGB, **bicubic** resize
+    straight to ``model_input``, rescale to ``[0, 1]``, normalise by the ImageNet
+    statistics. No centre-crop, and the card must say so (`center_crop: false`)
+    or it does not load.
 
-    ``resize_px`` and ``model_input`` are different numbers and both matter: 518
-    is the resize target and the processor then centre-crops to 224, so the model
-    never sees a 518-pixel image. Reading only the first is exactly how this
-    fixture's "-518" arms came to be described as seeing 518 pixels when they saw
-    the middle 43% of the station magnified.
+    That second step used to be here, and it was never intended. DINOv2's
+    processor takes ``size`` and ``crop_size`` independently; the training code
+    set ``size=518`` to give the model a high-resolution view — the record says as
+    much, "224 px leaves a rod a couple of pixels wide" — and left ``crop_size``
+    at its 224 default. The result was the opposite of the intent: the head read
+    the middle 224/518 of each axis, 18.7% of the rectangle's area, magnified.
+    Every document, the panel and ``zone_native_px`` reported the full rectangle.
+    Nothing failed. A production run simply reported ``spawanie: 0.0 s`` across an
+    hour in which the welder is on camera striking arcs, because the bench had
+    been rearranged and the work now sat outside that hidden centre.
+
+    The aspect ratio is not preserved, deliberately: the rectangle is squeezed
+    into ``model_input`` exactly as it is during training, and ``model_input`` is
+    chosen close to the rectangle's own ratio so the squeeze is a few percent
+    rather than a halving. Letterboxing instead would spend patches on grey bars
+    and change the feature space for no gain.
 
     PIL does the resize because PIL did it during training. cv2's ``INTER_CUBIC``
     is a different kernel and would shift every embedding by more than the head's
@@ -123,11 +158,8 @@ def preprocess_crop(
 
     height, width = model_input
     image = Image.fromarray(crop_bgr[:, :, ::-1]).resize(
-        (resize_px, resize_px), resample=Image.Resampling.BICUBIC
+        (width, height), resample=Image.Resampling.BICUBIC
     )
-    left = (resize_px - width) // 2
-    top = (resize_px - height) // 2
-    image = image.crop((left, top, left + width, top + height))
 
     pixels = np.asarray(image, dtype=np.float32) / 255.0
     pixels = (pixels - IMAGENET_MEAN) / IMAGENET_STD
@@ -182,7 +214,7 @@ class StationClassifier:
 
     def embed(self, crop_bgr: np.ndarray) -> np.ndarray:
         """One native station crop → its frozen-backbone CLS vector."""
-        tensor = preprocess_crop(crop_bgr, self.card.resize_px, self.card.model_input)
+        tensor = preprocess_crop(crop_bgr, self.card.model_input)
         name = self.backbone.get_inputs()[0].name
         return np.asarray(self.backbone.run(None, {name: tensor})[0][0], dtype=np.float32)
 

@@ -39,7 +39,6 @@ def _card(**overrides) -> StationCard:
             "nierozpoznane": 0.5,
         },
         "window": 64,
-        "resize_px": 518,
         "model_input": (224, 224),
         "training_windows": (
             TrainingWindow(

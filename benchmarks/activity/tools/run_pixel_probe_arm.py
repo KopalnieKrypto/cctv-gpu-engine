@@ -125,17 +125,35 @@ class VramSampler:
 def embed_windows(
     manifest_path: Path, crops_root: Path, cache: Path, size: int, device: str
 ) -> dict:
-    """Frozen-backbone embeddings per annotated window, cached by identity."""
+    """Frozen-backbone embeddings per annotated window, cached by identity.
+
+    ``size`` is the target **height**; the width comes from the manifest's
+    station rectangle so the tensor keeps the bench's aspect ratio. The whole
+    crop is resized into it and **never centre-cropped** - see
+    `pipeline.station_classifier.preprocess_crop` for why that step was removed,
+    and note that this is the second of the two implementations that had it.
+    """
     import torch
     from PIL import Image
     from transformers import AutoImageProcessor, AutoModel
+
+    from pipeline.station_classifier import model_input_for_rect
 
     m = json.loads(manifest_path.read_text())
     fixture_dir = manifest_path.parent
     classes = [a["id"] for a in m["activities"]]
     slots = sorted(c["slot"] for c in m["clips"] if c.get("annotated"))
 
-    key = hashlib.sha256(f"{BACKBONE}:{size}:{','.join(slots)}".encode()).hexdigest()[:12]
+    roi = m["station_roi"]["crop"]
+    rect = (int(roi["x"]), int(roi["y"]), int(roi["w"]), int(roi["h"]))
+    model_input = model_input_for_rect(rect, size)
+
+    # The rectangle is part of the cache identity, not just the tensor size. A
+    # widened ROI produces different crops at the same `size`, and a stale hit
+    # would train the head on embeddings of pixels nobody is looking at any more.
+    key = hashlib.sha256(f"{BACKBONE}:{model_input}:{rect}:{','.join(slots)}".encode()).hexdigest()[
+        :12
+    ]
     npz = cache / f"emb-{key}.npz"
     meta_file = cache / f"emb-{key}.json"
     if npz.exists() and meta_file.exists():
@@ -169,7 +187,13 @@ def embed_windows(
         for start in range(0, n, BATCH):
             imgs = [Image.open(f).convert("RGB") for f in files[start : start + BATCH]]
             inputs = processor(
-                images=imgs, return_tensors="pt", size={"height": size, "width": size}
+                images=imgs,
+                return_tensors="pt",
+                size={"height": model_input[0], "width": model_input[1]},
+                # Not a default worth trusting: `crop_size` is independent of
+                # `size` and stays at 224 unless told otherwise, which is how the
+                # head came to read the middle 43% of the station.
+                do_center_crop=False,
             )
             inputs = {k: v.to(device) for k, v in inputs.items()}
             with torch.no_grad():

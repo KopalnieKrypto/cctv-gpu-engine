@@ -118,12 +118,19 @@ def build_card(manifest: dict, report: dict, arm: str, training: dict) -> dict:
         )
     collapse = report["collapse"]
     preprocessing = training.get("preprocessing")
-    if not preprocessing or "resize" not in preprocessing or "model_input" not in preprocessing:
+    if not preprocessing or "model_input" not in preprocessing:
         sys.exit(
             "the training record carries no preprocessing contract. The card must "
-            "state both the resize target and the tensor the model actually "
-            "receives - naming only one of them is how a 518 resize came to be "
-            "read as a 518-pixel input."
+            "state the tensor the model actually receives, because that is the one "
+            "field the inference path uses to decide what to feed it."
+        )
+    if preprocessing.get("center_crop") is not False:
+        sys.exit(
+            "the training record does not declare `center_crop: false`. The card "
+            "must say so explicitly and the pipeline refuses a card that does "
+            "not: a `resize`-only contract is what let DINOv2's processor keep "
+            "its 224 default and feed the head the middle 43% of the station "
+            "while every record said the whole rectangle."
         )
     comparison = training.get("comparison")
     # The decision and the artefact are not allowed to disagree. A card that
@@ -168,15 +175,16 @@ def build_card(manifest: dict, report: dict, arm: str, training: dict) -> dict:
         },
         "backbone": {
             "id": training["backbone"],
-            # Resize and crop are different numbers, and quoting only the resize
-            # is how this fixture's "518" arms came to be described as seeing 518
-            # pixels when the processor centre-crops every one of them to 224.
+            # One step, stated as one step. The previous card named a resize and a
+            # separate model input, and the gap between the two numbers was 57% of
+            # the station rectangle that nobody knew was being discarded.
             "preprocessing": {
                 **preprocessing,
                 "note": (
-                    f"resize {preprocessing['resize']}x{preprocessing['resize']}, then "
-                    f"centre-crop to {preprocessing['model_input'][0]}x"
-                    f"{preprocessing['model_input'][1]} - the crop is what the model sees"
+                    f"the WHOLE station rectangle is resized to "
+                    f"{preprocessing['model_input'][1]}x{preprocessing['model_input'][0]} "
+                    "(width x height) - no centre-crop, so what the card calls the "
+                    "rectangle is what the model sees"
                 ),
             },
             "frozen": True,

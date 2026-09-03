@@ -146,9 +146,16 @@
 	"station_roi": {
 		"activity": "spawanie",
 		"space": "native source pixels (3840x2160)",
-		"crop": { "w": 900, "h": 800, "x": 1700, "y": 1360 },
-		"ffmpeg": "crop=900:800:1700:1360",
+		"crop": { "w": 1670, "h": 800, "x": 1030, "y": 1360 },
+		"ffmpeg": "crop=1670:800:1030:1360",
 		"note": "The welding bench. C.0 is measured INSIDE this ROI, cropped from the native frame - not from the 1280x736 downscale, which would discard the 3x that makes station framing work. This is the software crop that discharges assumption A2 (client refused a physical reframe; nothing forbids cropping pixels we already receive).",
+		"widened": {
+			"date": "2026-09-03",
+			"was": { "w": 900, "h": 800, "x": 1700, "y": 1360 },
+			"why": "The old rectangle was never what the model saw. DINOv2's processor resizes to `size` and then centre-crops to `crop_size`, which nobody set, so it stayed at its 224 default: the head read the middle 224/518 = 43.2% of each axis - 389x346 native px, 18.7% of the area - while every document, the panel and `zone_native_px` all reported 900x800. On 2026-09-03 a production run reported `spawanie: 0.0 s` over an hour in which the welder is on camera striking arcs, because the bench had been rearranged and the work sat below and right of that hidden centre. The client reviewed the frame and approved this rectangle.",
+			"consequence": "Both preprocessing paths drop the centre-crop, so the whole rectangle now reaches the backbone - `pipeline/station_classifier.preprocess_crop` and `run_pixel_probe_arm.embed_windows`, which are separate implementations of one convention and were both cropping. The backbone is re-exported at a rectangular input to keep the 2.09:1 aspect rather than squeezing it into a square. Every embedding, fold and shipped weight therefore has to be rebuilt: the head is fitted on a feature space that no longer exists. Annotation is unaffected - it is timestamped intervals, not pixels.",
+			"watch": "`brak_na_stanowisku` labels were judged against the OLD rectangle, so a sample marked absent may show the operator inside the wider one. Counted and reported at retraining rather than assumed harmless."
+		},
 		"corrected": {
 			"date": "2026-09-02",
 			"was": { "y": 1400, "ffmpeg": "crop=900:800:1700:1400" },
