@@ -252,16 +252,22 @@ def _warm_up_pipeline(
     # fail fast on — a missing card or a mismatched digest is as fatal there as
     # missing pose weights are here.
     if classifier == CLASSIFIER_STATION:
-        from pipeline.station_classifier import load_station_classifier
+        # The head's filename carries its version, so naming it here as well is a
+        # second place that has to be remembered on every retrain — and it was
+        # forgotten: this warmed `v1.0.0` for the whole of v2.0.0's life. It never
+        # fired, because the image sets both variables, which is exactly what makes
+        # the shape dangerous: a default that is only reached off the happy path is
+        # a default nobody checks. The pipeline's own constants are the one place
+        # the shipped version is written down.
+        from pipeline.station_classifier import (
+            DEFAULT_STATION_CARD_PATH,
+            DEFAULT_STATION_HEAD_PATH,
+            load_station_classifier,
+        )
 
         load_station_classifier(
-            os.environ.get(
-                "STATION_HEAD_PATH", "/app/models/station-head-hala-prawe-v1-v1.0.0.onnx"
-            ),
-            os.environ.get(
-                "STATION_CARD_PATH",
-                "/app/models/station-head-hala-prawe-v1-v1.0.0.card.json",
-            ),
+            os.environ.get("STATION_HEAD_PATH", DEFAULT_STATION_HEAD_PATH),
+            os.environ.get("STATION_CARD_PATH", DEFAULT_STATION_CARD_PATH),
             os.environ.get("BACKBONE_PATH", "/app/models/dinov2-base.onnx"),
         )
         return pipeline_fn

@@ -584,6 +584,37 @@ class TestStationModeWarmsNoPoseModel:
             "surface as a 502 on the agent's first /analyze instead of at startup"
         )
 
+    def test_it_warms_the_head_the_pipeline_would_actually_run(self, mocker, monkeypatch):
+        """The warm-up must not spell the head's version out a second time.
+
+        It did, and it went stale: the container's fallback still named `v1.0.0`
+        for the whole of v2.0.0's life. Nothing broke, because the image sets
+        `STATION_HEAD_PATH` — which is precisely what makes this worth a test.
+        A default that is only reached off the happy path is a default nobody
+        looks at, and the same duplication is what put a centre-crop in one
+        preprocessing path and not the other.
+        """
+        from gpu_service.rest_server import _warm_up_pipeline
+        from pipeline.station_classifier import (
+            DEFAULT_STATION_CARD_PATH,
+            DEFAULT_STATION_HEAD_PATH,
+        )
+
+        monkeypatch.delenv("STATION_HEAD_PATH", raising=False)
+        monkeypatch.delenv("STATION_CARD_PATH", raising=False)
+        station = mocker.patch("pipeline.station_classifier.load_station_classifier")
+
+        _warm_up_pipeline(
+            model_path="/app/models/yolo11s-pose.onnx",
+            classifier="station",
+            activity_model_path="/app/models/activity-mlp-v1.0.0.onnx",
+            activity_model_metadata_path="/app/models/activity-mlp-v1.0.0.json",
+        )
+
+        head, card, _backbone = station.call_args.args
+        assert head == DEFAULT_STATION_HEAD_PATH
+        assert card == DEFAULT_STATION_CARD_PATH
+
     def test_the_other_classifiers_still_warm_the_detector(self, mocker):
         from gpu_service.rest_server import _warm_up_pipeline
 
