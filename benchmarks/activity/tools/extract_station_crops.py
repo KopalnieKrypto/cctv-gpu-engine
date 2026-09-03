@@ -42,10 +42,14 @@ def main() -> int:
             continue
         slot = clip["slot"]
         truth = json.loads((fixture_dir / clip["annotation_file"]).read_text())
+        # The manifest names the annotation but not the video; `run_tcn_arm`
+        # resolves it by slot prefix, so this does the same rather than inventing
+        # a second convention.
+        video = next(fixture_dir.glob(f"{slot}-*.mp4"), None)
+        if video is None:
+            sys.exit(f"clip for {slot} not found in {fixture_dir}")
         out_dir = fixture_dir / "crops" / f"{slot}-native"
-        crops = extract_native_crops(
-            fixture_dir / clip["file"], roi, int(truth["stride_s"]), out_dir
-        )
+        crops = extract_native_crops(video, roi, int(truth["stride_s"]), out_dir)
         # The annotation is timestamped intervals, so it survives a rectangle
         # change untouched - but the sample count has to keep lining up with it,
         # and a short ffmpeg run would silently shorten the training set.
