@@ -1832,6 +1832,27 @@ class TestStationClassifierMode:
         ]
         assert all(c["time_ratio"] is not None for c in station["categories"])
 
+    def test_coverage_never_exceeds_one_on_an_odd_frame_count(self, mocker, tmp_path):
+        """Found end to end on W2: coverage came back 1.0017 (#123).
+
+        The sampler takes frame indices 0, k, 2k, ... so an odd frame count still
+        yields a sample on the last step, while `duration // stride` counts one
+        fewer. The real clip is 1199.03 s at a 2 s stride: 600 samples against a
+        denominator of 599.
+
+        A fraction above 1.0 is impossible by the field's own definition, and
+        this is the field that exists to stop a missing sample flattering every
+        share above it, so it has to be exact in both directions.
+        """
+        payload = self._run(mocker, tmp_path, values=(0, 0, 1, 1, 2, 2, 3, 3, 1))
+
+        coverage = payload["station_activity"]["zones"][0]["coverage"]
+        assert coverage == {
+            "samples_predicted": 5,
+            "samples_possible": 5,
+            "fraction": 1.0,
+        }
+
     def test_it_samples_at_the_cards_stride_and_not_at_every_frame(self, mocker, tmp_path):
         # Eight frames at 1 fps, a 2 s stride: four samples, and their labels are
         # the even-indexed frames' contents.

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -246,7 +247,19 @@ def _analyze_station(
         if progress is not None:
             progress(int((chunk_index + 1) / len(chunks) * 100))
 
-    samples_possible = int(duration_s // card.stride_s)
+    # The denominator has to be derived the way the sampler above actually
+    # counts, not from duration alone. That loop takes frame indices
+    # 0, k, 2k, ... out of the stream ffmpeg emits at `fps`, so the expected
+    # count is ceil(frames / k), and the frame count is what the `fps` filter
+    # produces for this duration rather than a floor of it.
+    #
+    # `duration_s // stride_s` is off by one whenever duration/stride lands on
+    # or past a half step: a 1199.0 s clip at a 2 s stride yields 600 samples
+    # while that expression says 599, and coverage then reports 1.0017. A
+    # fraction above 1.0 is impossible by the field's own definition, and this
+    # is the field that exists to stop a missing sample flattering every share
+    # above it, so it has to be exact in both directions.
+    samples_possible = math.ceil(round(duration_s * fps) / frames_per_sample)
     categories = classifier.categories(
         np.stack(embeddings) if embeddings else np.zeros((0, 1), dtype=np.float32)
     )
