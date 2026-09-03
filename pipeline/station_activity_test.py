@@ -75,7 +75,7 @@ def _section(categories, samples_possible=None, card=None, sha256="abc123", arc_
 
 def _arcing(count: int, flagged: list[int]) -> list[float]:
     """An arc-metric series flagging exactly ``flagged``, everything else quiet."""
-    return [0.5 if i in set(flagged) else 0.0 for i in range(count)]
+    return [1000.0 if i in set(flagged) else 0.0 for i in range(count)]
 
 
 class TestIntervalBoundaries:

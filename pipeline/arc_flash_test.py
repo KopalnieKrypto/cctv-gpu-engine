@@ -37,11 +37,22 @@ class TestArcMetric:
     def test_a_plain_scene_reads_zero(self) -> None:
         assert arc_metric(_crop((110, 110, 110))) == 0.0
 
-    def test_an_arc_lit_patch_is_measured_as_its_share_of_the_crop(self) -> None:
-        crop = _crop((110, 110, 110))
-        # 10x10 of a 100x100 crop = 1% of the rectangle.
+    def test_an_arc_lit_patch_is_counted_in_pixels_not_in_share(self) -> None:
+        """Pixels, so that widening the rectangle cannot dilute the evidence.
+
+        It once was a share, calibrated at 900x800, and widening the bench to
+        1670x800 spread the same arc over 1.86x the area and switched the guard
+        off without a word.
+        """
+        crop = _crop((110, 110, 110), size=100)
         crop[:10, :10] = ARC_BGR
-        assert arc_metric(crop) == 1.0
+        assert arc_metric(crop) == 100.0
+
+        # The same arc in a rectangle twice as wide is the same evidence.
+        wider = _crop((110, 110, 110), size=100)
+        wider = np.concatenate([wider, _crop((110, 110, 110), size=100)], axis=1)
+        wider[:10, :10] = ARC_BGR
+        assert arc_metric(wider) == 100.0
 
     def test_bright_but_colourless_light_is_not_an_arc(self) -> None:
         """The whole reason the check is not a plain saturation threshold.
@@ -61,8 +72,8 @@ class TestArcMetric:
         It fails silently — no exception, no warning, just 0.0 everywhere and a
         guard that never fires. This cost a full calibration run to spot.
         """
-        crop = _crop(ARC_BGR)
-        assert arc_metric(crop) == 100.0
+        crop = _crop(ARC_BGR, size=100)
+        assert arc_metric(crop) == 10000.0
 
     def test_an_empty_crop_is_not_a_division_by_zero(self) -> None:
         assert arc_metric(np.zeros((0, 0, 3), dtype=np.uint8)) == 0.0
@@ -70,7 +81,7 @@ class TestArcMetric:
 
 def _series(flagged_at: list[int], total: int) -> list[float]:
     """A metric series that flags exactly the given sample indices."""
-    return [0.5 if i in set(flagged_at) else 0.001 for i in range(total)]
+    return [1000.0 if i in set(flagged_at) else 5.0 for i in range(total)]
 
 
 class TestVerdict:
@@ -157,5 +168,5 @@ class TestVerdict:
             stride_s=2.0,
             delivered_classes=DELIVERED,
         )
-        for key in ("signal", "threshold_pct", "samples", "samples_flagged", "bouts"):
+        for key in ("signal", "threshold_lit_pixels", "samples", "samples_flagged", "bouts"):
             assert key in check

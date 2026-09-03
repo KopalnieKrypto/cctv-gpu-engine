@@ -61,11 +61,22 @@ ARC_LIT_CATEGORY = "spawanie"
 HOT_LUMA = 235
 BLUE_EXCESS = 40
 
-# Share of the rectangle that must be arc-lit before a sample is flagged, in
-# percent. At 0.1 the incident hour flags 41 of 1831 samples across 28 separate
-# minutes, while the nine-minute stretch where the crew stands around talking
-# (12:40-12:48, verified by eye) flags none — its highest sample reaches 0.087.
-ARC_PIXEL_PCT = 0.1
+# How many arc-lit pixels a sample needs before it is flagged. An absolute count,
+# not a share of the rectangle, and that distinction has already cost one wrong
+# answer: this was 0.1% of the crop, calibrated when the station rectangle was
+# 900x800, and widening the rectangle to 1670x800 diluted the same arc across
+# 1.86x the area and silently switched the guard off. An arc is a fixed number of
+# pixels in the frame; how much floor someone drew around it is not evidence.
+#
+# 720 is that calibration carried over exactly: 0.1% of 900x800. At it, the
+# incident hour flags 41 of 1831 samples across 28 separate minutes, while the
+# nine-minute stretch where the crew stands around talking (12:40-12:48, verified
+# by eye) flags none.
+#
+# It is tied to the frame's resolution rather than the rectangle's size, so a
+# camera at another resolution needs it re-derived; `zone_native_px` is in the
+# artefact for exactly that reason.
+ARC_LIT_PIXELS = 720
 
 # What it takes to call the head contradicted. Deliberately conservative: a guard
 # that cries wolf is worse than none, because the first false alarm is the reason
@@ -90,7 +101,7 @@ CONTRADICTED = "contradicted"
 
 
 def arc_metric(crop_bgr: np.ndarray) -> float:
-    """Percentage of ``crop_bgr`` that is clipped-bright **and** blue-dominant.
+    """How many pixels of ``crop_bgr`` are clipped-bright **and** blue-dominant.
 
     ``crop_bgr`` is the native station rectangle exactly as the classifier
     receives it — the whole rectangle, before the processor's centre-crop throws
@@ -108,7 +119,7 @@ def arc_metric(crop_bgr: np.ndarray) -> float:
     red = crop_bgr[:, :, 2].astype(np.int32)
     luma = (red * 77 + green * 150 + blue * 29) >> 8
     lit = (luma > HOT_LUMA) & ((blue - red) > BLUE_EXCESS)
-    return float(lit.sum()) * 100.0 / lit.size
+    return float(lit.sum())
 
 
 def _count_bouts(flags: list[bool], gap: int = BOUT_GAP_SAMPLES) -> int:
@@ -147,7 +158,7 @@ def build_arc_check(
     failure this exists for produced a total that was wrong *and* well-formed, and
     a consumer had no way to tell.
     """
-    flagged = [m >= ARC_PIXEL_PCT for m in metrics]
+    flagged = [m >= ARC_LIT_PIXELS for m in metrics]
     samples_flagged = sum(flagged)
     bouts = _count_bouts(flagged)
     predicted = sum(1 for c in categories if c == ARC_LIT_CATEGORY)
@@ -166,7 +177,7 @@ def build_arc_check(
     return {
         "signal": "hot_blue_pixel_pct",
         "category": ARC_LIT_CATEGORY,
-        "threshold_pct": ARC_PIXEL_PCT,
+        "threshold_lit_pixels": ARC_LIT_PIXELS,
         "samples": len(metrics),
         "samples_flagged": samples_flagged,
         # Seconds of *sampled* arc evidence, not an estimate of welding time. The
