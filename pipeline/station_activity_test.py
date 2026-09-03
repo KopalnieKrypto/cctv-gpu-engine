@@ -62,7 +62,7 @@ ZONE = Zone(
 )
 
 
-def _section(categories, samples_possible=None, card=None, sha256="abc123"):
+def _section(categories, samples_possible=None, card=None, sha256="abc123", arc_metrics=None):
     card = card or _card()
     return build_station_activity(
         zone=ZONE,
@@ -70,7 +70,13 @@ def _section(categories, samples_possible=None, card=None, sha256="abc123"):
         categories=categories,
         samples_possible=samples_possible if samples_possible is not None else len(categories),
         head_sha256=sha256,
+        arc_metrics=arc_metrics,
     )
+
+
+def _arcing(count: int, flagged: list[int]) -> list[float]:
+    """An arc-metric series flagging exactly ``flagged``, everything else quiet."""
+    return [0.5 if i in set(flagged) else 0.0 for i in range(count)]
 
 
 class TestIntervalBoundaries:
@@ -235,3 +241,64 @@ class TestProvenance:
         assert section["zone_id"] == "spawanie"
         assert section["name"] == "Stanowisko spawalnicze"
         assert section["zone_native_px"] == {"x": 1700, "y": 1360, "w": 900, "h": 800}
+
+
+class TestArcCheck:
+    """The pixels' own answer to "was there an arc", carried beside the head's.
+
+    This exists because of a run that reported `spawanie: 0.0 s` over an hour of
+    welding: full coverage, every time ratio in place, and wrong. The head reads
+    the middle 43% of the rectangle, the check reads all of it.
+    """
+
+    def test_a_section_built_without_arc_metrics_still_reports_the_check(self) -> None:
+        """An absent check would read as "no arc seen" rather than "not looked
+        for" — the exact confusion `coverage` already exists to prevent."""
+        section = _section(["pozostale"] * 40)
+
+        assert section["arc_check"]["verdict"] == "not_applicable"
+        assert section["arc_check"]["samples"] == 0
+
+    def test_it_contradicts_a_zero_welding_total_the_pixels_disagree_with(self) -> None:
+        section = _section(
+            ["pozostale"] * 400,
+            arc_metrics=_arcing(400, list(range(0, 400, 25))),
+        )
+
+        assert section["arc_check"]["verdict"] == "contradicted"
+        assert section["arc_check"]["samples_flagged"] == 16
+        assert section["arc_check"]["predicted_samples"] == 0
+
+    def test_a_contradiction_marks_every_category_in_the_zone_unreliable(self) -> None:
+        """Not just `spawanie`. The seconds the head missed were not dropped,
+        they were counted as something else, so `pozostale` is the number that
+        absorbed the error and must not read as measured."""
+        section = _section(
+            ["pozostale"] * 400,
+            arc_metrics=_arcing(400, list(range(0, 400, 25))),
+        )
+
+        assert [c["reliable"] for c in section["categories"]] == [False] * 4
+
+    def test_an_agreeing_run_is_marked_reliable_on_every_category(self) -> None:
+        section = _section(
+            ["spawanie"] * 200 + ["pozostale"] * 200,
+            arc_metrics=_arcing(400, list(range(0, 400, 25))),
+        )
+
+        assert section["arc_check"]["verdict"] == "consistent"
+        assert all(c["reliable"] for c in section["categories"])
+
+    def test_the_check_never_moves_a_single_second(self) -> None:
+        """The verdict marks a total, it does not correct one. An arc test that
+        edited durations would be quoting its own 2.18x over-reporting as fact.
+        """
+        categories = ["pozostale"] * 400
+        without = _section(categories)
+        with_arc = _section(categories, arc_metrics=_arcing(400, list(range(0, 400, 25))))
+
+        assert [c["total_s"] for c in with_arc["categories"]] == [
+            c["total_s"] for c in without["categories"]
+        ]
+        assert with_arc["intervals"] == without["intervals"]
+        assert with_arc["coverage"] == without["coverage"]

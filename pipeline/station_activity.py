@@ -33,6 +33,7 @@ error figure printed beside each total.
 
 from __future__ import annotations
 
+from pipeline.arc_flash import CONTRADICTED, build_arc_check
 from pipeline.station_card import StationCard
 from pipeline.zones import Zone
 
@@ -84,12 +85,19 @@ def build_station_activity(
     categories: list[str],
     samples_possible: int,
     head_sha256: str,
+    arc_metrics: list[float] | None = None,
 ) -> dict:
     """One station zone's chronometraż, as the additive `result.json` section.
 
     ``categories`` are the delivered categories, one per predicted sample, in time
     order. ``samples_possible`` is how many the session could have produced at the
     card's stride — the denominator every share is taken against.
+
+    ``arc_metrics`` is :func:`pipeline.arc_flash.arc_metric` per predicted sample,
+    which buys the section the one thing it could not previously state: whether
+    the pixels agree with the head. Optional so an older caller still builds a
+    valid section, and absent it the check reports ``not_applicable`` rather than
+    a verdict nobody measured.
     """
     stride_s = float(card.stride_s)
     session_s = samples_possible * stride_s
@@ -100,6 +108,19 @@ def build_station_activity(
     totals = dict.fromkeys(card.delivered_classes, 0.0)
     for interval in intervals:
         totals[interval["category"]] += interval["end_s"] - interval["start_s"]
+
+    arc_check = build_arc_check(
+        metrics=list(arc_metrics) if arc_metrics is not None else [],
+        categories=categories,
+        stride_s=stride_s,
+        delivered_classes=card.delivered_classes,
+    )
+    # A contradicted arc check takes down the **whole** split, not just the
+    # category that triggered it. Seconds the head failed to recognise as welding
+    # were not dropped — they were counted as something else, so every share in
+    # this zone moved. Marking only `spawanie` would leave "pozostałe 79.6%"
+    # reading as measured when it is the number that absorbed the error.
+    reliable = arc_check["verdict"] != CONTRADICTED
 
     return {
         "zone_id": zone.id,
@@ -125,9 +146,17 @@ def build_station_activity(
                 "total_s": totals[c],
                 "share": (totals[c] / session_s) if session_s else 0.0,
                 "time_ratio": card.time_ratios[c],
+                # Emitted on every category, always, for the same reason the
+                # time ratio is: a renderer can skip a key it has to look up
+                # separately, but not one sitting inside the object it is already
+                # reading the total out of.
+                "reliable": reliable,
             }
             for c in card.delivered_classes
         ],
+        # The pixels' own answer to "was there an arc at all", beside the head's.
+        # See `pipeline/arc_flash.py` — a presence test, never a duration.
+        "arc_check": arc_check,
         # Which of the categories above is the abstention — neither work nor
         # downtime — named rather than left for the reader to know.
         "abstention": card.abstention,

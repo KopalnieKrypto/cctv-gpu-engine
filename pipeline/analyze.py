@@ -31,6 +31,7 @@ from pathlib import Path
 import numpy as np
 
 from pipeline.aggregator import Aggregator, ReportData
+from pipeline.arc_flash import arc_metric
 from pipeline.detection_scale import detection_scale
 from pipeline.detections_dump import detection_to_dict
 from pipeline.frame_extractor import extract_frame_at
@@ -227,6 +228,11 @@ def _analyze_station(
     }
 
     embeddings: list[np.ndarray] = []
+    # The arc evidence, measured on the same crop and in the same pass. It reads
+    # the whole rectangle, where the head reads only the middle 43% of it — which
+    # is exactly why a run can report `spawanie: 0.0 s` over an hour of welding
+    # and look complete doing it (#123 follow-up).
+    arc_metrics: list[float] = []
     duration_s = 0.0
     chunk_span = 100.0 / len(chunks)
     for chunk_index, chunk in enumerate(chunks):
@@ -237,7 +243,9 @@ def _analyze_station(
         for timestamp_s, frame in _frames_recording_source_size(chunk, fps, diagnostics):
             last_ts = timestamp_s
             if index % frames_per_sample == 0:
-                embeddings.append(classifier.embed(station_crop(frame, rect)))
+                crop = station_crop(frame, rect)
+                embeddings.append(classifier.embed(crop))
+                arc_metrics.append(arc_metric(crop))
                 if progress is not None:
                     progress(
                         _intra_chunk_pct(chunk_base, chunk_span, timestamp_s, chunk_duration_s)
@@ -278,6 +286,7 @@ def _analyze_station(
                 categories=categories,
                 samples_possible=samples_possible,
                 head_sha256=classifier.head_sha256,
+                arc_metrics=arc_metrics,
             )
         ]
     }
