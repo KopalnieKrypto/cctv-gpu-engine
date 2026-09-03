@@ -86,8 +86,20 @@ ARC_LIT_PIXELS = 720
 # so one door opening onto a sunlit yard cannot trigger it. Bouts are counted with
 # a gap because an arc is intermittent by nature — a welder strikes, breaks,
 # repositions — so consecutive flags are the exception, not the rule.
-MIN_FLAGGED_SAMPLES = 12
-MIN_BOUTS = 5
+# Calibrated against two runs that differ in the only way that matters:
+#
+#   W1 (2026-08-28, in the training material, head works): 4 flags in 599
+#     samples, and the head itself calls ~230 samples welding.
+#   The incident clip (2026-09-03, head blind): 7 flags in 331 samples, and the
+#     head calls none.
+#
+# So the flag count alone does not separate them - the detector trades recall for
+# precision and fires on a minority of true welding samples either way. What
+# separates them is the ratio below. The counts only have to be high enough that
+# a stray reflection cannot reach the ratio test, and 5 flags across 3 separate
+# bouts is already several distinct blue-white events.
+MIN_FLAGGED_SAMPLES = 5
+MIN_BOUTS = 3
 BOUT_GAP_SAMPLES = 15
 
 # How far under the arc evidence the head's own count has to fall. A healthy run

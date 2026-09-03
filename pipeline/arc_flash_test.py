@@ -118,13 +118,13 @@ class TestVerdict:
         """A guard that cries wolf is worse than none — the first false alarm is
         why nobody reads the second one."""
         check = build_arc_check(
-            metrics=_series([10, 200, 400], 1831),
+            metrics=_series([10, 200], 1831),
             categories=["pozostale"] * 1831,
             stride_s=2.0,
             delivered_classes=DELIVERED,
         )
         assert check["verdict"] == CONSISTENT
-        assert check["samples_flagged"] == 3
+        assert check["samples_flagged"] == 2
 
     def test_one_burst_of_light_is_one_bout_and_cannot_trigger_it(self) -> None:
         """Twenty flags in ten seconds is a door opening onto a sunlit yard, not
@@ -138,6 +138,37 @@ class TestVerdict:
         assert check["bouts"] == 1
         assert check["samples_flagged"] == 20
         assert check["verdict"] == CONSISTENT
+
+    def test_a_working_head_out_predicts_the_detector_and_is_left_alone(self) -> None:
+        """The W1 shape, from the run that proved the retrained head works.
+
+        Four flags in 599 samples while the head itself calls ~230 of them
+        welding. The detector fires on a minority of true welding samples by
+        design, so a low flag count is not evidence against the head - the ratio
+        is what carries the verdict.
+        """
+        categories = ["pozostale"] * 599
+        for i in range(230):
+            categories[i] = "spawanie"
+        check = build_arc_check(
+            metrics=_series([40, 180, 300, 500], 599),
+            categories=categories,
+            stride_s=2.0,
+            delivered_classes=DELIVERED,
+        )
+        assert check["verdict"] == CONSISTENT
+
+    def test_a_short_clip_with_a_blind_head_is_still_caught(self) -> None:
+        """The incident clip: 7 flags across 331 samples, and the head calls no
+        welding at all. Under the old counts this passed as `consistent`."""
+        check = build_arc_check(
+            metrics=_series([12, 60, 110, 175, 230, 280, 320], 331),
+            categories=["ukladanie_pretow"] * 331,
+            stride_s=2.0,
+            delivered_classes=DELIVERED,
+        )
+        assert check["verdict"] == CONTRADICTED
+        assert check["samples_flagged"] == 7
 
     def test_a_vocabulary_without_welding_gets_no_verdict(self) -> None:
         """The optical signature is specific to an arc and says nothing about
