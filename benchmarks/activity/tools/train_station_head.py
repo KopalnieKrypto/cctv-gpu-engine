@@ -95,6 +95,8 @@ from station_head import (  # noqa: E402
     remap_labels,
 )
 
+from pipeline.station_classifier import model_input_for_rect  # noqa: E402
+
 IMAGE_SIZE = 518
 # DINOv2-base CLS width. Named here so the card-only path can state it without
 # an embedding pass; the digest check is what ties it to the actual artefact.
@@ -135,22 +137,27 @@ def build_exportable(model, mu, sd):
     return StationHead().eval()
 
 
-def _preprocessing_contract(image_size: int) -> dict:
-    """Discovered from the processor, never assumed from the flag.
+def _rect(manifest: dict) -> tuple[int, int, int, int]:
+    """The station rectangle from the manifest, as the engine reads it."""
+    roi = manifest["station_roi"]["crop"]
+    return (int(roi["x"]), int(roi["y"]), int(roi["w"]), int(roi["h"]))
 
-    `--image-size 518` is the *resize* target and DINOv2's processor then
-    centre-crops to 224, so the tensor the model receives is 224. The card has to
-    carry both numbers or a reader will feed it the size it never sees.
+
+def _preprocessing_contract(rect: tuple[int, int, int, int], image_size: int) -> dict:
+    """One step, derived from the station rectangle.
+
+    There is no separate resize target any more. `--image-size` is the tensor
+    HEIGHT and the width follows from the rectangle's aspect ratio, so the card
+    states the one number pair the pipeline resizes to.
+
+    It used to name a `resize` and a `model_input`, and the gap between them was
+    DINOv2's own `crop_size` default of 224 - a centre-crop nobody chose, which
+    fed the head the middle 43% of the bench while every record said the whole
+    rectangle. `center_crop: false` is emitted explicitly because
+    `pipeline.station_card` refuses a card without it.
     """
-    from PIL import Image
-    from transformers import AutoImageProcessor
-
-    probe = AutoImageProcessor.from_pretrained(BACKBONE)(
-        images=[Image.new("RGB", (900, 800))],
-        return_tensors="pt",
-        size={"height": image_size, "width": image_size},
-    )["pixel_values"]
-    return {"resize": image_size, "model_input": [int(probe.shape[-2]), int(probe.shape[-1])]}
+    height, width = model_input_for_rect(rect, image_size)
+    return {"model_input": [height, width], "center_crop": False}
 
 
 def _card_only(args, manifest: dict) -> int:
@@ -202,7 +209,7 @@ def _card_only(args, manifest: dict) -> int:
     n_feat = FEATURE_WIDTH
     training = {
         "backbone": BACKBONE,
-        "preprocessing": _preprocessing_contract(args.image_size),
+        "preprocessing": _preprocessing_contract(_rect(manifest), args.image_size),
         "output_classes": output_classes,
         "trained_as": comparison["ships"],
         "comparison": comparison,
@@ -339,24 +346,9 @@ def main() -> int:
     size = onnx_path.stat().st_size
     print(f"wrote {onnx_path} ({size / 1024:.0f} KiB, sha256 {digest[:16]}…)")
 
-    # Discovered, not assumed: the processor centre-crops, so `--image-size 518`
-    # yields a 224 tensor. The card must carry both numbers or a reader will feed
-    # the model the resize target it never sees.
-    from PIL import Image
-    from transformers import AutoImageProcessor
-
-    probe = AutoImageProcessor.from_pretrained(BACKBONE)(
-        images=[Image.new("RGB", (900, 800))],
-        return_tensors="pt",
-        size={"height": args.image_size, "width": args.image_size},
-    )["pixel_values"]
-
     training = {
         "backbone": BACKBONE,
-        "preprocessing": {
-            "resize": args.image_size,
-            "model_input": [int(probe.shape[-2]), int(probe.shape[-1])],
-        },
+        "preprocessing": _preprocessing_contract(_rect(manifest), args.image_size),
         "output_classes": output_classes,
         "trained_as": comparison["ships"],
         "comparison": comparison,
