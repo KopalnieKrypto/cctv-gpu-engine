@@ -73,7 +73,20 @@ LR = 1e-3
 WEIGHT_DECAY = 1e-2
 SEED = 117
 BACKBONE = "facebook/dinov2-base"
-BATCH = 32
+
+# Embedding batch, expressed as a patch budget rather than an image count.
+# DINOv2's activations scale with patches, not images, and the station tensor is
+# no longer a fixed 224 square: at 882x420 one image is 1890 patches against the
+# 256 a square used to be, so a batch of 32 asks for 7x the memory it used to and
+# simply runs the card out. 8192 is the budget the old 32x256 actually used.
+BATCH_PATCH_BUDGET = 8192
+PATCH = 14
+
+
+def embedding_batch(model_input: tuple[int, int]) -> int:
+    """How many crops fit one forward pass at this tensor size."""
+    patches = (model_input[0] // PATCH) * (model_input[1] // PATCH)
+    return max(1, BATCH_PATCH_BUDGET // max(1, patches))
 
 
 class VramSampler:
@@ -184,8 +197,9 @@ def embed_windows(
         n = min(len(files), len(labels))
 
         vecs = []
-        for start in range(0, n, BATCH):
-            imgs = [Image.open(f).convert("RGB") for f in files[start : start + BATCH]]
+        batch = embedding_batch(model_input)
+        for start in range(0, n, batch):
+            imgs = [Image.open(f).convert("RGB") for f in files[start : start + batch]]
             inputs = processor(
                 images=imgs,
                 return_tensors="pt",
@@ -201,8 +215,8 @@ def embed_windows(
             # CLS token: the pooled representation DINOv2 is trained to make
             # linearly useful, which is exactly what a probe should read.
             vecs.append(out.last_hidden_state[:, 0].float().cpu().numpy())
-            if (start + BATCH) % 200 < BATCH:
-                print(f"  [{slot}] {min(start + BATCH, n)}/{n}", file=sys.stderr)
+            if (start + batch) % 200 < batch:
+                print(f"  [{slot}] {min(start + batch, n)}/{n}", file=sys.stderr)
         windows[slot] = {
             "x": np.concatenate(vecs)[:n],
             "y": np.asarray([classes.index(v) for v in labels[:n]], dtype=np.int64),
