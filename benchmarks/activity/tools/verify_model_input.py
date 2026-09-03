@@ -113,11 +113,14 @@ def _training_tensor(crop_bgr: np.ndarray, model_input: tuple[int, int]) -> np.n
     from transformers import AutoImageProcessor
 
     with tempfile.TemporaryDirectory() as tmp:
+        # Lossless on the way in, so the only compression in this path is the one
+        # `extract_native_crops` actually applies: ffmpeg's own JPEG at -q:v 2.
+        lossless = Path(tmp) / "crop.png"
         jpeg = Path(tmp) / "crop.jpg"
-        Image.fromarray(crop_bgr[:, :, ::-1]).save(jpeg, quality=None, subsampling=0)
+        Image.fromarray(crop_bgr[:, :, ::-1]).save(lossless)
         subprocess.run(
-            ["ffmpeg", "-v", "error", "-y", "-i", str(jpeg), "-q:v", "2", str(jpeg)],
-            check=False,
+            ["ffmpeg", "-v", "error", "-y", "-i", str(lossless), "-q:v", "2", str(jpeg)],
+            check=True,
         )
         image = Image.open(jpeg).convert("RGB")
         processor = AutoImageProcessor.from_pretrained(BACKBONE)
