@@ -162,11 +162,16 @@
 			"shift_position": "morning, inside the configured 07:00-15:00 shift",
 			"r2_key_original": null,
 			"r2_key_preserved": null,
-			"annotated": false,
+			"annotated": true,
 			"annotation_file": "W5.intervals.json",
-			"annotated_at": null,
-			"annotation_coverage": null,
-			"status": "CUT 2026-09-04, awaiting annotation",
+			"annotated_at": "2026-09-04",
+			"annotation_coverage": {
+				"labelled": 600,
+				"total": 600,
+				"stride_s": 2
+			},
+			"status": "ANNOTATED 2026-09-04",
+			"label_counts": "spawanie 267, ukladanie_pretow 265, sciaganie_elementu 38, inna_czynnosc 19, postoj 11. Almost the same mix as W4 (276/264/59), which is what makes the two comparable as test sets - a figure on W5 can be read against the held-out figure on W4 without a composition caveat swamping it.",
 			"why_this_window": "W4 alone cannot show whether current-layout material fixes the shift: a window is either training material or the test, never both. Held out, W4 measures the gap (see `held_out_measurement` below); folded into training, it can no longer measure anything. W5 is the second current-layout window that makes the comparison possible - train on W1-W4, test here.",
 			"provenance": "Cut the same way as W3 and W4: 20 consecutive one-minute chunks from the appliance buffer, stream copy, 24000 frames over 1200.00 s at 20/1.",
 			"content": "Chosen off a one-frame-per-minute contact sheet of 07:00-07:35 local. The operator is at the bench throughout, with several distinct welding arcs and continuous rod handling. Like W4 it carries no empty-station stretch, so `brak_na_stanowisku` still has only old-layout examples.",
@@ -178,12 +183,16 @@
 		"declared": "2026-09-02",
 		"declared_before_any_model_run": false,
 		"declared_before_any_model_run_note": "TRUE for the original 2-fold protocol, declared 2026-09-01 before a single arm ran, and FALSE for this one. Three arms had already been measured when the third window was added. The flag is set honestly rather than carried over, because a split whose provenance is asserted but not true is worse than no split at all - it launders a retrofit as a discipline. Read every 3-fold figure with that attached.",
-		"protocol": "3-fold cross-validation over the three windows",
+		"protocol": "5-fold cross-validation over the five windows, plus one ablation fold that isolates what the current-layout material is worth",
 		"folds": [
-			{ "id": "A", "train_dev": ["W1", "W2"], "held_out": ["W3"] },
-			{ "id": "B", "train_dev": ["W1", "W3"], "held_out": ["W2"] },
-			{ "id": "C", "train_dev": ["W2", "W3"], "held_out": ["W1"] }
+			{ "id": "A", "train_dev": ["W2", "W3", "W4", "W5"], "held_out": ["W1"] },
+			{ "id": "B", "train_dev": ["W1", "W3", "W4", "W5"], "held_out": ["W2"] },
+			{ "id": "C", "train_dev": ["W1", "W2", "W4", "W5"], "held_out": ["W3"] },
+			{ "id": "D", "train_dev": ["W1", "W2", "W3", "W5"], "held_out": ["W4"] },
+			{ "id": "E", "train_dev": ["W1", "W2", "W3", "W4"], "held_out": ["W5"] },
+			{ "id": "E0-ablation", "train_dev": ["W1", "W2", "W3"], "held_out": ["W5"] }
 		],
+		"fold_E0_is_not_cross_validation": "E0 shares its held-out window with E and exists only to be subtracted from it. E trains on the old layout PLUS one current-layout window; E0 trains on the old layout alone. Same test set, same seed, same code - so E minus E0 is what W4 is worth, with nothing else moving. It is excluded from the union the per-activity figures are computed over, because W5 must be predicted exactly once there.",
 		"reporting": "Per-activity accuracy is computed on the UNION of the three folds' held-out predictions - every labelled sample is predicted exactly once, by a model that never saw it. One confusion matrix per arm over that union, plus the per-fold matrices so a fold-specific collapse is visible.",
 		"rule": "Within a fold, no arm is tuned, prompted, thresholded or trained on that fold's held-out window. An arm that cannot honour fold isolation (e.g. a hand-tuned threshold fitted on both) is reported as such and its figure is marked in-sample.",
 		"amended_2": {
@@ -192,6 +201,14 @@
 			"why": "W3 exists and is annotated, and it fixes the specific defect the 2-fold split could not work around: brak_na_stanowisku and nierozpoznane were used almost disjointly by the two windows (66/0 and 2/58), so under 2-fold each model was asked for a class it had never seen and both scored a meaningless 0.0%. W3 contributes 24 and 4, so every fold now trains on at least some of both. sciaganie_elementu also rises from 52 held-out samples to 110, and the fixture stops being entirely pre-break.",
 			"integrity_warning": "UNLIKE the first amendment, this one is made AFTER arm results are known on the old split. That is a real difference and it is recorded rather than glossed: a figure produced under 3-fold is NOT comparable to the arm figures already published under 2-fold, and the two must never be quoted in the same table. Anything measured from here is a fresh measurement of a re-scoped fixture, not an improvement on the old number.",
 			"does_not_fix": "postoj. W3 adds 4 samples - eight seconds in twenty minutes - for 62 across all three windows. The activity is rare at this station rather than under-sampled, so no amount of comparable footage rescues it. nierozpoznane is also still thin in one direction: the fold holding out W2 trains on only 4 examples of it."
+		},
+		"amended_3": {
+			"date": "2026-09-04",
+			"was": "3-fold cross-validation over W1-W3",
+			"why": "The bench was rearranged between 2026-09-01 and 2026-09-03, and every window in the 3-fold split predates it. That is not a sampling nicety: the shipped v2.0.0 head scores 92.7% cross-validated on those three windows and 56.5% on held-out W4 from the new layout. A protocol that cannot see a 36-point drop is not measuring the thing the product is sold on.",
+			"integrity_warning": "Like `amended_2` and unlike `amended`, this is declared AFTER results are known - specifically after W4's held-out figure. Five-fold numbers are therefore NOT comparable with the 3-fold ones and must never share a table with them. What was NOT chosen after seeing results is fold E0: it was declared together with E, before either ran, precisely so the ablation could not be picked to flatter.",
+			"what_it_still_cannot_do": "W4 and W5 are the same day, the same shift and the same operator, 50 minutes apart. Folds D and E therefore hold out a window whose twin is in training, which is a weaker test than it looks - closer to 'another hour' than 'another day'. The 3:2 balance also still leans old-layout. Both are fixed the same way: another window, captured on a later day.",
+			"does_not_fix": "brak_na_stanowisku and nierozpoznane on the current layout. Neither W4 nor W5 contains a single sample of either, so both classes are still learned exclusively from pre-rearrangement footage, and any figure for them says nothing about the layout the model now runs on."
 		},
 		"amended": {
 			"date": "2026-09-01",
