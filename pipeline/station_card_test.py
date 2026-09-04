@@ -19,9 +19,10 @@ from pathlib import Path
 import pytest
 
 from pipeline.station_card import StationCard, StationCardError
+from pipeline.station_classifier import DEFAULT_STATION_CARD_PATH
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SHIPPED_CARD = REPO_ROOT / "models" / "station-head-hala-prawe-v1-v2.0.0.card.json"
+SHIPPED_CARD = REPO_ROOT / DEFAULT_STATION_CARD_PATH
 
 
 def _shipped_document() -> dict:
@@ -33,7 +34,7 @@ class TestTheShippedCard:
     def test_it_carries_everything_the_section_reports(self) -> None:
         card = StationCard.load(SHIPPED_CARD)
 
-        assert card.version == "2.0.0"
+        assert card.version == "3.0.0"
         assert card.station_id == "hala-prawe-v1"
         assert card.stride_s == 2
 
@@ -51,13 +52,13 @@ class TestTheShippedCard:
 
         # The measured over-reporting, per delivered category. A total rendered
         # without this is a number the client cannot use safely.
-        assert card.time_ratios["spawanie"] == 1.064516129032258
+        assert card.time_ratios["spawanie"] == 1.02020202020202
         assert set(card.time_ratios) == set(card.delivered_classes)
 
         assert card.window == 64
         assert card.model_input == (518, 1078)
 
-        assert [w.slot for w in card.training_windows] == ["W1", "W2", "W3"]
+        assert [w.slot for w in card.training_windows] == ["W1", "W2", "W3", "W4", "W5"]
         assert card.training_windows[0].window_local == "2026-08-28 09:00-09:20 Europe/Warsaw"
         assert card.training_windows[0].samples == 599
 

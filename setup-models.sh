@@ -96,13 +96,13 @@ DINOV2_URL="${DINOV2_URL:-https://github.com/KopalnieKrypto/cctv-gpu-engine/rele
 # deployment would move those numbers with nothing in `result.json` to say so.
 # `--classifier station` refuses to run when the configured zone is not the
 # card's rectangle, which only means anything if the card is the pinned one.
-STATION_HEAD_TAG="${STATION_HEAD_TAG:-station-head-hala-prawe-v1-v2.0.0}"
-STATION_HEAD_FILE="${STATION_HEAD_FILE:-station-head-hala-prawe-v1-v2.0.0.onnx}"
-STATION_HEAD_SHA256="${STATION_HEAD_SHA256:-ef6d6f1edc1996563e7dc05c89685c2032e2cb1d3d503859a85b7e8d237adfaf}"
+STATION_HEAD_TAG="${STATION_HEAD_TAG:-station-head-hala-prawe-v1-v3.0.0}"
+STATION_HEAD_FILE="${STATION_HEAD_FILE:-station-head-hala-prawe-v1-v3.0.0.onnx}"
+STATION_HEAD_SHA256="${STATION_HEAD_SHA256:-96f232199abb113a8e573481852a5ad47c1684264f74555088f9e3d13951a3ac}"
 STATION_HEAD_URL="${STATION_HEAD_URL:-https://github.com/KopalnieKrypto/cctv-gpu-engine/releases/download/${STATION_HEAD_TAG}/${STATION_HEAD_FILE}}"
 
-STATION_CARD_FILE="${STATION_CARD_FILE:-station-head-hala-prawe-v1-v2.0.0.card.json}"
-STATION_CARD_SHA256="${STATION_CARD_SHA256:-7af6868795df90b6f9a92144481536b23fae3df60e824a4d4692b1a3d7758fa4}"
+STATION_CARD_FILE="${STATION_CARD_FILE:-station-head-hala-prawe-v1-v3.0.0.card.json}"
+STATION_CARD_SHA256="${STATION_CARD_SHA256:-7b71235445792f793a80728a8b2d239dc91d433dd790ab1eefa8db96692dc52b}"
 STATION_CARD_URL="${STATION_CARD_URL:-https://github.com/KopalnieKrypto/cctv-gpu-engine/releases/download/${STATION_HEAD_TAG}/${STATION_CARD_FILE}}"
 
 DEST_DIR="models"

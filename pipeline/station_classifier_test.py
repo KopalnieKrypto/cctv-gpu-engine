@@ -19,6 +19,7 @@ import pytest
 
 from pipeline.station_card import StationCard
 from pipeline.station_classifier import (
+    DEFAULT_STATION_CARD_PATH,
     StationClassifier,
     StationCropError,
     StationRectMismatchError,
@@ -33,7 +34,7 @@ from pipeline.station_classifier import (
 from pipeline.zones import ZoneConfig
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SHIPPED_CARD_NAME = "models/station-head-hala-prawe-v1-v2.0.0.card.json"
+SHIPPED_CARD_NAME = DEFAULT_STATION_CARD_PATH
 
 # The welding bench: 900x800 at (1700, 1360) in the 3840x2160 native frame,
 # written as a rectangle polygon because that is what a station zone is.

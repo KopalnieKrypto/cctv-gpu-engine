@@ -33,8 +33,8 @@ import numpy as np
 from pipeline.station_card import Rect, StationCard, StationError
 from pipeline.zones import StationRuleset, Zone, ZoneConfig
 
-DEFAULT_STATION_HEAD_PATH = "models/station-head-hala-prawe-v1-v2.0.0.onnx"
-DEFAULT_STATION_CARD_PATH = "models/station-head-hala-prawe-v1-v2.0.0.card.json"
+DEFAULT_STATION_HEAD_PATH = "models/station-head-hala-prawe-v1-v3.0.0.onnx"
+DEFAULT_STATION_CARD_PATH = "models/station-head-hala-prawe-v1-v3.0.0.card.json"
 DEFAULT_BACKBONE_PATH = "models/dinov2-base.onnx"
 
 CUDA_PROVIDER = "CUDAExecutionProvider"

@@ -23,6 +23,8 @@ from pathlib import Path
 
 import pytest
 
+from pipeline.station_classifier import DEFAULT_STATION_CARD_PATH
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SETUP_MODELS_SCRIPT = REPO_ROOT / "setup-models.sh"
 
@@ -163,7 +165,7 @@ class TestTheStationHead:
         # weights its figures describe, so the two are checked against each other
         # rather than both read from the same file.
         script = SETUP_MODELS_SCRIPT.read_text()
-        assert "ef6d6f1edc1996563e7dc05c89685c2032e2cb1d3d503859a85b7e8d237adfaf" in script, (
+        assert "96f232199abb113a8e573481852a5ad47c1684264f74555088f9e3d13951a3ac" in script, (
             "the station head pin is not the sha256 the shipped model card names"
         )
 
@@ -179,5 +181,5 @@ class TestTheStationHead:
             r'STATION_CARD_SHA256="\$\{STATION_CARD_SHA256:-([0-9a-fA-F]{64})\}"', script
         )
         assert pin, "the station card entry has no pinned 64-hex sha256 default"
-        committed = REPO_ROOT / "models" / "station-head-hala-prawe-v1-v2.0.0.card.json"
+        committed = REPO_ROOT / DEFAULT_STATION_CARD_PATH
         assert pin.group(1) == hashlib.sha256(committed.read_bytes()).hexdigest()

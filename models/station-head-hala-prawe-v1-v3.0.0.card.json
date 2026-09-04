@@ -1,8 +1,8 @@
 {
   "artifact": {
-    "name": "station-head-hala-prawe-v1-v1.0.0.onnx",
-    "version": "1.0.0",
-    "sha256": "38e678de782d887d59b50c2992820d0a862fcf7b528f1de955c1e439877e2c0e",
+    "name": "station-head-hala-prawe-v1-v3.0.0.onnx",
+    "version": "3.0.0",
+    "sha256": "96f232199abb113a8e573481852a5ad47c1684264f74555088f9e3d13951a3ac",
     "bytes": 1892460,
     "opset": 18,
     "input": "embeddings (batch, 768, time) - frozen facebook/dinov2-base CLS vectors",
@@ -13,9 +13,9 @@
     "id": "hala-prawe-v1",
     "camera_id": "c88d18d9-cda0-4c88-b76c-b475a45cbeb8",
     "zone_native_px": {
-      "w": 900,
+      "w": 1670,
       "h": 800,
-      "x": 1700,
+      "x": 1030,
       "y": 1360
     },
     "stride_s": 2
@@ -50,25 +50,22 @@
     "comparison": {
       "ships": "collapsed",
       "regressions": {
-        "spawanie": [
+        "pozostale": [
           "time_ratio"
-        ],
-        "ukladanie_pretow": [
-          "recall"
         ]
       },
       "deltas": {
         "spawanie": {
-          "recall": 0.028225806451612878,
-          "time_ratio_toward_1": -0.04704301075268824
+          "recall": 0.0007770007770008247,
+          "time_ratio_toward_1": 0.017871017871017747
         },
         "ukladanie_pretow": {
-          "recall": -0.036231884057971064,
-          "time_ratio_toward_1": 0.019927536231884146
+          "recall": 0.0009250693802035359,
+          "time_ratio_toward_1": 0.007400555041628065
         },
         "pozostale": {
-          "recall": 0.2063492063492064,
-          "time_ratio_toward_1": 0.13605442176870752
+          "recall": 0.1390845070422535,
+          "time_ratio_toward_1": -0.12852112676056326
         }
       },
       "rule": "the directly-trained vocabulary ships only if it regresses on no delivered activity, on neither recall nor reported time; `nierozpoznane` is excluded because it is not an activity"
@@ -77,12 +74,12 @@
   "backbone": {
     "id": "facebook/dinov2-base",
     "preprocessing": {
-      "resize": 518,
       "model_input": [
-        224,
-        224
+        518,
+        1078
       ],
-      "note": "resize 518x518, then centre-crop to 224x224 - the crop is what the model sees"
+      "center_crop": false,
+      "note": "the WHOLE station rectangle is resized to 1078x518 (width x height) - no centre-crop, so what the card calls the rectangle is what the model sees"
     },
     "frozen": true,
     "why_frozen": "it is identical at every station and ships once inside the container image; only the ~1 MB head below is station-specific"
@@ -125,6 +122,18 @@
         "window_local": "2026-09-01 18:25-18:45 Europe/Warsaw",
         "annotated_at": "2026-09-02",
         "samples": 600
+      },
+      {
+        "slot": "W4",
+        "window_local": "2026-09-04 06:00-06:20 Europe/Warsaw",
+        "annotated_at": "2026-09-04",
+        "samples": 599
+      },
+      {
+        "slot": "W5",
+        "window_local": "2026-09-04 07:10-07:30 Europe/Warsaw",
+        "annotated_at": "2026-09-04",
+        "samples": 600
       }
     ],
     "held_out": [],
@@ -138,41 +147,41 @@
     "measured_on": "cross-validated held-out folds, on models that are not the shipped weights; read programmatically from C0-report.json at generation time",
     "union": {
       "spawanie": {
-        "recall": 0.8897849462365591,
-        "time_ratio": 1.0618279569892473,
-        "support": 744
+        "recall": 0.9145299145299145,
+        "time_ratio": 1.02020202020202,
+        "support": 1287
       },
       "ukladanie_pretow": {
-        "recall": 0.8822463768115942,
-        "time_ratio": 1.0996376811594204,
-        "support": 552
+        "recall": 0.8223866790009251,
+        "time_ratio": 0.9121184088806661,
+        "support": 1081
       },
       "pozostale": {
-        "recall": 0.4512471655328798,
-        "time_ratio": 0.8412698412698413,
-        "support": 441
+        "recall": 0.5176056338028169,
+        "time_ratio": 1.0035211267605635,
+        "support": 568
       },
       "nierozpoznane": {
         "recall": 0.0,
-        "time_ratio": 0.5,
+        "time_ratio": 2.0806451612903225,
         "support": 62
       }
     },
     "per_window": {
       "W1": {
         "spawanie": {
-          "recall": 0.9821428571428571,
-          "time_ratio": 1.1294642857142858,
+          "recall": 0.9955357142857143,
+          "time_ratio": 1.1473214285714286,
           "support": 224
         },
         "ukladanie_pretow": {
           "recall": 0.9444444444444444,
-          "time_ratio": 1.4055555555555554,
+          "time_ratio": 1.0222222222222221,
           "support": 180
         },
         "pozostale": {
-          "recall": 0.2717948717948718,
-          "time_ratio": 0.31794871794871793,
+          "recall": 0.2205128205128205,
+          "time_ratio": 0.24615384615384617,
           "support": 195
         },
         "nierozpoznane": {
@@ -183,18 +192,18 @@
       },
       "W2": {
         "spawanie": {
-          "recall": 0.9267399267399268,
-          "time_ratio": 0.989010989010989,
+          "recall": 0.9633699633699634,
+          "time_ratio": 1.0366300366300367,
           "support": 273
         },
         "ukladanie_pretow": {
-          "recall": 0.9664804469273743,
-          "time_ratio": 1.0446927374301676,
+          "recall": 0.9832402234636871,
+          "time_ratio": 1.1452513966480447,
           "support": 179
         },
         "pozostale": {
-          "recall": 0.7222222222222222,
-          "time_ratio": 1.5888888888888888,
+          "recall": 0.6222222222222222,
+          "time_ratio": 1.2444444444444445,
           "support": 90
         },
         "nierozpoznane": {
@@ -205,24 +214,68 @@
       },
       "W3": {
         "spawanie": {
-          "recall": 0.7651821862348178,
-          "time_ratio": 1.0809716599190284,
+          "recall": 0.7611336032388664,
+          "time_ratio": 1.0364372469635628,
           "support": 247
         },
         "ukladanie_pretow": {
-          "recall": 0.7461139896373057,
-          "time_ratio": 0.8652849740932642,
+          "recall": 0.2538860103626943,
+          "time_ratio": 0.2694300518134715,
           "support": 193
         },
         "pozostale": {
-          "recall": 0.5192307692307693,
-          "time_ratio": 1.064102564102564,
+          "recall": 0.6794871794871795,
+          "time_ratio": 1.7692307692307692,
           "support": 156
         },
         "nierozpoznane": {
           "recall": 0.0,
-          "time_ratio": 0.0,
+          "time_ratio": 4.0,
           "support": 4
+        }
+      },
+      "W4": {
+        "spawanie": {
+          "recall": 0.9311594202898551,
+          "time_ratio": 0.9637681159420289,
+          "support": 276
+        },
+        "ukladanie_pretow": {
+          "recall": 0.9848484848484849,
+          "time_ratio": 1.1553030303030303,
+          "support": 264
+        },
+        "pozostale": {
+          "recall": 0.4576271186440678,
+          "time_ratio": 0.4745762711864407,
+          "support": 59
+        },
+        "nierozpoznane": {
+          "recall": null,
+          "time_ratio": null,
+          "support": 0
+        }
+      },
+      "W5": {
+        "spawanie": {
+          "recall": 0.9213483146067416,
+          "time_ratio": 0.9400749063670412,
+          "support": 267
+        },
+        "ukladanie_pretow": {
+          "recall": 0.8830188679245283,
+          "time_ratio": 0.9056603773584906,
+          "support": 265
+        },
+        "pozostale": {
+          "recall": 0.9117647058823529,
+          "time_ratio": 1.5588235294117647,
+          "support": 68
+        },
+        "nierozpoznane": {
+          "recall": null,
+          "time_ratio": null,
+          "support": 0
         }
       }
     }

@@ -1,8 +1,8 @@
 {
   "artifact": {
-    "name": "station-head-hala-prawe-v1-v2.0.0.onnx",
-    "version": "2.0.0",
-    "sha256": "ef6d6f1edc1996563e7dc05c89685c2032e2cb1d3d503859a85b7e8d237adfaf",
+    "name": "station-head-hala-prawe-v1-v3.0.0.onnx",
+    "version": "3.0.0",
+    "sha256": "96f232199abb113a8e573481852a5ad47c1684264f74555088f9e3d13951a3ac",
     "bytes": 1892460,
     "opset": 18,
     "input": "embeddings (batch, 768, time) - frozen facebook/dinov2-base CLS vectors",
@@ -50,30 +50,22 @@
     "comparison": {
       "ships": "collapsed",
       "regressions": {
-        "spawanie": [
-          "recall",
-          "time_ratio"
-        ],
-        "ukladanie_pretow": [
-          "recall",
-          "time_ratio"
-        ],
         "pozostale": [
           "time_ratio"
         ]
       },
       "deltas": {
         "spawanie": {
-          "recall": -0.16532258064516125,
-          "time_ratio_toward_1": -0.11693548387096775
+          "recall": 0.0007770007770008247,
+          "time_ratio_toward_1": 0.017871017871017747
         },
         "ukladanie_pretow": {
-          "recall": -0.07065217391304346,
-          "time_ratio_toward_1": -0.12318840579710144
+          "recall": 0.0009250693802035359,
+          "time_ratio_toward_1": 0.007400555041628065
         },
         "pozostale": {
-          "recall": 0.20181405895691606,
-          "time_ratio_toward_1": -0.3832199546485261
+          "recall": 0.1390845070422535,
+          "time_ratio_toward_1": -0.12852112676056326
         }
       },
       "rule": "the directly-trained vocabulary ships only if it regresses on no delivered activity, on neither recall nor reported time; `nierozpoznane` is excluded because it is not an activity"
@@ -130,6 +122,18 @@
         "window_local": "2026-09-01 18:25-18:45 Europe/Warsaw",
         "annotated_at": "2026-09-02",
         "samples": 600
+      },
+      {
+        "slot": "W4",
+        "window_local": "2026-09-04 06:00-06:20 Europe/Warsaw",
+        "annotated_at": "2026-09-04",
+        "samples": 599
+      },
+      {
+        "slot": "W5",
+        "window_local": "2026-09-04 07:10-07:30 Europe/Warsaw",
+        "annotated_at": "2026-09-04",
+        "samples": 600
       }
     ],
     "held_out": [],
@@ -143,23 +147,23 @@
     "measured_on": "cross-validated held-out folds, on models that are not the shipped weights; read programmatically from C0-report.json at generation time",
     "union": {
       "spawanie": {
-        "recall": 0.9274193548387096,
-        "time_ratio": 1.064516129032258,
-        "support": 744
+        "recall": 0.9145299145299145,
+        "time_ratio": 1.02020202020202,
+        "support": 1287
       },
       "ukladanie_pretow": {
-        "recall": 0.7880434782608695,
-        "time_ratio": 0.8931159420289855,
-        "support": 552
+        "recall": 0.8223866790009251,
+        "time_ratio": 0.9121184088806661,
+        "support": 1081
       },
       "pozostale": {
-        "recall": 0.4512471655328798,
-        "time_ratio": 0.8752834467120182,
-        "support": 441
+        "recall": 0.5176056338028169,
+        "time_ratio": 1.0035211267605635,
+        "support": 568
       },
       "nierozpoznane": {
-        "recall": 0.03225806451612903,
-        "time_ratio": 2.064516129032258,
+        "recall": 0.0,
+        "time_ratio": 2.0806451612903225,
         "support": 62
       }
     },
@@ -171,13 +175,13 @@
           "support": 224
         },
         "ukladanie_pretow": {
-          "recall": 0.9388888888888889,
-          "time_ratio": 1.011111111111111,
+          "recall": 0.9444444444444444,
+          "time_ratio": 1.0222222222222221,
           "support": 180
         },
         "pozostale": {
-          "recall": 0.23076923076923078,
-          "time_ratio": 0.26666666666666666,
+          "recall": 0.2205128205128205,
+          "time_ratio": 0.24615384615384617,
           "support": 195
         },
         "nierozpoznane": {
@@ -188,18 +192,18 @@
       },
       "W2": {
         "spawanie": {
-          "recall": 0.945054945054945,
-          "time_ratio": 0.978021978021978,
+          "recall": 0.9633699633699634,
+          "time_ratio": 1.0366300366300367,
           "support": 273
         },
         "ukladanie_pretow": {
-          "recall": 1.0,
-          "time_ratio": 1.2402234636871508,
+          "recall": 0.9832402234636871,
+          "time_ratio": 1.1452513966480447,
           "support": 179
         },
         "pozostale": {
-          "recall": 0.6333333333333333,
-          "time_ratio": 1.2333333333333334,
+          "recall": 0.6222222222222222,
+          "time_ratio": 1.2444444444444445,
           "support": 90
         },
         "nierozpoznane": {
@@ -210,24 +214,68 @@
       },
       "W3": {
         "spawanie": {
-          "recall": 0.8461538461538461,
-          "time_ratio": 1.0850202429149798,
+          "recall": 0.7611336032388664,
+          "time_ratio": 1.0364372469635628,
           "support": 247
         },
         "ukladanie_pretow": {
-          "recall": 0.45077720207253885,
-          "time_ratio": 0.46113989637305697,
+          "recall": 0.2538860103626943,
+          "time_ratio": 0.2694300518134715,
           "support": 193
         },
         "pozostale": {
-          "recall": 0.6217948717948718,
-          "time_ratio": 1.4294871794871795,
+          "recall": 0.6794871794871795,
+          "time_ratio": 1.7692307692307692,
           "support": 156
         },
         "nierozpoznane": {
-          "recall": 0.5,
-          "time_ratio": 5.0,
+          "recall": 0.0,
+          "time_ratio": 4.0,
           "support": 4
+        }
+      },
+      "W4": {
+        "spawanie": {
+          "recall": 0.9311594202898551,
+          "time_ratio": 0.9637681159420289,
+          "support": 276
+        },
+        "ukladanie_pretow": {
+          "recall": 0.9848484848484849,
+          "time_ratio": 1.1553030303030303,
+          "support": 264
+        },
+        "pozostale": {
+          "recall": 0.4576271186440678,
+          "time_ratio": 0.4745762711864407,
+          "support": 59
+        },
+        "nierozpoznane": {
+          "recall": null,
+          "time_ratio": null,
+          "support": 0
+        }
+      },
+      "W5": {
+        "spawanie": {
+          "recall": 0.9213483146067416,
+          "time_ratio": 0.9400749063670412,
+          "support": 267
+        },
+        "ukladanie_pretow": {
+          "recall": 0.8830188679245283,
+          "time_ratio": 0.9056603773584906,
+          "support": 265
+        },
+        "pozostale": {
+          "recall": 0.9117647058823529,
+          "time_ratio": 1.5588235294117647,
+          "support": 68
+        },
+        "nierozpoznane": {
+          "recall": null,
+          "time_ratio": null,
+          "support": 0
         }
       }
     }
