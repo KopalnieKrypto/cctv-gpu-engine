@@ -124,14 +124,20 @@
 			"shift_position": "morning, BEFORE the configured 07:00 shift start - the operator is at the bench from at least 05:57 local, which the stored shift windows do not describe",
 			"r2_key_original": null,
 			"r2_key_preserved": null,
-			"annotated": false,
+			"annotated": true,
 			"annotation_file": "W4.intervals.json",
-			"annotated_at": null,
-			"annotation_coverage": null,
-			"status": "CUT 2026-09-04, awaiting annotation",
+			"annotated_at": "2026-09-04",
+			"annotation_coverage": {
+				"labelled": 599,
+				"total": 600,
+				"stride_s": 2,
+				"unlabelled_note": "the final sample at t=1198 s carries no label; it is dropped rather than guessed"
+			},
+			"status": "ANNOTATED 2026-09-04",
 			"why_this_window": "The first material from the CURRENT bench layout. W1-W3 all predate the rearrangement, which is why v2.0.0 - retrained on the widened rectangle and better than v1.0.0 on every cross-validated figure - still reports `spawanie: 0.0 s` on 2026-09-03 footage that carries more arc evidence than W1. That failure is domain shift, not geometry, and no preprocessing change reaches it. Only material from the layout the model will actually meet does.",
 			"provenance": "NOT a platform task. Cut by hand from the appliance's rolling buffer on cctv-vps-camera, the same way as W3 - 20 consecutive one-minute chunks concatenated with stream copy, so the frames are the recorder's own and were never re-encoded. Container metadata is honest: r_frame_rate=20/1, 23998 frames over 1200.02 s.",
-			"content": "Chosen off a one-frame-per-minute contact sheet of the preceding hour rather than at random: this window carries several distinct welding arcs, rod handling and carrying, and stretches with the bench empty - so all four delivered categories are represented rather than only the loudest one.",
+			"content": "Chosen off a one-frame-per-minute contact sheet of the preceding hour rather than at random, to get welding, rod handling and idle time in one window. The labels show the pick was only partly right: `spawanie` 276 samples and `ukladanie_pretow` 264 account for 90% of it, with `sciaganie_elementu` 34, `inna_czynnosc` 20 and `postoj` 5 making up the rest. What it does NOT contain is `brak_na_stanowisku` or `nierozpoznane` - not one sample of either. The empty-bench stretches visible on that contact sheet sit at 04:22-04:45 UTC, OUTSIDE the window that was cut; the claim that this window covered them was wrong and is corrected here rather than left standing.",
+			"contributes": "Three of the four delivered categories: `spawanie`, `ukladanie_pretow` and `pozostale` (59 samples, via sciaganie/inna/postoj). Nothing for `nierozpoznane`, and nothing for the empty station - so for absence the model still has only W1 (66), W3 (24) and W2 (2), all from the OLD layout. A second current-layout window should be cut from the empty stretch the buffer still holds.",
 			"source_retained": "The full three-hour buffer this was cut from (03:58-06:59 local, 181 chunks, 7.0 GB) is preserved at ~/preserve-2026-09-04-poranek on cctv-vps-camera, outside the rotating buffer. Further windows from the current layout can be cut from it without re-capturing. That directory is NOT backed up and lives on one machine."
 		}
 	],
