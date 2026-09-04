@@ -278,7 +278,14 @@ def main() -> int:
                 "torch_allocator_peak_mib": int(torch_peak),
             },
         }
-        out = args.out_dir / f"{args.features}-{args.image_size}-{te}.json"
+        # The fold is part of the name, not just the held-out window. Under plain
+        # cross-validation each window is held out exactly once and the two are
+        # interchangeable; add one ablation fold that re-uses a test window with a
+        # different training set and they are not — the second run silently
+        # overwrote the first, and the file left on disk was the one that answered
+        # a different question. `evaluate_arms` reads `window` out of the payload,
+        # so the name is free to say more.
+        out = args.out_dir / f"{args.features}-{args.image_size}-{fold['id']}-{te}.json"
         out.write_text(json.dumps(doc, indent=2, ensure_ascii=False))
         print(f"wrote {out}  (fit {fit_seconds:.0f}s, peak {peak} MiB)")
 
