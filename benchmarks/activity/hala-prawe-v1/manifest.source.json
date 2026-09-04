@@ -114,6 +114,25 @@
 			"provenance": "NOT a platform task, unlike W1/W2. Cut by hand from the appliance's rolling buffer on cctv-vps-camera - 20 consecutive one-minute chunks concatenated with stream copy, so the frames are the recorder's own and were never re-encoded. Container metadata is honest: r_frame_rate=20/1, 23985 frames over 1200.04 s, so W1's 120/1 trap does not recur here.",
 			"source_retained": "The full three-hour buffer this was cut from (18:21-21:21 local, 180 chunks, 6.8 GB) is preserved at ~/preserve-2026-09-01-zmiana2 on cctv-vps-camera, outside the rotating buffer. Further windows can be cut from it without re-capturing. That directory is NOT backed up and lives on one machine.",
 			"note": "Recovered because the C.0 report named the missing second-half-of-shift material as the open question. The original DROPPED decision and its cost stand as history: W1 and W2 are still both pre-break, so any figure computed over those two alone still carries that bias, and two of the three windows still do."
+		},
+		{
+			"slot": "W4",
+			"task_id": null,
+			"window_utc": ["2026-09-04T04:00:05Z", "2026-09-04T04:20:05Z"],
+			"window_local": "2026-09-04 06:00-06:20 Europe/Warsaw",
+			"duration_s": 1200,
+			"shift_position": "morning, BEFORE the configured 07:00 shift start - the operator is at the bench from at least 05:57 local, which the stored shift windows do not describe",
+			"r2_key_original": null,
+			"r2_key_preserved": null,
+			"annotated": false,
+			"annotation_file": "W4.intervals.json",
+			"annotated_at": null,
+			"annotation_coverage": null,
+			"status": "CUT 2026-09-04, awaiting annotation",
+			"why_this_window": "The first material from the CURRENT bench layout. W1-W3 all predate the rearrangement, which is why v2.0.0 - retrained on the widened rectangle and better than v1.0.0 on every cross-validated figure - still reports `spawanie: 0.0 s` on 2026-09-03 footage that carries more arc evidence than W1. That failure is domain shift, not geometry, and no preprocessing change reaches it. Only material from the layout the model will actually meet does.",
+			"provenance": "NOT a platform task. Cut by hand from the appliance's rolling buffer on cctv-vps-camera, the same way as W3 - 20 consecutive one-minute chunks concatenated with stream copy, so the frames are the recorder's own and were never re-encoded. Container metadata is honest: r_frame_rate=20/1, 23998 frames over 1200.02 s.",
+			"content": "Chosen off a one-frame-per-minute contact sheet of the preceding hour rather than at random: this window carries several distinct welding arcs, rod handling and carrying, and stretches with the bench empty - so all four delivered categories are represented rather than only the loudest one.",
+			"source_retained": "The full three-hour buffer this was cut from (03:58-06:59 local, 181 chunks, 7.0 GB) is preserved at ~/preserve-2026-09-04-poranek on cctv-vps-camera, outside the rotating buffer. Further windows from the current layout can be cut from it without re-capturing. That directory is NOT backed up and lives on one machine."
 		}
 	],
 	"split": {
