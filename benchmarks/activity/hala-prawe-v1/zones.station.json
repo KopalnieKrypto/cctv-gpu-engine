@@ -7,6 +7,12 @@
     "otherwise, because a head fed a rectangle it was not fitted on still returns",
     "confident logits and nothing downstream would say so.",
     "",
+    "1670x800 at (1030, 1360) since v2.0.0 (2026-09-03). The rectangle was 900x800",
+    "at (1700, 1360) for v1.0.0, of which the head only ever saw the middle 43%,",
+    "because the backbone's processor centre-cropped to its 224 default. This file",
+    "kept the old polygon for a day after the head moved, which the run would have",
+    "refused — correctly, but only at run time.",
+    "",
     "y is 1360, not the 1400 the manifest originally recorded. `crop=900:800:1700:1400`",
     "does not fit a 2160-tall frame, and ffmpeg's crop filter slides the rectangle",
     "back inside rather than failing, so every training crop was cut at in_h - h.",
@@ -21,10 +27,10 @@
       "id": "spawanie",
       "name": "Stanowisko spawalnicze",
       "polygon": [
-        [1700, 1360],
-        [2600, 1360],
-        [2600, 2160],
-        [1700, 2160]
+        [1030, 1360],
+        [2700, 1360],
+        [2700, 2160],
+        [1030, 2160]
       ],
       "rules": { "type": "station" }
     }
