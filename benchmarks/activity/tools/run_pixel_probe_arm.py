@@ -217,9 +217,31 @@ def embed_windows(
             vecs.append(out.last_hidden_state[:, 0].float().cpu().numpy())
             if (start + batch) % 200 < batch:
                 print(f"  [{slot}] {min(start + batch, n)}/{n}", file=sys.stderr)
+        # An annotator may leave a sample blank, and the timeline exports it as
+        # `activity_id: null` rather than inventing one - W4 has exactly one, its
+        # last. Dropping the pair is the only honest handling: `classes.index`
+        # raised on it, and the alternatives are worse in both directions. Filling
+        # it in would fabricate ground truth, and mapping it to `nierozpoznane`
+        # would be worse still, because that class means "the annotator looked and
+        # could not tell", not "nobody looked".
+        keep = [i for i, v in enumerate(labels[:n]) if v is not None]
+        dropped = n - len(keep)
+        if dropped:
+            # Only at the ends. These embeddings feed a TEMPORAL head, so removing
+            # a sample from the middle would splice two moments together and the
+            # model would read the join as continuous time. At the ends it merely
+            # shortens the sequence, which is what a 20-minute window already is.
+            if keep and keep != list(range(keep[0], keep[-1] + 1)):
+                sys.exit(
+                    f"{slot}: unlabelled samples sit inside the sequence, not at its "
+                    "ends. Dropping them would splice two moments into one for a "
+                    "temporal model. Label them, or cut the window at the gap."
+                )
+            print(f"  [{slot}] {dropped} unlabelled sample(s) dropped", file=sys.stderr)
+        x = np.concatenate(vecs)[:n]
         windows[slot] = {
-            "x": np.concatenate(vecs)[:n],
-            "y": np.asarray([classes.index(v) for v in labels[:n]], dtype=np.int64),
+            "x": x[keep],
+            "y": np.asarray([classes.index(labels[i]) for i in keep], dtype=np.int64),
             "stride": int(truth["stride_s"]),
         }
 
