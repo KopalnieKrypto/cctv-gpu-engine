@@ -175,7 +175,12 @@ def _grid_from_intervals(intervals: list[dict], stride: int, count: int) -> dict
 def load_annotation(path: Path) -> dict:
     doc = json.loads(path.read_text())
     stride = int(doc["stride_s"])
-    samples = {int(s["t_s"]): s["activity_id"] for s in doc["samples"]}
+    # A sample the annotator left blank exports as `activity_id: null`, which is
+    # the honest thing for the timeline to write and nothing to score against.
+    # Keeping it put `None` in the confusion matrix, where it sorted against real
+    # class names and took the renderer down. It is ground truth that does not
+    # exist, so it is dropped here rather than counted as an error by either arm.
+    samples = {int(s["t_s"]): s["activity_id"] for s in doc["samples"] if s["activity_id"]}
     return {
         "window": doc["window"],
         "stride_s": stride,
