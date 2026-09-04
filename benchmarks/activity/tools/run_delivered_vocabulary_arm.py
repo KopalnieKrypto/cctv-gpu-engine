@@ -198,7 +198,11 @@ def main() -> int:
                 "torch_allocator_peak_mib": int(torch_peak),
             },
         }
-        out = args.out_dir / f"delivered-{args.image_size}-{te}.json"
+        # Named after the fold, not just the held-out window - see the same fix in
+        # `run_tcn_pixel_arm`. Two folds may share a test window on purpose (an
+        # ablation differing only in what it trained on), and naming by window
+        # alone silently keeps whichever ran last.
+        out = args.out_dir / f"delivered-{args.image_size}-{fold['id']}-{te}.json"
         out.write_text(json.dumps(doc, indent=2, ensure_ascii=False))
         print(f"wrote {out}  (fit {fit_seconds:.0f}s)")
 
