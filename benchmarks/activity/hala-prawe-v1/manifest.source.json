@@ -138,7 +138,40 @@
 			"provenance": "NOT a platform task. Cut by hand from the appliance's rolling buffer on cctv-vps-camera, the same way as W3 - 20 consecutive one-minute chunks concatenated with stream copy, so the frames are the recorder's own and were never re-encoded. Container metadata is honest: r_frame_rate=20/1, 23998 frames over 1200.02 s.",
 			"content": "Chosen off a one-frame-per-minute contact sheet of the preceding hour rather than at random, to get welding, rod handling and idle time in one window. The labels show the pick was only partly right: `spawanie` 276 samples and `ukladanie_pretow` 264 account for 90% of it, with `sciaganie_elementu` 34, `inna_czynnosc` 20 and `postoj` 5 making up the rest. What it does NOT contain is `brak_na_stanowisku` or `nierozpoznane` - not one sample of either. The empty-bench stretches visible on that contact sheet sit at 04:22-04:45 UTC, OUTSIDE the window that was cut; the claim that this window covered them was wrong and is corrected here rather than left standing.",
 			"contributes": "Three of the four delivered categories: `spawanie`, `ukladanie_pretow` and `pozostale` (59 samples, via sciaganie/inna/postoj). Nothing for `nierozpoznane`, and nothing for the empty station - so for absence the model still has only W1 (66), W3 (24) and W2 (2), all from the OLD layout. A second current-layout window should be cut from the empty stretch the buffer still holds.",
+			"held_out_measurement": {
+				"date": "2026-09-04",
+				"what": "The SHIPPED v2.0.0 head, which trained on W1-W3 and has never seen this layout, run over W4 through the production path (`pipeline.analyze --classifier station`) on cctv-vps GPU 1, then compared sample by sample against these labels.",
+				"why_it_is_clean": "W4 was annotated after v2.0.0 shipped and is in none of its training material, so this is a genuine held-out figure - the first this fixture has had for the delivered head rather than for a cross-validation fold.",
+				"per_sample_agreement": 0.755,
+				"per_category": {
+					"spawanie": { "recall": 0.565, "time_ratio": 0.57, "true_s": 552, "predicted_s": 312 },
+					"ukladanie_pretow": { "recall": 0.958, "time_ratio": 1.12, "true_s": 528, "predicted_s": 590 },
+					"pozostale": { "recall": 0.729, "time_ratio": 2.51, "true_s": 118, "predicted_s": 296 }
+				},
+				"reading": "Welding is the failure: 94 of 276 welding samples are called `pozostale`, so the head reports 57% of the real welding time and inflates `pozostale` to 2.5x. Against the card's cross-validated 92.7% recall on the old layout, recall on the new one is 56.5% - that difference IS the domain shift, now measured rather than inferred.",
+				"the_guard_did_not_catch_it": "`arc_check` returned `consistent` on this run (91 flagged samples, 17 bouts, 157 predicted). The guard fires when a head reports almost NO welding against sustained arc evidence; a head that finds 57% of it clears the ratio test comfortably. So the arc guard bounds the catastrophic case and says nothing about a large but partial shortfall - which is exactly the case a client would still be billed for and would still act on."
+			},
 			"source_retained": "The full three-hour buffer this was cut from (03:58-06:59 local, 181 chunks, 7.0 GB) is preserved at ~/preserve-2026-09-04-poranek on cctv-vps-camera, outside the rotating buffer. Further windows from the current layout can be cut from it without re-capturing. That directory is NOT backed up and lives on one machine."
+		},
+		{
+			"slot": "W5",
+			"task_id": null,
+			"window_utc": ["2026-09-04T05:10:19Z", "2026-09-04T05:30:19Z"],
+			"window_local": "2026-09-04 07:10-07:30 Europe/Warsaw",
+			"duration_s": 1200,
+			"shift_position": "morning, inside the configured 07:00-15:00 shift",
+			"r2_key_original": null,
+			"r2_key_preserved": null,
+			"annotated": false,
+			"annotation_file": "W5.intervals.json",
+			"annotated_at": null,
+			"annotation_coverage": null,
+			"status": "CUT 2026-09-04, awaiting annotation",
+			"why_this_window": "W4 alone cannot show whether current-layout material fixes the shift: a window is either training material or the test, never both. Held out, W4 measures the gap (see `held_out_measurement` below); folded into training, it can no longer measure anything. W5 is the second current-layout window that makes the comparison possible - train on W1-W4, test here.",
+			"provenance": "Cut the same way as W3 and W4: 20 consecutive one-minute chunks from the appliance buffer, stream copy, 24000 frames over 1200.00 s at 20/1.",
+			"content": "Chosen off a one-frame-per-minute contact sheet of 07:00-07:35 local. The operator is at the bench throughout, with several distinct welding arcs and continuous rod handling. Like W4 it carries no empty-station stretch, so `brak_na_stanowisku` still has only old-layout examples.",
+			"honest_limit": "W5 is the same day, same shift and the same operator as W4, 50 minutes later. It therefore tests 'a different hour of the same session', NOT 'a different day'. A real generalisation figure needs a window captured after this session ends, and should be cut once one exists.",
+			"source_retained": "Preserved with W4's material at ~/preserve-2026-09-04-poranek on cctv-vps-camera (218 chunks after this cut)."
 		}
 	],
 	"split": {
