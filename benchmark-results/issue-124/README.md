@@ -77,7 +77,7 @@ tool whose next job is a different domain with no arc in it, the hand-work curve
 is the one that generalises.
 
 **The rule operates near noise at the bottom.** The passing set is 1.0, 0.75, 0.5,
-0.35, 0.25 and 0.125 — with 0.18 failing, and failing only because its reported
+0.35, 0.25 and 0.125, with 0.18 failing, and failing only because its reported
 duration is 1.105x against a band edge of 1.10x. A non-contiguous passing set is a
 sign the criterion is discriminating between neighbours it cannot really tell
 apart. The honest statement is that the floor lies between 0.125 and 0.09, which
@@ -132,7 +132,7 @@ was actually measured, not something regenerable on demand.
 
 ## Files
 
-- `summary.json` — the table above plus the knee verdict and the rule behind it
-- `sweep-report.json`, `sweep-report.md` — the full `evaluate_arms` output for all
+- `summary.json`: the table above plus the knee verdict and the rule behind it
+- `sweep-report.json`, `sweep-report.md`: the full `evaluate_arms` output for all
   eleven arms, including per-window and per-fold breakdowns
-- `person-height.json` — the ruler's output, per window and pooled
+- `person-height.json`: the ruler's output, per window and pooled

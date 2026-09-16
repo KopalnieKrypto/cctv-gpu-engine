@@ -465,7 +465,15 @@ def hardware_verdict(gpu: dict | None) -> dict:
 
 
 def gpu_seconds_per_video_hour(gpu: dict | None) -> float | None:
-    if not gpu or not gpu.get("video_seconds"):
+    """None means "cost unknown", which the report renders as UNMEASURED.
+
+    Both halves are guarded, not just `video_seconds`. A `gpu` block carrying one
+    key and not the other used to raise `KeyError` here, which aborted scoring
+    for every arm in the run — #124 lost an hour of embedding and 35 refits to
+    exactly that. An incomplete cost block is an unmeasured arm, the same verdict
+    `hardware_verdict` already gives a `gpu` block with no `peak_vram_mib`.
+    """
+    if not gpu or not gpu.get("video_seconds") or gpu.get("gpu_seconds") is None:
         return None
     return gpu["gpu_seconds"] / gpu["video_seconds"] * 3600
 

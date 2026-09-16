@@ -140,6 +140,12 @@ class TestHardwareVerdict:
         gpu = {"gpu_seconds": 600, "video_seconds": 1200}
         assert ev.gpu_seconds_per_video_hour(gpu) == pytest.approx(1800.0)
 
+    def test_half_a_cost_block_is_unknown_and_does_not_raise(self):
+        """A missing key must cost this arm its cost line, not the whole run."""
+        assert ev.gpu_seconds_per_video_hour({"video_seconds": 1200}) is None
+        assert ev.gpu_seconds_per_video_hour({"gpu_seconds": 600}) is None
+        assert ev.gpu_seconds_per_video_hour({}) is None
+
 
 class TestBoundaryErrors:
     def test_exact_boundaries_score_zero(self):
