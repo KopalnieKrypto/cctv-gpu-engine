@@ -135,8 +135,31 @@ class VramSampler:
             self._thread.join(timeout=3)
 
 
+def reduce_detail(img, scale: float):
+    """Throw real detail away without changing the tensor the backbone sees.
+
+    Downsample the crop to ``scale`` of its native size and put it straight back,
+    so the only thing that changed is how much the camera resolved. Handing the
+    small image to the processor instead would confound detail with tensor size,
+    and the resolution sweep (#124) exists precisely to keep those apart.
+
+    Down with Lanczos because it is the honest low-pass, back up with bicubic to
+    match `pipeline.station_classifier.preprocess_crop`.
+    """
+    from PIL import Image as _Image
+
+    w, h = img.size
+    sw, sh = max(1, round(w * scale)), max(1, round(h * scale))
+    return img.resize((sw, sh), _Image.LANCZOS).resize((w, h), _Image.BICUBIC)
+
+
 def embed_windows(
-    manifest_path: Path, crops_root: Path, cache: Path, size: int, device: str
+    manifest_path: Path,
+    crops_root: Path,
+    cache: Path,
+    size: int,
+    device: str,
+    detail_scale: float = 1.0,
 ) -> dict:
     """Frozen-backbone embeddings per annotated window, cached by identity.
 
@@ -145,6 +168,12 @@ def embed_windows(
     crop is resized into it and **never centre-cropped** - see
     `pipeline.station_classifier.preprocess_crop` for why that step was removed,
     and note that this is the second of the two implementations that had it.
+
+    ``detail_scale`` below 1.0 degrades each crop to that fraction of its native
+    resolution before embedding, which is how #124 asks "at what point does the
+    information disappear". It defaults to 1.0 and is absent from the cache key
+    at that value, so every cache written before this parameter existed still
+    hits and no shipped path changes behaviour.
     """
     import torch
     from PIL import Image
@@ -164,9 +193,10 @@ def embed_windows(
     # The rectangle is part of the cache identity, not just the tensor size. A
     # widened ROI produces different crops at the same `size`, and a stale hit
     # would train the head on embeddings of pixels nobody is looking at any more.
-    key = hashlib.sha256(f"{BACKBONE}:{model_input}:{rect}:{','.join(slots)}".encode()).hexdigest()[
-        :12
-    ]
+    key_src = f"{BACKBONE}:{model_input}:{rect}:{','.join(slots)}"
+    if detail_scale != 1.0:
+        key_src += f":detail{detail_scale:g}"
+    key = hashlib.sha256(key_src.encode()).hexdigest()[:12]
     npz = cache / f"emb-{key}.npz"
     meta_file = cache / f"emb-{key}.json"
     if npz.exists() and meta_file.exists():
@@ -200,6 +230,8 @@ def embed_windows(
         batch = embedding_batch(model_input)
         for start in range(0, n, batch):
             imgs = [Image.open(f).convert("RGB") for f in files[start : start + batch]]
+            if detail_scale != 1.0:
+                imgs = [reduce_detail(im, detail_scale) for im in imgs]
             inputs = processor(
                 images=imgs,
                 return_tensors="pt",
