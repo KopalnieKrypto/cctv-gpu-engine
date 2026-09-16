@@ -107,6 +107,20 @@ def cv_folds(manifest: dict) -> list[dict]:
     return folds
 
 
+def gpu_from_predictions(pred_dir: Path, name: str) -> dict:
+    """Cost for one arm, read back from the fold documents it wrote."""
+    docs = sorted(pred_dir.glob(f"{name}-*.json"))
+    if not docs:
+        return {}
+    gpus = [json.loads(d.read_text()).get("gpu", {}) for d in docs]
+    first = gpus[0]
+    return {
+        "embed_seconds": first.get("embed_seconds_total"),
+        "fit_seconds_total": round(sum(g.get("fit_seconds") or 0 for g in gpus), 1),
+        "peak_vram_mib": first.get("peak_vram_mib"),
+    }
+
+
 def scores_for(report: dict, name: str) -> tuple[dict, str]:
     """Delivered-vocabulary scores for one arm, or the raw ones with a note."""
     entry = next((a for a in report["arms"] if a["name"] == name), None)
@@ -171,13 +185,26 @@ def main() -> int:
         "--scales",
         help="override the declared sweep, comma separated. Use only to resume.",
     )
+    ap.add_argument(
+        "--score-only",
+        action="store_true",
+        help=(
+            "skip embedding and refitting, score the predictions already on disk. "
+            "For when the sweep survived but the scoring step did not; refitting "
+            "is not reproducible, so re-running it would silently replace the "
+            "predictions the log describes."
+        ),
+    )
     args = ap.parse_args()
 
-    import torch
+    if not args.score_only:
+        import torch
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    if device != "cuda":
-        sys.exit("no CUDA device - this sweep refits a head seven times")
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        if device != "cuda":
+            sys.exit("no CUDA device - this sweep refits a head seven times")
+    else:
+        device = "cpu"
 
     manifest = json.loads(args.manifest.read_text())
     folds = cv_folds(manifest)
@@ -189,7 +216,7 @@ def main() -> int:
     pred_dir.mkdir(parents=True, exist_ok=True)
 
     timings: dict[str, dict] = {}
-    for scale in scales:
+    for scale in scales if not args.score_only else ():
         name = arm_name(args.image_size, scale)
         print(f"\n########## detail scale {scale:g}  ({name}) ##########", file=sys.stderr)
 
@@ -257,6 +284,11 @@ def main() -> int:
                     "box": args.box,
                     "gpu_index": args.gpu_index,
                     "gpus_used": 1,
+                    # evaluate_arms reads this key directly, so its absence is a
+                    # KeyError after the expensive part has already run. Same
+                    # amortisation as run_tcn_pixel_arm: the embedding pass is
+                    # shared by every fold at this scale.
+                    "gpu_seconds": round(embed_seconds / max(len(folds), 1) + fit_seconds, 1),
                     "embed_seconds_total": round(embed_seconds, 1),
                     "fit_seconds": round(fit_seconds, 1),
                     "video_seconds": len(windows[te]["y"]) * stride,
@@ -301,7 +333,9 @@ def main() -> int:
             "detail_scale": scale,
             "arm": name,
             "scores": scores,
-            "gpu": timings.get(name, {}),
+            # Under --score-only the in-memory timings are gone, so they come
+            # back from the prediction docs, which recorded them at the time.
+            "gpu": timings.get(name) or gpu_from_predictions(pred_dir, name),
         }
         if args.person_height_px > 0:
             row["person_height_px"] = round(args.person_height_px * scale, 1)
