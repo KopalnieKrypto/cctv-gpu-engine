@@ -1,0 +1,707 @@
+{
+  "issue": 124,
+  "question": "the resolution floor for a station zone, with no pose detector in the path",
+  "method": "crop degraded to a fraction of native and restored to full size, head REFIT at every scale over the same cross-validation folds, scored by evaluate_arms.py",
+  "vocabulary": "delivered",
+  "scales_declared_before_run": [
+    1.0,
+    0.75,
+    0.5,
+    0.35,
+    0.25,
+    0.18,
+    0.125
+  ],
+  "scales_run": [
+    1.0,
+    0.75,
+    0.5,
+    0.35,
+    0.25,
+    0.18,
+    0.125,
+    0.09,
+    0.06,
+    0.045,
+    0.03
+  ],
+  "person_height_px_native": 558.2,
+  "person_height_source": "measure_person_height.py, median over sampled native crops",
+  "knee": {
+    "scale": 0.125,
+    "rule": "smallest detail scale where spawanie recall is within 5.0 pp of the scale-1.0 figure (90.5%) and time ratio is inside (0.9, 1.1)",
+    "scales_passing": [
+      0.125,
+      0.25,
+      0.35,
+      0.5,
+      0.75,
+      1.0
+    ],
+    "baseline_recall": 0.9052059052059052
+  },
+  "proposed_floor_person_height_px": 69.8,
+  "measures_only_the_model_half": "What a human annotator can still tell apart is NOT measured here and needs inter-annotator agreement, which this fixture does not have. zone-annotator must call the threshold provisional until it does.",
+  "rows": [
+    {
+      "detail_scale": 1.0,
+      "arm": "tcn-pixel-518-d1",
+      "scores": {
+        "spawanie": {
+          "support": 1287,
+          "tp": 1165,
+          "predicted": 1252,
+          "recall": 0.9052059052059052,
+          "precision": 0.9305111821086262,
+          "time_ratio": 0.9728049728049728,
+          "inflated": false,
+          "granularity_pp": 0.0777000777000777,
+          "passes": true,
+          "usable": true
+        },
+        "ukladanie_pretow": {
+          "support": 1081,
+          "tp": 934,
+          "predicted": 1042,
+          "recall": 0.8640148011100832,
+          "precision": 0.8963531669865643,
+          "time_ratio": 0.9639222941720629,
+          "inflated": false,
+          "granularity_pp": 0.09250693802035152,
+          "passes": true,
+          "usable": true
+        },
+        "pozostale": {
+          "support": 568,
+          "tp": 328,
+          "predicted": 593,
+          "recall": 0.5774647887323944,
+          "precision": 0.5531197301854974,
+          "time_ratio": 1.0440140845070423,
+          "inflated": false,
+          "granularity_pp": 0.176056338028169,
+          "passes": false,
+          "usable": false
+        },
+        "nierozpoznane": {
+          "support": 62,
+          "tp": 0,
+          "predicted": 111,
+          "recall": 0.0,
+          "precision": 0.0,
+          "time_ratio": 1.7903225806451613,
+          "inflated": true,
+          "granularity_pp": 1.6129032258064515,
+          "passes": false,
+          "usable": false
+        }
+      },
+      "gpu": {
+        "embed_seconds": 350.0,
+        "fit_seconds_total": 41.6,
+        "peak_vram_mib": 1342
+      },
+      "person_height_px": 558.2
+    },
+    {
+      "detail_scale": 0.75,
+      "arm": "tcn-pixel-518-d0.75",
+      "scores": {
+        "spawanie": {
+          "support": 1287,
+          "tp": 1214,
+          "predicted": 1322,
+          "recall": 0.9432789432789432,
+          "precision": 0.9183055975794251,
+          "time_ratio": 1.0271950271950272,
+          "inflated": false,
+          "granularity_pp": 0.0777000777000777,
+          "passes": true,
+          "usable": true
+        },
+        "ukladanie_pretow": {
+          "support": 1081,
+          "tp": 904,
+          "predicted": 1028,
+          "recall": 0.8362627197039778,
+          "precision": 0.8793774319066148,
+          "time_ratio": 0.9509713228492137,
+          "inflated": false,
+          "granularity_pp": 0.09250693802035152,
+          "passes": false,
+          "usable": false
+        },
+        "pozostale": {
+          "support": 568,
+          "tp": 302,
+          "predicted": 523,
+          "recall": 0.5316901408450704,
+          "precision": 0.5774378585086042,
+          "time_ratio": 0.920774647887324,
+          "inflated": false,
+          "granularity_pp": 0.176056338028169,
+          "passes": false,
+          "usable": false
+        },
+        "nierozpoznane": {
+          "support": 62,
+          "tp": 4,
+          "predicted": 125,
+          "recall": 0.06451612903225806,
+          "precision": 0.032,
+          "time_ratio": 2.0161290322580645,
+          "inflated": true,
+          "granularity_pp": 1.6129032258064515,
+          "passes": false,
+          "usable": false
+        }
+      },
+      "gpu": {
+        "embed_seconds": 419.4,
+        "fit_seconds_total": 41.0,
+        "peak_vram_mib": 1344
+      },
+      "person_height_px": 418.7
+    },
+    {
+      "detail_scale": 0.5,
+      "arm": "tcn-pixel-518-d0.5",
+      "scores": {
+        "spawanie": {
+          "support": 1287,
+          "tp": 1227,
+          "predicted": 1352,
+          "recall": 0.9533799533799534,
+          "precision": 0.9075443786982249,
+          "time_ratio": 1.0505050505050506,
+          "inflated": false,
+          "granularity_pp": 0.0777000777000777,
+          "passes": true,
+          "usable": true
+        },
+        "ukladanie_pretow": {
+          "support": 1081,
+          "tp": 917,
+          "predicted": 987,
+          "recall": 0.8482886216466234,
+          "precision": 0.9290780141843972,
+          "time_ratio": 0.9130434782608695,
+          "inflated": false,
+          "granularity_pp": 0.09250693802035152,
+          "passes": false,
+          "usable": false
+        },
+        "pozostale": {
+          "support": 568,
+          "tp": 292,
+          "predicted": 496,
+          "recall": 0.5140845070422535,
+          "precision": 0.5887096774193549,
+          "time_ratio": 0.8732394366197183,
+          "inflated": false,
+          "granularity_pp": 0.176056338028169,
+          "passes": false,
+          "usable": false
+        },
+        "nierozpoznane": {
+          "support": 62,
+          "tp": 3,
+          "predicted": 163,
+          "recall": 0.04838709677419355,
+          "precision": 0.018404907975460124,
+          "time_ratio": 2.629032258064516,
+          "inflated": true,
+          "granularity_pp": 1.6129032258064515,
+          "passes": false,
+          "usable": false
+        }
+      },
+      "gpu": {
+        "embed_seconds": 420.9,
+        "fit_seconds_total": 41.0,
+        "peak_vram_mib": 1344
+      },
+      "person_height_px": 279.1
+    },
+    {
+      "detail_scale": 0.35,
+      "arm": "tcn-pixel-518-d0.35",
+      "scores": {
+        "spawanie": {
+          "support": 1287,
+          "tp": 1208,
+          "predicted": 1384,
+          "recall": 0.9386169386169386,
+          "precision": 0.8728323699421965,
+          "time_ratio": 1.0753690753690754,
+          "inflated": false,
+          "granularity_pp": 0.0777000777000777,
+          "passes": true,
+          "usable": true
+        },
+        "ukladanie_pretow": {
+          "support": 1081,
+          "tp": 892,
+          "predicted": 998,
+          "recall": 0.8251618871415356,
+          "precision": 0.8937875751503006,
+          "time_ratio": 0.9232192414431082,
+          "inflated": false,
+          "granularity_pp": 0.09250693802035152,
+          "passes": false,
+          "usable": false
+        },
+        "pozostale": {
+          "support": 568,
+          "tp": 295,
+          "predicted": 479,
+          "recall": 0.5193661971830986,
+          "precision": 0.615866388308977,
+          "time_ratio": 0.8433098591549296,
+          "inflated": false,
+          "granularity_pp": 0.176056338028169,
+          "passes": false,
+          "usable": false
+        },
+        "nierozpoznane": {
+          "support": 62,
+          "tp": 2,
+          "predicted": 137,
+          "recall": 0.03225806451612903,
+          "precision": 0.014598540145985401,
+          "time_ratio": 2.2096774193548385,
+          "inflated": true,
+          "granularity_pp": 1.6129032258064515,
+          "passes": false,
+          "usable": false
+        }
+      },
+      "gpu": {
+        "embed_seconds": 406.5,
+        "fit_seconds_total": 41.2,
+        "peak_vram_mib": 1344
+      },
+      "person_height_px": 195.4
+    },
+    {
+      "detail_scale": 0.25,
+      "arm": "tcn-pixel-518-d0.25",
+      "scores": {
+        "spawanie": {
+          "support": 1287,
+          "tp": 1191,
+          "predicted": 1346,
+          "recall": 0.9254079254079254,
+          "precision": 0.8848439821693908,
+          "time_ratio": 1.0458430458430459,
+          "inflated": false,
+          "granularity_pp": 0.0777000777000777,
+          "passes": true,
+          "usable": true
+        },
+        "ukladanie_pretow": {
+          "support": 1081,
+          "tp": 875,
+          "predicted": 944,
+          "recall": 0.8094357076780758,
+          "precision": 0.926906779661017,
+          "time_ratio": 0.8732654949121184,
+          "inflated": false,
+          "granularity_pp": 0.09250693802035152,
+          "passes": false,
+          "usable": false
+        },
+        "pozostale": {
+          "support": 568,
+          "tp": 309,
+          "predicted": 560,
+          "recall": 0.5440140845070423,
+          "precision": 0.5517857142857143,
+          "time_ratio": 0.9859154929577465,
+          "inflated": false,
+          "granularity_pp": 0.176056338028169,
+          "passes": false,
+          "usable": false
+        },
+        "nierozpoznane": {
+          "support": 62,
+          "tp": 1,
+          "predicted": 148,
+          "recall": 0.016129032258064516,
+          "precision": 0.006756756756756757,
+          "time_ratio": 2.3870967741935485,
+          "inflated": true,
+          "granularity_pp": 1.6129032258064515,
+          "passes": false,
+          "usable": false
+        }
+      },
+      "gpu": {
+        "embed_seconds": 382.0,
+        "fit_seconds_total": 41.0,
+        "peak_vram_mib": 1344
+      },
+      "person_height_px": 139.6
+    },
+    {
+      "detail_scale": 0.18,
+      "arm": "tcn-pixel-518-d0.18",
+      "scores": {
+        "spawanie": {
+          "support": 1287,
+          "tp": 1196,
+          "predicted": 1422,
+          "recall": 0.9292929292929293,
+          "precision": 0.8410689170182841,
+          "time_ratio": 1.1048951048951048,
+          "inflated": false,
+          "granularity_pp": 0.0777000777000777,
+          "passes": true,
+          "usable": true
+        },
+        "ukladanie_pretow": {
+          "support": 1081,
+          "tp": 851,
+          "predicted": 921,
+          "recall": 0.7872340425531915,
+          "precision": 0.9239956568946797,
+          "time_ratio": 0.8519888991674376,
+          "inflated": false,
+          "granularity_pp": 0.09250693802035152,
+          "passes": false,
+          "usable": false
+        },
+        "pozostale": {
+          "support": 568,
+          "tp": 284,
+          "predicted": 536,
+          "recall": 0.5,
+          "precision": 0.5298507462686567,
+          "time_ratio": 0.9436619718309859,
+          "inflated": false,
+          "granularity_pp": 0.176056338028169,
+          "passes": false,
+          "usable": false
+        },
+        "nierozpoznane": {
+          "support": 62,
+          "tp": 0,
+          "predicted": 119,
+          "recall": 0.0,
+          "precision": 0.0,
+          "time_ratio": 1.9193548387096775,
+          "inflated": true,
+          "granularity_pp": 1.6129032258064515,
+          "passes": false,
+          "usable": false
+        }
+      },
+      "gpu": {
+        "embed_seconds": 382.9,
+        "fit_seconds_total": 41.0,
+        "peak_vram_mib": 1344
+      },
+      "person_height_px": 100.5
+    },
+    {
+      "detail_scale": 0.125,
+      "arm": "tcn-pixel-518-d0.125",
+      "scores": {
+        "spawanie": {
+          "support": 1287,
+          "tp": 1188,
+          "predicted": 1399,
+          "recall": 0.9230769230769231,
+          "precision": 0.8491779842744818,
+          "time_ratio": 1.087024087024087,
+          "inflated": false,
+          "granularity_pp": 0.0777000777000777,
+          "passes": true,
+          "usable": true
+        },
+        "ukladanie_pretow": {
+          "support": 1081,
+          "tp": 893,
+          "predicted": 989,
+          "recall": 0.8260869565217391,
+          "precision": 0.9029322548028311,
+          "time_ratio": 0.9148936170212766,
+          "inflated": false,
+          "granularity_pp": 0.09250693802035152,
+          "passes": false,
+          "usable": false
+        },
+        "pozostale": {
+          "support": 568,
+          "tp": 265,
+          "predicted": 498,
+          "recall": 0.4665492957746479,
+          "precision": 0.5321285140562249,
+          "time_ratio": 0.8767605633802817,
+          "inflated": false,
+          "granularity_pp": 0.176056338028169,
+          "passes": false,
+          "usable": false
+        },
+        "nierozpoznane": {
+          "support": 62,
+          "tp": 0,
+          "predicted": 112,
+          "recall": 0.0,
+          "precision": 0.0,
+          "time_ratio": 1.8064516129032258,
+          "inflated": true,
+          "granularity_pp": 1.6129032258064515,
+          "passes": false,
+          "usable": false
+        }
+      },
+      "gpu": {
+        "embed_seconds": 391.0,
+        "fit_seconds_total": 41.0,
+        "peak_vram_mib": 1344
+      },
+      "person_height_px": 69.8
+    },
+    {
+      "detail_scale": 0.09,
+      "arm": "tcn-pixel-518-d0.09",
+      "scores": {
+        "spawanie": {
+          "support": 1287,
+          "tp": 1075,
+          "predicted": 1170,
+          "recall": 0.8352758352758353,
+          "precision": 0.9188034188034188,
+          "time_ratio": 0.9090909090909091,
+          "inflated": false,
+          "granularity_pp": 0.0777000777000777,
+          "passes": false,
+          "usable": false
+        },
+        "ukladanie_pretow": {
+          "support": 1081,
+          "tp": 911,
+          "predicted": 1012,
+          "recall": 0.8427382053654024,
+          "precision": 0.900197628458498,
+          "time_ratio": 0.9361702127659575,
+          "inflated": false,
+          "granularity_pp": 0.09250693802035152,
+          "passes": false,
+          "usable": false
+        },
+        "pozostale": {
+          "support": 568,
+          "tp": 345,
+          "predicted": 692,
+          "recall": 0.6073943661971831,
+          "precision": 0.4985549132947977,
+          "time_ratio": 1.2183098591549295,
+          "inflated": false,
+          "granularity_pp": 0.176056338028169,
+          "passes": false,
+          "usable": false
+        },
+        "nierozpoznane": {
+          "support": 62,
+          "tp": 1,
+          "predicted": 124,
+          "recall": 0.016129032258064516,
+          "precision": 0.008064516129032258,
+          "time_ratio": 2.0,
+          "inflated": true,
+          "granularity_pp": 1.6129032258064515,
+          "passes": false,
+          "usable": false
+        }
+      },
+      "gpu": {
+        "embed_seconds": 397.3,
+        "fit_seconds_total": 41.9,
+        "peak_vram_mib": 1342
+      },
+      "person_height_px": 50.2
+    },
+    {
+      "detail_scale": 0.06,
+      "arm": "tcn-pixel-518-d0.06",
+      "scores": {
+        "spawanie": {
+          "support": 1287,
+          "tp": 1016,
+          "predicted": 1104,
+          "recall": 0.7894327894327894,
+          "precision": 0.9202898550724637,
+          "time_ratio": 0.8578088578088578,
+          "inflated": false,
+          "granularity_pp": 0.0777000777000777,
+          "passes": false,
+          "usable": false
+        },
+        "ukladanie_pretow": {
+          "support": 1081,
+          "tp": 808,
+          "predicted": 1050,
+          "recall": 0.7474560592044404,
+          "precision": 0.7695238095238095,
+          "time_ratio": 0.971322849213691,
+          "inflated": false,
+          "granularity_pp": 0.09250693802035152,
+          "passes": false,
+          "usable": false
+        },
+        "pozostale": {
+          "support": 568,
+          "tp": 345,
+          "predicted": 765,
+          "recall": 0.6073943661971831,
+          "precision": 0.45098039215686275,
+          "time_ratio": 1.346830985915493,
+          "inflated": true,
+          "granularity_pp": 0.176056338028169,
+          "passes": false,
+          "usable": false
+        },
+        "nierozpoznane": {
+          "support": 62,
+          "tp": 1,
+          "predicted": 79,
+          "recall": 0.016129032258064516,
+          "precision": 0.012658227848101266,
+          "time_ratio": 1.2741935483870968,
+          "inflated": true,
+          "granularity_pp": 1.6129032258064515,
+          "passes": false,
+          "usable": false
+        }
+      },
+      "gpu": {
+        "embed_seconds": 390.7,
+        "fit_seconds_total": 41.5,
+        "peak_vram_mib": 1344
+      },
+      "person_height_px": 33.5
+    },
+    {
+      "detail_scale": 0.045,
+      "arm": "tcn-pixel-518-d0.045",
+      "scores": {
+        "spawanie": {
+          "support": 1287,
+          "tp": 1052,
+          "predicted": 1223,
+          "recall": 0.8174048174048174,
+          "precision": 0.8601798855273917,
+          "time_ratio": 0.9502719502719502,
+          "inflated": false,
+          "granularity_pp": 0.0777000777000777,
+          "passes": false,
+          "usable": false
+        },
+        "ukladanie_pretow": {
+          "support": 1081,
+          "tp": 661,
+          "predicted": 789,
+          "recall": 0.6114708603145236,
+          "precision": 0.8377693282636248,
+          "time_ratio": 0.7298797409805735,
+          "inflated": false,
+          "granularity_pp": 0.09250693802035152,
+          "passes": false,
+          "usable": false
+        },
+        "pozostale": {
+          "support": 568,
+          "tp": 351,
+          "predicted": 902,
+          "recall": 0.6179577464788732,
+          "precision": 0.38913525498891355,
+          "time_ratio": 1.5880281690140845,
+          "inflated": true,
+          "granularity_pp": 0.176056338028169,
+          "passes": false,
+          "usable": false
+        },
+        "nierozpoznane": {
+          "support": 62,
+          "tp": 0,
+          "predicted": 84,
+          "recall": 0.0,
+          "precision": 0.0,
+          "time_ratio": 1.3548387096774193,
+          "inflated": true,
+          "granularity_pp": 1.6129032258064515,
+          "passes": false,
+          "usable": false
+        }
+      },
+      "gpu": {
+        "embed_seconds": 387.7,
+        "fit_seconds_total": 41.7,
+        "peak_vram_mib": 1344
+      },
+      "person_height_px": 25.1
+    },
+    {
+      "detail_scale": 0.03,
+      "arm": "tcn-pixel-518-d0.03",
+      "scores": {
+        "spawanie": {
+          "support": 1287,
+          "tp": 1074,
+          "predicted": 1222,
+          "recall": 0.8344988344988346,
+          "precision": 0.8788870703764321,
+          "time_ratio": 0.9494949494949495,
+          "inflated": false,
+          "granularity_pp": 0.0777000777000777,
+          "passes": false,
+          "usable": false
+        },
+        "ukladanie_pretow": {
+          "support": 1081,
+          "tp": 683,
+          "predicted": 822,
+          "recall": 0.6318223866790009,
+          "precision": 0.8309002433090025,
+          "time_ratio": 0.7604070305272895,
+          "inflated": false,
+          "granularity_pp": 0.09250693802035152,
+          "passes": false,
+          "usable": false
+        },
+        "pozostale": {
+          "support": 568,
+          "tp": 345,
+          "predicted": 886,
+          "recall": 0.6073943661971831,
+          "precision": 0.3893905191873589,
+          "time_ratio": 1.5598591549295775,
+          "inflated": true,
+          "granularity_pp": 0.176056338028169,
+          "passes": false,
+          "usable": false
+        },
+        "nierozpoznane": {
+          "support": 62,
+          "tp": 0,
+          "predicted": 68,
+          "recall": 0.0,
+          "precision": 0.0,
+          "time_ratio": 1.096774193548387,
+          "inflated": false,
+          "granularity_pp": 1.6129032258064515,
+          "passes": false,
+          "usable": false
+        }
+      },
+      "gpu": {
+        "embed_seconds": 386.9,
+        "fit_seconds_total": 41.4,
+        "peak_vram_mib": 1344
+      },
+      "person_height_px": 16.7
+    }
+  ]
+}

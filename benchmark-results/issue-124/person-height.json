@@ -1,0 +1,58 @@
+{
+  "issue": 124,
+  "purpose": "convert a detail scale into the unit an annotator can act on",
+  "method": "tallest detection above the pipeline's 0.25 confidence floor, per sampled native crop, every 10th crop of each annotated window",
+  "pose_is_a_ruler_only": "the detector is not in the inference path and does not run at annotation time; it is used here to measure, nothing else",
+  "rectangle_native_px": {
+    "w": 1670,
+    "h": 800
+  },
+  "frames_sampled": 300,
+  "frames_with_person": 287,
+  "median_person_height_px": 558.2,
+  "p10_person_height_px": 402.4,
+  "p90_person_height_px": 647.1,
+  "median_as_fraction_of_rect_height": 0.698,
+  "per_window": {
+    "W1": {
+      "sampled": 60,
+      "with_person": 54,
+      "no_detection": 6,
+      "median_px": 549.1,
+      "p10_px": 396.6,
+      "p90_px": 643.2
+    },
+    "W2": {
+      "sampled": 60,
+      "with_person": 55,
+      "no_detection": 5,
+      "median_px": 576.7,
+      "p10_px": 474.5,
+      "p90_px": 652.1
+    },
+    "W3": {
+      "sampled": 60,
+      "with_person": 59,
+      "no_detection": 1,
+      "median_px": 500.6,
+      "p10_px": 401.5,
+      "p90_px": 586.9
+    },
+    "W4": {
+      "sampled": 60,
+      "with_person": 60,
+      "no_detection": 0,
+      "median_px": 587.6,
+      "p10_px": 473.7,
+      "p90_px": 656.4
+    },
+    "W5": {
+      "sampled": 60,
+      "with_person": 59,
+      "no_detection": 1,
+      "median_px": 592.4,
+      "p10_px": 408.1,
+      "p90_px": 643.1
+    }
+  }
+}
