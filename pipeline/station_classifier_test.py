@@ -20,11 +20,13 @@ import pytest
 from pipeline.station_card import StationCard
 from pipeline.station_classifier import (
     DEFAULT_STATION_CARD_PATH,
+    PATCH,
     StationClassifier,
     StationCropError,
     StationRectMismatchError,
     StationZoneError,
     load_station_classifier,
+    model_input_for_rect,
     preprocess_crop,
     resolve_station_zone,
     station_crop,
@@ -481,3 +483,89 @@ class TestLoadingTheSessions:
             ["CUDAExecutionProvider"],
             ["CUDAExecutionProvider"],
         ]
+
+
+class TestCropGeometryGoldenFixture:
+    """The rectangle-to-tensor convention, pinned against `zone-annotator`.
+
+    This convention is implemented twice: here, where a model reads the tensor,
+    and in `KopalnieKrypto/zone-annotator`, whose export *declares* the geometry
+    so a consumer can check the derivation rather than trust it. Two independent
+    implementations of one convention is precisely what produced the failure this
+    module's `preprocess_crop` docstring records — the head reading 18.7% of each
+    authored rectangle while every document reported the whole of it, and a
+    production run on 2026-09-03 reporting zero seconds of welding over an hour
+    in which the welder is striking arcs.
+
+    So the two repositories share one golden table, byte for byte, and each
+    checks its own implementation against its own copy. Changing the rounding,
+    the patch size or which dimension follows the aspect ratio fails this class,
+    rather than failing quietly in a client's report six weeks later.
+
+    `zone-annotator` owns the same file at `tests/fixtures/crop-geometry-golden.json`
+    and pins the same digest in `zone_annotator/geometry_test.py`. Neither
+    repository can see the other in CI, so the shared artifact is held by a value
+    a person can grep for in both: an edit to either copy that is not mirrored
+    shows up as two different 64-character strings.
+    """
+
+    GOLDEN = Path(__file__).resolve().parent / "testdata" / "crop-geometry-golden.json"
+
+    #: The same 64 characters appear in `zone-annotator`'s
+    #: `zone_annotator/geometry_test.py` as `GOLDEN_SHA256`. Do not update one
+    #: without updating the other, and do not update either without a reason that
+    #: belongs in both repositories' history.
+    GOLDEN_SHA256 = "6623d40fba6474d0f16d46b06d87ec00c80e182c65d612338a7fcc787bfe18f1"
+
+    def _document(self) -> dict:
+        return json.loads(self.GOLDEN.read_text(encoding="utf-8"))
+
+    def test_this_repository_derives_the_golden_tensor_size(self) -> None:
+        """Every row of the shared table, against `model_input_for_rect`."""
+        wrong = [
+            (
+                case,
+                model_input_for_rect(
+                    (
+                        case["zone_native_px"]["x"],
+                        case["zone_native_px"]["y"],
+                        case["zone_native_px"]["w"],
+                        case["zone_native_px"]["h"],
+                    ),
+                    case["target_height"],
+                ),
+            )
+            for case in self._document()["cases"]
+        ]
+        wrong = [
+            f"{c['zone_native_px']['w']}x{c['zone_native_px']['h']} @ "
+            f"{c['target_height']}: this repository says {got}, the golden table says "
+            f"{(c['model_input']['height'], c['model_input']['width'])}"
+            for c, got in wrong
+            if got != (c["model_input"]["height"], c["model_input"]["width"])
+        ]
+
+        assert wrong == [], (
+            "this repository and zone-annotator no longer agree about the "
+            "rectangle-to-tensor convention:\n  " + "\n  ".join(wrong)
+        )
+
+    def test_the_golden_table_is_the_file_both_repositories_pinned(self) -> None:
+        """The digest, so the *table* cannot be edited on one side in silence.
+
+        A row quietly added or removed here would leave this suite green while
+        `zone-annotator` checked a different set of rectangles, and "both suites
+        pass" would stop meaning the two agree.
+        """
+        assert hashlib.sha256(self.GOLDEN.read_bytes()).hexdigest() == self.GOLDEN_SHA256
+
+    def test_the_golden_table_declares_the_parameters_it_was_derived_under(self) -> None:
+        """`center_crop: false` above all. A card that does not say so must not
+        load, and the shared table has to say it too — otherwise it pins the
+        numbers and leaves out the reason they are the right ones."""
+        document = self._document()
+
+        assert document["patch"] == PATCH
+        assert document["center_crop"] is False
+        assert document["resample"] == "bicubic"
+        assert document["preserves_aspect_ratio"] is False
