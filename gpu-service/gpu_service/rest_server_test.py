@@ -59,7 +59,7 @@ class TestMakeDispatcher:
     def test_returns_callable_that_runs_task_through_runner(self, tmp_path) -> None:
         registry = TaskRegistry()
         http = MagicMock()
-        http.download.side_effect = lambda url, dest: dest.write_bytes(b"x")
+        http.download.side_effect = lambda url, dest, **_: dest.write_bytes(b"x")
         concat = MagicMock()
         pipeline = MagicMock(return_value=b"<html></html>")
         # Inline executor — run on the calling thread so the assertion below
@@ -94,7 +94,7 @@ class TestMakeDispatcher:
     def test_per_task_workdir_isolates_two_tasks(self, tmp_path) -> None:
         registry = TaskRegistry()
         http = MagicMock()
-        http.download.side_effect = lambda url, dest: dest.write_bytes(b"x")
+        http.download.side_effect = lambda url, dest, **_: dest.write_bytes(b"x")
 
         executor = MagicMock()
         executor.submit.side_effect = lambda fn, *a, **kw: fn(*a, **kw)
@@ -156,7 +156,7 @@ class TestRestZonesIntegration:
         readiness = Readiness()
         readiness.mark_ready()
         http = MagicMock()
-        http.download.side_effect = lambda url, dest: dest.write_bytes(b"FAKE_MP4")
+        http.download.side_effect = lambda url, dest, **_: dest.write_bytes(b"FAKE_MP4")
         executor = MagicMock()
         executor.submit.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
         dispatch = make_dispatcher(

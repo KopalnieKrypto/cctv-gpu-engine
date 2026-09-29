@@ -46,12 +46,20 @@ class _StreamingFakeResponse:
     bounded buffer rather than one unbounded ``read()`` that would pull a
     multi-GB chunk into RAM (#56)."""
 
-    def __init__(self, total: int, *, serve: int = 64 * 1024, status: int = 200) -> None:
+    def __init__(
+        self,
+        total: int,
+        *,
+        serve: int = 64 * 1024,
+        status: int = 200,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         pattern = b"0123456789abcdef"
         self._data = (pattern * (total // len(pattern) + 1))[:total]
         self._pos = 0
         self._serve = serve
         self.status = status
+        self.headers = headers or {}
         self.max_read_arg = 0
         self.unbounded_reads = 0
 
@@ -101,16 +109,23 @@ class _FailMidStreamResponse:
     """Serves a few chunks then raises a retriable error, simulating a
     connection dropping partway through a download."""
 
-    def __init__(self, fail_after: int = 3, *, chunk: int = 4096) -> None:
+    def __init__(
+        self,
+        fail_after: int = 3,
+        *,
+        chunk: int = 4096,
+        error: Exception | None = None,
+    ) -> None:
         self.status = 200
         self._reads = 0
         self._fail_after = fail_after
         self._chunk = chunk
+        self._error = error or ConnectionError("stream dropped")
 
     def read(self, n: int = -1) -> bytes:
         self._reads += 1
         if self._reads > self._fail_after:
-            raise ConnectionError("stream dropped")
+            raise self._error
         size = self._chunk if not n or n < 0 else min(n, self._chunk)
         return b"x" * size
 
@@ -207,7 +222,7 @@ class TestPresignedHttpClientDownload:
     def test_failed_download_leaves_no_partial_dest(self, tmp_path) -> None:
         # Every attempt dies mid-stream → RetryExhausted, and neither dest nor
         # a .part temp survives (a partial file must never masquerade as done).
-        opener = MagicMock(side_effect=lambda _url: _FailMidStreamResponse(fail_after=2))
+        opener = MagicMock(side_effect=lambda _url, **_kw: _FailMidStreamResponse(fail_after=2))
         client = PresignedHttpClient(opener=opener, sleep=_no_sleep)
         dest = tmp_path / "chunk.mp4"
 
@@ -215,6 +230,55 @@ class TestPresignedHttpClientDownload:
             client.download("https://r2.example.com/chunk.mp4", dest)
 
         assert not dest.exists()
+        assert list(tmp_path.glob("*.part")) == []
+
+
+class TestPresignedHttpClientDownloadProgress:
+    # Issue #126 assumptions before the first RED:
+    # - ``progress(received, total)`` fires once when the response opens
+    #   (``received == 0``) and after every buffer written to disk;
+    # - ``total`` is the response's Content-Length, or None when it is absent;
+    # - a retried attempt restarts the count from 0 (no Range resume);
+    # - real sockets are out of scope: the timeout is asserted on the opener.
+    def test_reports_bytes_received_against_content_length(self, tmp_path) -> None:
+        size = 3 * 1024 * 1024
+        fake = _StreamingFakeResponse(size, headers={"Content-Length": str(size)})
+        client = PresignedHttpClient(opener=MagicMock(return_value=fake), sleep=_no_sleep)
+        seen: list[tuple[int, int | None]] = []
+
+        client.download(
+            "https://r2.example.com/chunk.mp4",
+            tmp_path / "chunk.mp4",
+            progress=lambda received, total: seen.append((received, total)),
+        )
+
+        assert seen[0] == (0, size)
+        assert seen[-1] == (size, size)
+        received = [r for r, _ in seen]
+        assert received == sorted(received)
+
+    def test_bounds_every_blocking_read_with_a_timeout(self, tmp_path) -> None:
+        # Without one, a connection that stops sending blocks the task until the
+        # gpu-agent's job ceiling, and TimeoutError in RETRIABLE never fires.
+        opener = MagicMock(return_value=_FakeResponse(b"x"))
+        client = PresignedHttpClient(opener=opener, sleep=_no_sleep)
+
+        client.download("https://r2.example.com/chunk.mp4", tmp_path / "chunk.mp4")
+
+        assert opener.call_args.kwargs.get("timeout", 0) > 0
+
+    def test_stalled_read_is_retried_then_fails(self, tmp_path) -> None:
+        opener = MagicMock(
+            side_effect=lambda _url, **_kw: _FailMidStreamResponse(
+                fail_after=2, error=TimeoutError("timed out")
+            )
+        )
+        client = PresignedHttpClient(opener=opener, sleep=_no_sleep)
+
+        with pytest.raises(RetryExhausted):
+            client.download("https://r2.example.com/chunk.mp4", tmp_path / "chunk.mp4")
+
+        assert opener.call_count == 3
         assert list(tmp_path.glob("*.part")) == []
 
 

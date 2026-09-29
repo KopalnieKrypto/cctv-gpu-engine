@@ -64,7 +64,7 @@ class TestRunTaskHappyPath:
 
         registry = TaskRegistry()
         http = MagicMock()
-        http.download.side_effect = lambda url, dest: dest.write_bytes(b"FAKE_MP4")
+        http.download.side_effect = lambda url, dest, **_: dest.write_bytes(b"FAKE_MP4")
 
         run_task(
             payload=_payload(),
@@ -104,7 +104,7 @@ class TestRunTaskHappyPath:
             return b"{}"
 
         http = MagicMock()
-        http.download.side_effect = lambda url, dest: dest.write_bytes(b"FAKE_MP4")
+        http.download.side_effect = lambda url, dest, **_: dest.write_bytes(b"FAKE_MP4")
         registry = TaskRegistry()
 
         run_task(
@@ -125,7 +125,7 @@ class TestRunTaskHappyPath:
         pipeline = MagicMock(return_value=expected)
         registry = TaskRegistry()
         http = MagicMock()
-        http.download.side_effect = lambda url, dest: dest.write_bytes(b"FAKE_MP4")
+        http.download.side_effect = lambda url, dest, **_: dest.write_bytes(b"FAKE_MP4")
 
         run_task(
             payload=_payload(),
@@ -162,7 +162,7 @@ class TestRunTaskHappyPath:
         monkeypatch.delenv("ZONES_CONFIG_PATH", raising=False)
         pipeline = MagicMock(return_value=b"{}")
         http = MagicMock()
-        http.download.side_effect = lambda url, dest: dest.write_bytes(b"FAKE_MP4")
+        http.download.side_effect = lambda url, dest, **_: dest.write_bytes(b"FAKE_MP4")
 
         run_task(
             payload=payload,
@@ -180,7 +180,7 @@ class TestRunTaskHappyPath:
     def test_single_chunk_runs_pipeline_uploads_html_marks_completed(self, tmp_path) -> None:
         registry = TaskRegistry()
         http = MagicMock()
-        http.download.side_effect = lambda url, dest: dest.write_bytes(b"FAKE_MP4")
+        http.download.side_effect = lambda url, dest, **_: dest.write_bytes(b"FAKE_MP4")
         http.upload = MagicMock()
         # Single-chunk → concat is skipped, ffmpeg untouched.
         concat = MagicMock()
@@ -226,7 +226,7 @@ class TestRunTaskHappyPath:
             return b"<html></html>"
 
         http = MagicMock()
-        http.download.side_effect = lambda url, dest: dest.write_bytes(b"x")
+        http.download.side_effect = lambda url, dest, **_: dest.write_bytes(b"x")
 
         run_task(
             payload=_payload(),
@@ -250,7 +250,7 @@ class TestRunTaskHappyPath:
             return b"<html></html>"
 
         http = MagicMock()
-        http.download.side_effect = lambda url, dest: dest.write_bytes(b"x")
+        http.download.side_effect = lambda url, dest, **_: dest.write_bytes(b"x")
 
         run_task(
             payload=_payload(),
@@ -269,7 +269,7 @@ class TestRunTaskHappyPath:
         registry = TaskRegistry()
         http = MagicMock()
 
-        def fake_download(url, dest):
+        def fake_download(url, dest, **_):
             dest.write_bytes(url.encode())
 
         http.download.side_effect = fake_download
@@ -300,6 +300,86 @@ class TestRunTaskHappyPath:
         assert urls_called == [
             "https://r2.example.com/get/chunk_001.mp4",
             "https://r2.example.com/get/chunk_002.mp4",
+        ]
+
+
+class TestRunTaskPhases:
+    # Issue #126 assumptions before the first RED:
+    # - ``/status`` stays ``state: running`` throughout; ``phase`` is additive and
+    #   ``progress`` keeps its pipeline-fraction meaning (0.0 while downloading);
+    # - while downloading, ``download`` names the 1-based chunk, the chunk count
+    #   and that chunk's received bytes against its Content-Length (None if absent);
+    # - there is no uploading phase: the result PUT is a few KB.
+    def test_reports_the_download_phase_per_chunk(self, tmp_path) -> None:
+        registry = TaskRegistry()
+        observed: list[dict] = []
+
+        def fake_download(url, dest, progress):
+            progress(512, 1024)
+            observed.append(registry.get(VALID_TASK_ID))
+            dest.write_bytes(b"x")
+
+        http = MagicMock()
+        http.download.side_effect = fake_download
+
+        run_task(
+            payload=_payload(
+                input_urls=[
+                    "https://r2.example.com/get/chunk_001.mp4",
+                    "https://r2.example.com/get/chunk_002.mp4",
+                ]
+            ),
+            registry=registry,
+            workdir=tmp_path,
+            http=http,
+            concat=lambda _inputs, output: output.write_bytes(b"CONCATENATED"),
+            pipeline=MagicMock(return_value=b"{}"),
+        )
+
+        def downloading(chunk: int) -> dict:
+            return {
+                "state": "running",
+                "progress": 0.0,
+                "phase": "downloading",
+                "download": {
+                    "chunk": chunk,
+                    "chunks": 2,
+                    "received_bytes": 512,
+                    "total_bytes": 1024,
+                },
+            }
+
+        assert observed == [downloading(1), downloading(2)]
+
+    def test_switches_to_processing_once_the_inputs_are_downloaded(self, tmp_path) -> None:
+        registry = TaskRegistry()
+        observed: list[dict] = []
+
+        def fake_download(url, dest, progress):
+            progress(1024, 1024)
+            dest.write_bytes(b"x")
+
+        def fake_pipeline(chunks, progress):
+            observed.append(registry.get(VALID_TASK_ID))
+            progress(40)
+            observed.append(registry.get(VALID_TASK_ID))
+            return b"{}"
+
+        http = MagicMock()
+        http.download.side_effect = fake_download
+
+        run_task(
+            payload=_payload(),
+            registry=registry,
+            workdir=tmp_path,
+            http=http,
+            concat=MagicMock(),
+            pipeline=fake_pipeline,
+        )
+
+        assert observed == [
+            {"state": "running", "progress": 0.0, "phase": "processing"},
+            {"state": "running", "progress": 0.4, "phase": "processing"},
         ]
 
 
@@ -370,7 +450,7 @@ class TestRunTaskZonesIntegration:
 
         registry = TaskRegistry()
         http = MagicMock()
-        http.download.side_effect = lambda url, dest: dest.write_bytes(b"FAKE_MP4")
+        http.download.side_effect = lambda url, dest, **_: dest.write_bytes(b"FAKE_MP4")
 
         run_task(
             payload=_payload(),
@@ -446,7 +526,7 @@ class TestRunTaskFailurePaths:
     def test_pipeline_failure_marks_failed_and_skips_upload(self, tmp_path) -> None:
         registry = TaskRegistry()
         http = MagicMock()
-        http.download.side_effect = lambda url, dest: dest.write_bytes(b"x")
+        http.download.side_effect = lambda url, dest, **_: dest.write_bytes(b"x")
         pipeline = MagicMock(side_effect=RuntimeError("CUDA OOM"))
 
         run_task(
@@ -466,7 +546,7 @@ class TestRunTaskFailurePaths:
     def test_upload_failure_marks_failed(self, tmp_path) -> None:
         registry = TaskRegistry()
         http = MagicMock()
-        http.download.side_effect = lambda url, dest: dest.write_bytes(b"x")
+        http.download.side_effect = lambda url, dest, **_: dest.write_bytes(b"x")
         http.upload.side_effect = ConnectionError("R2 PUT failed")
 
         run_task(
@@ -485,7 +565,7 @@ class TestRunTaskFailurePaths:
     def test_concat_failure_marks_failed(self, tmp_path) -> None:
         registry = TaskRegistry()
         http = MagicMock()
-        http.download.side_effect = lambda url, dest: dest.write_bytes(b"x")
+        http.download.side_effect = lambda url, dest, **_: dest.write_bytes(b"x")
         concat = MagicMock(side_effect=RuntimeError("ffmpeg exited 1"))
 
         run_task(

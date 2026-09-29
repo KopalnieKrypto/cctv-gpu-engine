@@ -71,6 +71,32 @@ class TaskRegistry:
         with self._lock:
             self._states[task_id] = {"state": "running", "progress": progress}
 
+    def set_download_progress(
+        self,
+        task_id: str,
+        *,
+        chunk: int,
+        chunks: int,
+        received_bytes: int,
+        total_bytes: int | None,
+    ) -> None:
+        with self._lock:
+            entry = self._states.setdefault(task_id, {"state": "running", "progress": 0.0})
+            entry["phase"] = "downloading"
+            # A fresh dict each time: ``get`` hands out shallow copies.
+            entry["download"] = {
+                "chunk": chunk,
+                "chunks": chunks,
+                "received_bytes": received_bytes,
+                "total_bytes": total_bytes,
+            }
+
+    def set_processing(self, task_id: str) -> None:
+        with self._lock:
+            entry = self._states.setdefault(task_id, {"state": "running", "progress": 0.0})
+            entry["phase"] = "processing"
+            entry.pop("download", None)
+
     def set_progress(self, task_id: str, progress: float) -> None:
         with self._lock:
             entry = self._states.setdefault(task_id, {"state": "running"})

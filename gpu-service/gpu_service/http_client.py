@@ -15,7 +15,6 @@ need nothing more than a single GET/PUT with no auth headers.
 
 from __future__ import annotations
 
-import shutil
 import time
 import urllib.error
 import urllib.request
@@ -27,9 +26,12 @@ from gpu_service.http_retry import with_retry
 
 # Copy-buffer size for streaming a download to disk. Bounds peak RAM per
 # in-flight chunk at ~1 MiB regardless of the object's size (surveillance
-# chunks are multi-GB — see #56). shutil.copyfileobj reads this many bytes
-# per call.
+# chunks are multi-GB — see #56). ``download`` reads this many bytes per call.
 _COPY_BUFFER = 1024 * 1024
+
+# Socket timeout for every blocking operation of a download. A read that gets
+# no bytes this long raises TimeoutError and goes through the retry (#126).
+_READ_TIMEOUT_S = 60.0
 
 # Exceptions we treat as retriable. URLError / HTTPError cover most
 # transient network and 5xx conditions; ConnectionError catches socket-level
@@ -41,6 +43,8 @@ RETRIABLE: tuple[type[BaseException], ...] = (
 )
 
 Opener = Callable[..., Any]
+# ``(bytes received so far, Content-Length or None)`` — see ``download``.
+DownloadProgress = Callable[[int, int | None], None]
 
 
 class HttpError(RuntimeError):
@@ -59,21 +63,28 @@ class PresignedHttpClient:
         self._opener = opener
         self._sleep = sleep
 
-    def download(self, url: str, dest: Path) -> None:
+    def download(self, url: str, dest: Path, progress: DownloadProgress | None = None) -> None:
         # Stream the body straight to disk in bounded buffers. Peak RAM is
         # ~_COPY_BUFFER, not the object size — a multi-GB surveillance chunk
         # must never be held whole in the REST container's RAM alongside the
         # YOLO + VLM models (#56).
         part = dest.with_suffix(".part")
+        report = progress or (lambda _received, _total: None)
 
         def _op() -> None:
-            with self._opener(url) as response:
+            with self._opener(url, timeout=_READ_TIMEOUT_S) as response:
                 # Check status *before* consuming the body — a non-2xx (e.g.
                 # an expired presigned URL) should fail fast, not after a
                 # pointless full read.
                 _ensure_2xx(response, url)
+                total = _content_length(response)
+                received = 0
+                report(received, total)
                 with part.open("wb") as fh:
-                    shutil.copyfileobj(response, fh, _COPY_BUFFER)
+                    while buf := response.read(_COPY_BUFFER):
+                        fh.write(buf)
+                        received += len(buf)
+                        report(received, total)
             # Rename is atomic on the same filesystem: dest only ever appears
             # fully written, so a failed/retried attempt can never leave a
             # truncated file that downstream mistakes for complete.
@@ -106,6 +117,15 @@ class PresignedHttpClient:
                 _ensure_2xx(response, url)
 
         with_retry(_op, sleep=self._sleep, retry_on=RETRIABLE)
+
+
+def _content_length(response: Any) -> int | None:
+    headers = getattr(response, "headers", None)
+    value = headers.get("Content-Length") if headers is not None else None
+    try:
+        return int(value) if value is not None else None
+    except ValueError:
+        return None
 
 
 def _ensure_2xx(response: Any, url: str) -> None:

@@ -5,6 +5,8 @@ Sequence:
 1. Load the server-owned zones config from ``ZONES_CONFIG_PATH`` (default
    ``/config/zones.json``) when the gpu-agent mounted one; absence is un-gated.
 2. Download each ``input_presigned_urls`` entry into ``workdir/inputs/``.
+   ``/status`` reports ``phase: downloading`` with the chunk and its bytes,
+   then ``phase: processing`` for everything after (#126).
 3. If more than one chunk → ffmpeg-concat into a single MP4. One chunk →
    skip concat and feed the downloaded file straight to the pipeline.
 4. Run the YOLO + VLM pipeline on the concatenated chunks. Pipeline
@@ -49,7 +51,12 @@ class PipelineFn(Protocol):
 
 
 class HttpClientLike(Protocol):
-    def download(self, url: str, dest: Path) -> None: ...
+    def download(
+        self,
+        url: str,
+        dest: Path,
+        progress: Callable[[int, int | None], None] | None = None,
+    ) -> None: ...
     def upload(self, url: str, body: bytes) -> None: ...
 
 
@@ -90,8 +97,19 @@ def run_task(
         downloaded: list[Path] = []
         for i, url in enumerate(input_urls, start=1):
             dest = inputs_dir / f"chunk_{i:03d}.mp4"
-            http.download(url, dest)
+
+            def download_cb(received: int, total: int | None, chunk: int = i) -> None:
+                registry.set_download_progress(
+                    task_id,
+                    chunk=chunk,
+                    chunks=len(input_urls),
+                    received_bytes=received,
+                    total_bytes=total,
+                )
+
+            http.download(url, dest, progress=download_cb)
             downloaded.append(dest)
+        registry.set_processing(task_id)
 
         if len(downloaded) > 1:
             concat_output = workdir / "concat.mp4"
