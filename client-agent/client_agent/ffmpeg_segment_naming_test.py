@@ -79,8 +79,8 @@ def _record_once(source: Path, out_dir: Path) -> None:
     production actually emits, with three substitutions on the *input* side,
     all forced by reading a file instead of a camera:
 
-    * ``-rtsp_transport tcp`` is dropped — it belongs to the RTSP demuxer, and
-      ffmpeg aborts with "Option rtsp_transport not found" on a file input.
+    * ``-rtsp_transport tcp`` and ``-timeout`` are dropped — both belong to the
+      RTSP demuxer, and ffmpeg aborts with "Option … not found" on a file input.
     * ``-re`` is added, throttling the read to realtime, which is what an RTSP
       stream inherently is. This one is load-bearing: ffmpeg stamps segment
       names with *wallclock* time, so a full-speed file read closes every
@@ -97,8 +97,9 @@ def _record_once(source: Path, out_dir: Path) -> None:
         output_dir=str(out_dir),
         buffer_mode=True,
     )
-    transport = cmd.index("-rtsp_transport")
-    del cmd[transport : transport + 2]
+    for rtsp_only in ("-rtsp_transport", "-timeout"):
+        at = cmd.index(rtsp_only)
+        del cmd[at : at + 2]
     cmd.insert(cmd.index("-i"), "-re")
     cmd[cmd.index("-segment_time") + 1] = str(SEGMENT_SECONDS)
     subprocess.run(cmd, check=True, capture_output=True)

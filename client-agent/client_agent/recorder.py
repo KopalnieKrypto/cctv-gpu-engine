@@ -83,6 +83,13 @@ def probe_rtsp(url: str, *, timeout: float, runner) -> ProbeResult:
 SEGMENT_SECONDS = 3600
 """Segment boundary for legacy long recordings (SPEC §7.3 — 1h chunks)."""
 
+RTSP_IO_TIMEOUT_US = 15_000_000
+"""Socket I/O timeout on the RTSP input, in microseconds (#125). The demuxer
+default is 0 = wait forever, and ``-t`` counts output only, so a camera that
+stops sending used to wedge its recorder: six of them sat in that read for 5
+days on a production appliance. On expiry ffmpeg exits with an I/O error and
+the recorder is respawned on the next heartbeat."""
+
 BUFFER_SEGMENT_SECONDS = 60
 """Segment boundary for buffer-mode recordings. Smaller than ``SEGMENT_SECONDS``
 because the task poller needs *finalized* chunks to trim from (mid-segment
@@ -143,8 +150,9 @@ def build_ffmpeg_cmd(
     * **duration_s > SEGMENT_SECONDS** — segment muxer with 1h chunks.
     * **otherwise** — single ``recording.mp4``.
 
-    ``-t`` still bounds the total duration in all branches — without it a
-    stuck camera would record forever.
+    ``-t`` bounds the duration in all branches, but it counts output: a camera
+    that stops sending is ended by ``-timeout`` (``RTSP_IO_TIMEOUT_US``), not by
+    ``-t``.
 
     ``-an`` drops the audio track: the pipeline only analyses video
     (YOLO-pose), and many IP cameras (Hikvision in particular) emit
@@ -155,6 +163,8 @@ def build_ffmpeg_cmd(
         "ffmpeg",
         "-rtsp_transport",
         "tcp",
+        "-timeout",
+        str(RTSP_IO_TIMEOUT_US),
         "-i",
         url,
         "-c",

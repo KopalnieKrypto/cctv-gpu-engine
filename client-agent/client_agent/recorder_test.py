@@ -285,7 +285,8 @@ def test_build_ffmpeg_cmd_buffer_mode_emits_strftime_segments_bounded_by_duratio
       appliance also feeds to ``RollingBuffer(segment_seconds=)``. Disagreement
       silently skews every chunk's inferred start time.
     * ``-t duration_s`` — the respawn cadence (#85). Dropping it lets one
-      ffmpeg run forever, so a wedged RTSP connection is never noticed.
+      ffmpeg run forever. It cannot end a stream that stops sending; that is
+      ``-timeout`` (#125).
     * ``-reset_timestamps 1`` — each chunk must start at 0 to be independently
       trimmable.
     """
@@ -307,6 +308,26 @@ def test_build_ffmpeg_cmd_buffer_mode_emits_strftime_segments_bounded_by_duratio
     # Respawn cadence stays bounded and stays decoupled from buffer_hours (#85).
     assert _value_after("-t") == "3600"
     assert cmd[-1] == f"/tmp/buf/cam-1/{BUFFER_CHUNK_TEMPLATE}"
+
+
+def test_build_ffmpeg_cmd_bounds_the_rtsp_read_in_every_branch() -> None:
+    """#125: a camera that stops sending must end the ffmpeg run.
+
+    ``-t`` counts output, so it never fires when no packet arrives, and the RTSP
+    demuxer's own ``-timeout`` defaults to 0 = wait forever. On 2026-09-29 six
+    recorders on a production appliance had sat in that read for 5 days. The
+    option belongs to the input, so it must precede ``-i``."""
+    for kwargs in (
+        {"duration_s": 3600, "buffer_mode": True},
+        {"duration_s": 4 * 3600},
+        {"duration_s": 3600},
+    ):
+        cmd = build_ffmpeg_cmd(url="rtsp://camera.local/stream", output_dir="/tmp/rec", **kwargs)
+
+        assert "-timeout" in cmd, f"no RTSP read timeout for {kwargs}"
+        assert cmd.index("-timeout") < cmd.index("-i"), "must be an input option"
+        timeout_us = int(cmd[cmd.index("-timeout") + 1])
+        assert 0 < timeout_us <= 60_000_000, "microseconds, and short enough to respawn soon"
 
 
 # ----- 10. buffer mode: lexical order == chronological order -----
