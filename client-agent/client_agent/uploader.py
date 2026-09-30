@@ -21,15 +21,20 @@ Public surface is two methods:
 
 from __future__ import annotations
 
+import logging
+import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
+from typing import BinaryIO
 
 import httpx
 
 from client_agent.platform import PlatformClient, PlatformRequestError
+
+logger = logging.getLogger(__name__)
 
 # Mirror :data:`client_agent.platform._DEFAULT_BACKOFFS`: 3 PUT attempts
 # with 1s/2s sleeps between them. Kept as a module constant (not a class
@@ -48,6 +53,90 @@ _PUT_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=300.0, pool=10.0)
 # current uploader streams a whole trimmed file per task, so there is no
 # byte-splitting consumer yet; a future chunked uploader reads this.
 _DEFAULT_UPLOAD_CHUNK_BYTES = 52_428_800
+
+# How often the panel's upload bar may move (#127).
+_PROGRESS_INTERVAL_S = 10.0
+
+
+def _file_size(path: Path) -> int:
+    try:
+        return path.stat().st_size
+    except OSError:
+        # A missing chunk fails in upload_chunk with its usual error; the
+        # progress bar just has nothing to measure.
+        return 0
+
+
+class _CountingReader:
+    """A chunk's file handle that counts the bytes httpx reads for the PUT.
+
+    ``fileno`` lets httpx size the body from the file (Content-Length) —
+    R2 refuses a chunked presigned PUT — and ``__iter__`` is what makes
+    httpx accept the object as a stream; it then pulls through ``read``."""
+
+    def __init__(self, fh: BinaryIO, on_read: Callable[[int], None]) -> None:
+        self._fh = fh
+        self._on_read = on_read
+
+    def read(self, size: int = -1) -> bytes:
+        data = self._fh.read(size)
+        if data:
+            self._on_read(len(data))
+        return data
+
+    def fileno(self) -> int:
+        return self._fh.fileno()
+
+    def __iter__(self) -> Iterator[bytes]:
+        return iter(lambda: self.read(65_536), b"")
+
+
+class _UploadProgress:
+    """Bytes sent across one task's chunks, reported to the platform at most
+    once per interval (#127).
+
+    Cosmetic by contract: a report that fails (or raises) switches reporting
+    off for the rest of the upload and never touches the upload's result."""
+
+    def __init__(
+        self,
+        *,
+        report: Callable[[float], bool],
+        total_bytes: int,
+        clock: Callable[[], float],
+    ) -> None:
+        self._report = report
+        self._total_bytes = total_bytes
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._sent: dict[int, int] = {}
+        # Counting from now makes the first report wait a full interval — a 0%
+        # the moment the PUT starts reads in the panel as a stalled task.
+        self._last_report = clock()
+        self._enabled = total_bytes > 0
+
+    def restart(self, chunk_n: int) -> None:
+        """A retried or refreshed PUT re-reads the chunk from its first byte."""
+        with self._lock:
+            self._sent[chunk_n] = 0
+
+    def add(self, chunk_n: int, nbytes: int) -> None:
+        with self._lock:
+            self._sent[chunk_n] = self._sent.get(chunk_n, 0) + nbytes
+            now = self._clock()
+            if not self._enabled or now - self._last_report < _PROGRESS_INTERVAL_S:
+                return
+            self._last_report = now
+            pct = min(100.0, round(sum(self._sent.values()) * 100 / self._total_bytes, 1))
+        # Reported outside the lock so the other chunk threads keep streaming.
+        try:
+            accepted = self._report(pct)
+        except Exception:  # noqa: BLE001
+            logger.warning("upload progress report raised; continuing without it", exc_info=True)
+            accepted = False
+        if not accepted:
+            with self._lock:
+                self._enabled = False
 
 
 @dataclass(frozen=True)
@@ -76,10 +165,12 @@ class PresignedUploader:
         max_workers: int = 4,
         http_put: Callable[..., httpx.Response] = httpx.put,
         upload_chunk_bytes: int = _DEFAULT_UPLOAD_CHUNK_BYTES,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._platform = platform
         self._sleep = sleep
         self._max_workers = max_workers
+        self._clock = clock
         # Store-only (issue #85): the platform-delivered per-chunk byte size.
         # Public attribute (not name-mangled) because it is read state a
         # future byte-splitting path — and the current tests — inspect
@@ -117,15 +208,30 @@ class PresignedUploader:
         cancel chunks 0/1 or 3+, so the operator gets the fullest
         possible diagnostic in the final ``status=failed`` payload."""
 
+        progress = self._progress_for(task_id, chunks)
         with ThreadPoolExecutor(max_workers=self._max_workers) as ex:
             return list(
                 ex.map(
-                    lambda pair: self.upload_chunk(task_id, pair[0], pair[1]),
+                    lambda pair: self.upload_chunk(task_id, pair[0], pair[1], progress=progress),
                     list(enumerate(chunks)),
                 )
             )
 
-    def upload_chunk(self, task_id: str, chunk_n: int, local_path: Path) -> UploadResult:
+    def _progress_for(self, task_id: str, chunks: list[Path]) -> _UploadProgress:
+        return _UploadProgress(
+            report=lambda pct: self._platform.report_task_progress(task_id, pct),
+            total_bytes=sum(_file_size(path) for path in chunks),
+            clock=self._clock,
+        )
+
+    def upload_chunk(
+        self,
+        task_id: str,
+        chunk_n: int,
+        local_path: Path,
+        *,
+        progress: _UploadProgress | None = None,
+    ) -> UploadResult:
         """Fetch a presigned URL, PUT the chunk with retries, return result.
 
         Retry policy: ``_PUT_ATTEMPTS`` total PUT attempts with
@@ -148,6 +254,7 @@ class PresignedUploader:
                 success=False,
                 error=f"platform refused upload-url ({exc.status_code})",
             )
+        tracker = progress if progress is not None else self._progress_for(task_id, [local_path])
         refreshed = False
         while True:
             last: httpx.Response | None = None
@@ -160,7 +267,12 @@ class PresignedUploader:
                     # handle. httpx reads the file within the call, so closing
                     # it after the PUT returns is safe.
                     with local_path.open("rb") as fh:
-                        last = self._http_put(upload_url.url, content=fh, timeout=_PUT_TIMEOUT)
+                        tracker.restart(chunk_n)
+                        last = self._http_put(
+                            upload_url.url,
+                            content=_CountingReader(fh, lambda n: tracker.add(chunk_n, n)),
+                            timeout=_PUT_TIMEOUT,
+                        )
                 except httpx.HTTPError as exc:
                     # A transport error (ConnectError / ReadError / ReadTimeout
                     # from a Wi-Fi blip) is not a status code — mirror

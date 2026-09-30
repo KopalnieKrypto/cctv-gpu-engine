@@ -20,6 +20,7 @@ from the platform side, so a NAT'd home network needs no port forwarding.
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 from collections.abc import Callable
@@ -30,6 +31,8 @@ from typing import Literal, cast
 import httpx
 
 from client_agent.buffer import BufferGap
+
+logger = logging.getLogger(__name__)
 
 # Retry policy mirrors gpu-service/http_retry.py: 3 attempts total with
 # 1s, 2s sleeps between them (the "4s" from the prose would precede a
@@ -44,6 +47,10 @@ _DEFAULT_ATTEMPTS = 3
 # crashed poll thread, while still failing fast on genuine outages.
 # Operator override via env var (no code change, no rebuild).
 _DEFAULT_TIMEOUT_S = 30.0
+
+# Upload progress (#127) is reported from inside the PUT's read loop, so a
+# slow platform stalls the upload for as long as this call waits.
+_PROGRESS_TIMEOUT_S = 5.0
 
 # Snapshot capture profiles (gpu-exchange #137). ``thumbnail`` is the
 # compatibility default: it is what every claim meant before the platform
@@ -393,6 +400,32 @@ class PlatformClient:
             # and would raise inside httpx, far from this call site.
             body["actual_start"] = actual_start.isoformat()
         self._post(f"/appliance/tasks/{task_id}/status", json=body)
+
+    def report_task_progress(self, task_id: str, progress_pct: float) -> bool:
+        """POST ``/appliance/tasks/{task_id}/progress`` — upload progress for
+        the panel's bar (#127, gpu-exchange#246).
+
+        Returns whether the platform took the report. Deliberately not
+        :meth:`_post`: the bar is cosmetic, so there is one attempt with a
+        short timeout, no 1s/2s retry sleeps inside the upload, and nothing
+        raised — a 401 surfaces on the next status transition instead, and
+        a platform that predates the endpoint answers 404."""
+        try:
+            response = httpx.post(
+                f"{self._base_url}/appliance/tasks/{task_id}/progress",
+                headers={"Authorization": f"Bearer {self._token}"},
+                json={"progress_pct": progress_pct},
+                timeout=min(_PROGRESS_TIMEOUT_S, _resolve_timeout()),
+            )
+        except httpx.HTTPError as exc:
+            logger.warning("upload progress report for task %s failed: %s", task_id, exc)
+            return False
+        if not response.is_success:
+            logger.warning(
+                "platform refused upload progress for task %s (%s)", task_id, response.status_code
+            )
+            return False
+        return True
 
     def get_upload_url(self, task_id: str, chunk_n: int) -> UploadUrl:
         """GET ``/appliance/upload-url`` — fetch a fresh presigned PUT URL.

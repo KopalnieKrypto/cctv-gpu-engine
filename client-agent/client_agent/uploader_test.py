@@ -17,12 +17,14 @@ microseconds, and the executor's parallelism is exercised with a
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import httpx
 import respx
 
 from client_agent.platform import PlatformClient
+from client_agent.uploader import UploadResult
 
 # ----- 1. tracer bullet: upload_chunk fetches URL then PUTs the chunk -----
 
@@ -540,3 +542,150 @@ def test_upload_chunk_bytes_defaults_and_is_settable() -> None:
     uploader.set_upload_chunk_bytes(10_485_760)
 
     assert uploader.upload_chunk_bytes == 10_485_760
+
+
+# ----- 11. upload progress reported to the platform (#127) -----
+
+_BLOCK = 65_536
+
+
+def _block_reading_put(clock: list[float], statuses: list[int]) -> Callable[..., httpx.Response]:
+    """Fake PUT that consumes ``content`` the way httpx does - ``read()`` in
+    64 KiB blocks - with 4 s of wall clock passing before every read. Each
+    call answers with the next status from ``statuses``."""
+
+    def put(url: str, *, content: object, timeout: object) -> httpx.Response:
+        while True:
+            clock[0] += 4.0
+            if not content.read(_BLOCK):  # type: ignore[attr-defined]
+                break
+        return httpx.Response(statuses.pop(0))
+
+    return put
+
+
+def _mock_upload_url(mock: respx.MockRouter) -> None:
+    mock.get(
+        "https://platform.example/appliance/upload-url",
+        params={"task_id": "task-1", "chunk_n": "0"},
+    ).mock(
+        return_value=httpx.Response(
+            200, json={"url": "https://r2.example/k?sig=ok", "key": "k", "expires_in": 1800}
+        )
+    )
+
+
+def _reported(route: respx.Route) -> list[float]:
+    import json as _json
+
+    return [_json.loads(call.request.read())["progress_pct"] for call in route.calls]
+
+
+def test_upload_reports_growing_progress_at_most_once_per_interval(tmp_path: Path) -> None:
+    """The panel draws its upload bar (gpu-exchange#246) from what the
+    uploader reports while the PUT streams the file. Ten 64 KiB blocks read
+    4 s apart give one report per 10 s interval. The first report waits a
+    full interval: a 0% the moment the upload starts reads as a stalled task."""
+    from client_agent.uploader import PresignedUploader
+
+    chunk_path = tmp_path / "clip.mp4"
+    chunk_path.write_bytes(b"v" * (10 * _BLOCK))
+    clock = [0.0]
+
+    with respx.mock(assert_all_called=True) as mock:
+        _mock_upload_url(mock)
+        progress = mock.post("https://platform.example/appliance/tasks/task-1/progress").mock(
+            return_value=httpx.Response(200, json={"ok": True, "applied": True})
+        )
+        platform = PlatformClient(base_url="https://platform.example", token="tok")
+        uploader = PresignedUploader(
+            platform=platform,
+            http_put=_block_reading_put(clock, [200]),
+            clock=lambda: clock[0],
+        )
+
+        results = uploader.upload_chunks("task-1", [chunk_path])
+
+    assert results == [UploadResult(chunk_n=0, success=True, key="k")]
+    assert _reported(progress) == [30.0, 60.0, 90.0]
+
+
+def test_failed_progress_report_keeps_upload_result_and_stops_reporting(tmp_path: Path) -> None:
+    """The bar is cosmetic. A platform that cannot take the report (down, or
+    older than the endpoint) must not change the upload's outcome, and after
+    the first failure the uploader stops asking for the rest of the upload."""
+    from client_agent.uploader import PresignedUploader
+
+    chunk_path = tmp_path / "clip.mp4"
+    chunk_path.write_bytes(b"v" * (10 * _BLOCK))
+    clock = [0.0]
+
+    with respx.mock(assert_all_called=True) as mock:
+        _mock_upload_url(mock)
+        progress = mock.post("https://platform.example/appliance/tasks/task-1/progress").mock(
+            return_value=httpx.Response(503)
+        )
+        platform = PlatformClient(base_url="https://platform.example", token="tok")
+        uploader = PresignedUploader(
+            platform=platform,
+            http_put=_block_reading_put(clock, [200]),
+            clock=lambda: clock[0],
+        )
+
+        results = uploader.upload_chunks("task-1", [chunk_path])
+
+    assert results == [UploadResult(chunk_n=0, success=True, key="k")]
+    assert progress.call_count == 1
+
+
+def test_retried_put_counts_the_chunk_from_zero(tmp_path: Path) -> None:
+    """A 5xx PUT is retried from the file's first byte, so the bytes the
+    failed attempt read no longer count - otherwise the retry would pin the
+    bar at 100% while the file goes up a second time."""
+    from client_agent.uploader import PresignedUploader
+
+    chunk_path = tmp_path / "clip.mp4"
+    chunk_path.write_bytes(b"v" * (10 * _BLOCK))
+    clock = [0.0]
+
+    with respx.mock(assert_all_called=True) as mock:
+        _mock_upload_url(mock)
+        progress = mock.post("https://platform.example/appliance/tasks/task-1/progress").mock(
+            return_value=httpx.Response(200, json={"ok": True, "applied": True})
+        )
+        platform = PlatformClient(base_url="https://platform.example", token="tok")
+        uploader = PresignedUploader(
+            platform=platform,
+            sleep=lambda _s: None,
+            http_put=_block_reading_put(clock, [503, 200]),
+            clock=lambda: clock[0],
+        )
+
+        results = uploader.upload_chunks("task-1", [chunk_path])
+
+    assert results == [UploadResult(chunk_n=0, success=True, key="k")]
+    assert _reported(progress) == [30.0, 60.0, 90.0, 10.0, 40.0, 70.0, 100.0]
+
+
+def test_counted_put_still_sends_content_length(tmp_path: Path) -> None:
+    """R2 presigned PUTs refuse ``Transfer-Encoding: chunked``. Counting the
+    bytes must leave httpx sizing the body from the file itself."""
+    from client_agent.uploader import PresignedUploader
+
+    chunk_path = tmp_path / "clip.mp4"
+    body = b"v" * (3 * _BLOCK + 17)
+    chunk_path.write_bytes(body)
+
+    with respx.mock(assert_all_called=True) as mock:
+        _mock_upload_url(mock)
+        put_route = mock.put("https://r2.example/k?sig=ok").mock(return_value=httpx.Response(200))
+        platform = PlatformClient(base_url="https://platform.example", token="tok")
+        uploader = PresignedUploader(platform=platform)
+
+        results = uploader.upload_chunks("task-1", [chunk_path])
+
+    assert results == [UploadResult(chunk_n=0, success=True, key="k")]
+    request = put_route.calls.last.request
+    assert request.headers["content-length"] == str(len(body))
+    assert "transfer-encoding" not in request.headers
+    assert request.content == body

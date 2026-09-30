@@ -1242,3 +1242,59 @@ def test_heartbeat_omits_telemetry_keys_when_unavailable() -> None:
         "buffer_gaps",
     ):
         assert key not in body
+
+
+# ----- 21. report_task_progress: cosmetic upload progress (#127) -----
+
+
+def test_report_task_progress_posts_percentage_once() -> None:
+    """The panel's upload bar (gpu-exchange#246) reads what the appliance
+    reports here. One POST with Bearer auth and ``progress_pct``; a 2xx means
+    the platform took it, whether or not the task was still uploading."""
+    from client_agent.platform import PlatformClient
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        route = mock.post("/appliance/tasks/task-abc/progress").mock(
+            return_value=httpx.Response(200, json={"ok": True, "applied": True})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        accepted = client.report_task_progress("task-abc", 42.5)
+
+    assert accepted is True
+    assert route.call_count == 1
+    request = route.calls.last.request
+    assert request.headers["authorization"] == "Bearer tok"
+    import json as _json
+
+    assert _json.loads(request.read()) == {"progress_pct": 42.5}
+    # The upload stream waits on this call, so it gets a short timeout
+    # instead of the 30 s that status transitions use.
+    assert request.extensions["timeout"]["read"] <= 5.0
+
+
+def test_report_task_progress_is_one_attempt_that_never_raises() -> None:
+    """A progress report is cosmetic: 5xx, a transport error, 401 and the
+    404 of a platform that predates the endpoint all end as ``False`` after
+    exactly one attempt - no 1s/2s retry sleeps inside the upload, and no
+    PlatformAuthError escaping into the uploader."""
+    from client_agent.platform import PlatformClient
+
+    sleeps: list[float] = []
+    outcomes = [
+        httpx.Response(503),
+        httpx.ConnectError("platform down"),
+        httpx.Response(401),
+        httpx.Response(404),
+    ]
+    with respx.mock(base_url="https://platform.example") as mock:
+        route = mock.post("/appliance/tasks/task-abc/progress").mock(side_effect=outcomes)
+        client = PlatformClient(
+            base_url="https://platform.example", token="tok", sleep=sleeps.append
+        )
+
+        results = [client.report_task_progress("task-abc", 10.0) for _ in outcomes]
+
+    assert results == [False, False, False, False]
+    assert route.call_count == len(outcomes)
+    assert sleeps == []
