@@ -104,18 +104,31 @@ class PlatformUnavailableError(RuntimeError):
 
 
 class PlatformRequestError(RuntimeError):
-    """Raised when the platform returns a non-401 4xx for a request that
-    expects a parseable JSON body (currently only ``get_upload_url``).
+    """Raised when the platform returns a non-401 4xx for a request whose
+    answer the caller needs (the multipart upload calls).
 
-    Carries the HTTP status so callers can build a user-facing message
-    (e.g. ``PresignedUploader`` surfaces "platform refused upload-url
-    (403)" without further dispatch on body content). 401 is handled
-    separately by :class:`PlatformAuthError` — token rotation is an
-    operator concern, not a request-level error."""
+    Carries the HTTP status, and the message reads "platform refused
+    upload-multipart (404): <platform's error>" so ``PresignedUploader``
+    can put it into the task's error as it is. 401 is handled separately
+    by :class:`PlatformAuthError` — token rotation is an operator concern,
+    not a request-level error."""
 
     def __init__(self, status_code: int, message: str) -> None:
         super().__init__(message)
         self.status_code = status_code
+
+
+def _raise_if_refused(response: httpx.Response, endpoint: str) -> None:
+    if response.status_code < 400:
+        return
+    message = f"platform refused {endpoint} ({response.status_code})"
+    try:
+        error = response.json().get("error")
+    except (ValueError, AttributeError):
+        error = None
+    if isinstance(error, str) and error:
+        message += f": {error}"
+    raise PlatformRequestError(response.status_code, message)
 
 
 @dataclass(frozen=True)
@@ -427,32 +440,65 @@ class PlatformClient:
             return False
         return True
 
-    def get_upload_url(self, task_id: str, chunk_n: int) -> UploadUrl:
-        """GET ``/appliance/upload-url`` — fetch a fresh presigned PUT URL.
+    def open_multipart_upload(self, task_id: str, chunk_n: int) -> MultipartUpload:
+        """POST ``/appliance/upload-multipart`` — open an R2 multipart upload
+        for one chunk (gpu-exchange#248; R2 takes at most 5 GiB in one PUT).
 
-        The platform binds the URL to ``tenants/{tid}/appliance-uploads/
-        {task_id}/chunk_N.mp4`` based on the Bearer token's tenant. A
-        cross-tenant ``task_id`` produces a 403 at this hop, **not** at
-        the PUT, so a compromised appliance can never even learn a
-        sibling tenant's R2 key. The 30-min default TTL means
-        :class:`PresignedUploader` may need a refresh mid-upload if the
-        chunk PUT lands after expiry — the response's ``expires_in`` is
-        surfaced for diagnostics but not enforced client-side (the R2
-        edge does that for us)."""
-        response = self._get(
-            "/appliance/upload-url", params={"task_id": task_id, "chunk_n": chunk_n}
+        The platform derives the key ``tenants/{tid}/appliance-uploads/
+        {task_id}/chunk_N.mp4`` from the Bearer token's tenant, so a
+        cross-tenant ``task_id`` is refused here, before any byte moves."""
+        response = self._post(
+            "/appliance/upload-multipart", json={"task_id": task_id, "chunk_n": chunk_n}
         )
-        if response.status_code >= 400:
-            # 4xx here is meaningful: tenant mismatch (403), unknown
-            # task_id (404), bad chunk_n (400). The uploader converts
-            # this to a failed UploadResult; we surface only the status
-            # because parsed-body error fields vary across deployments.
-            raise PlatformRequestError(
-                response.status_code,
-                f"platform refused upload-url ({response.status_code})",
-            )
+        _raise_if_refused(response, "upload-multipart")
         data = response.json()
-        return UploadUrl(url=data["url"], key=data["key"], expires_in=int(data["expires_in"]))
+        return MultipartUpload(upload_id=data["upload_id"], key=data["key"])
+
+    def get_upload_part_url(
+        self, task_id: str, chunk_n: int, upload: MultipartUpload, part_number: int
+    ) -> UploadUrl:
+        """GET ``/appliance/upload-part-url`` — a presigned PUT for one part.
+
+        Fetched right before the part goes up, so a slow uplink never meets
+        the 30-min expiry of a URL issued at the start of a long upload."""
+        response = self._get(
+            "/appliance/upload-part-url",
+            params={
+                "task_id": task_id,
+                "chunk_n": chunk_n,
+                "upload_id": upload.upload_id,
+                "part_number": part_number,
+            },
+        )
+        _raise_if_refused(response, "upload-part-url")
+        data = response.json()
+        return UploadUrl(url=data["url"], key=upload.key, expires_in=int(data["expires_in"]))
+
+    def complete_multipart_upload(
+        self, task_id: str, chunk_n: int, upload: MultipartUpload, parts: list[tuple[int, str]]
+    ) -> None:
+        """POST ``/appliance/upload-multipart/complete`` — R2 joins ``parts``
+        (part number, ETag) into one object under ``upload.key``. A refusal
+        carries R2's reason (a missing part, an upload it no longer knows)."""
+        response = self._post(
+            "/appliance/upload-multipart/complete",
+            json={
+                "task_id": task_id,
+                "chunk_n": chunk_n,
+                "upload_id": upload.upload_id,
+                "parts": [{"part_number": n, "etag": etag} for n, etag in parts],
+            },
+        )
+        _raise_if_refused(response, "upload-multipart/complete")
+
+    def abort_multipart_upload(self, task_id: str, chunk_n: int, upload: MultipartUpload) -> None:
+        """POST ``/appliance/upload-multipart/abort`` — drop the parts of a
+        failed upload now rather than at R2's 7-day cleanup."""
+        response = self._post(
+            "/appliance/upload-multipart/abort",
+            json={"task_id": task_id, "chunk_n": chunk_n, "upload_id": upload.upload_id},
+        )
+        _raise_if_refused(response, "upload-multipart/abort")
 
     def claim_next_snapshot(self) -> SnapshotClaim | None:
         """GET ``/appliance/snapshot/next`` — claim the oldest pending
@@ -558,8 +604,17 @@ class SnapshotClaim:
 
 
 @dataclass(frozen=True)
+class MultipartUpload:
+    """An R2 multipart upload the platform opened for one chunk (#128).
+    ``key`` is where R2 joins the parts on completion."""
+
+    upload_id: str
+    key: str
+
+
+@dataclass(frozen=True)
 class UploadUrl:
-    """One single-use presigned PUT URL for a chunk upload (issue #28).
+    """One single-use presigned PUT URL for a chunk part (issues #28, #128).
 
     ``url`` is the full presigned URL (carries its own signature in the
     query string — sending a Bearer header alongside it confuses some

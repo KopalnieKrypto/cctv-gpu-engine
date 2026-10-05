@@ -464,44 +464,84 @@ def test_update_task_status_posts_status_and_optional_error() -> None:
     ]
 
 
-# ----- 11. get_upload_url: Bearer + query params, parses UploadUrl -----
+# ----- 11. multipart upload calls: wire format (gpu-exchange#248) -----
 
 
-def test_get_upload_url_sends_query_params_and_parses_response() -> None:
+def test_multipart_upload_calls_pin_the_wire_format() -> None:
     """Per DD-09 (gpu-exchange) the appliance never holds R2 credentials —
-    every upload is gated by a fresh presigned PUT URL. ``get_upload_url``
-    is the only way the appliance can move bytes to R2; the platform binds
-    the URL to ``tenants/{tid}/appliance-uploads/{task_id}/chunk_N.mp4``
-    so cross-tenant scribbles are impossible by construction.
+    the platform opens an R2 multipart upload under a key it derives from
+    the Bearer token's tenant, signs one PUT URL per part and completes the
+    upload with the parts' ETags. This test pins the four requests and the
+    parsing of their answers."""
+    import json
 
-    This test pins the wire format: GET with Bearer, ``task_id`` and
-    ``chunk_n`` as query params, response parsed into :class:`UploadUrl`."""
-    from client_agent.platform import PlatformClient, UploadUrl
+    from client_agent.platform import MultipartUpload, PlatformClient, UploadUrl
 
+    key = "tenants/t-1/appliance-uploads/task-9/chunk_003.mp4"
     with respx.mock(base_url="https://platform.example") as mock:
-        route = mock.get(
-            "/appliance/upload-url",
-            params={"task_id": "task-9", "chunk_n": "3"},
+        open_route = mock.post("/appliance/upload-multipart").mock(
+            return_value=httpx.Response(200, json={"upload_id": "up-1", "key": key})
+        )
+        part_route = mock.get(
+            "/appliance/upload-part-url",
+            params={"task_id": "task-9", "chunk_n": "3", "upload_id": "up-1", "part_number": "2"},
         ).mock(
             return_value=httpx.Response(
-                200,
-                json={
-                    "url": "https://r2.example/tenants/t-1/appliance-uploads/task-9/chunk_3.mp4?sig=xyz",
-                    "key": "tenants/t-1/appliance-uploads/task-9/chunk_3.mp4",
-                    "expires_in": 1800,
-                },
+                200, json={"url": "https://r2.example/p2?sig=xyz", "expires_in": 1800}
             )
+        )
+        complete_route = mock.post("/appliance/upload-multipart/complete").mock(
+            return_value=httpx.Response(200, json={"key": key})
+        )
+        abort_route = mock.post("/appliance/upload-multipart/abort").mock(
+            return_value=httpx.Response(204)
         )
         client = PlatformClient(base_url="https://platform.example", token="tok-z")
 
-        result = client.get_upload_url("task-9", 3)
+        upload = client.open_multipart_upload("task-9", 3)
+        part_url = client.get_upload_part_url("task-9", 3, upload, 2)
+        client.complete_multipart_upload("task-9", 3, upload, [(1, '"a"'), (2, '"b"')])
+        client.abort_multipart_upload("task-9", 3, upload)
 
-    assert isinstance(result, UploadUrl)
-    assert result.url.endswith("chunk_3.mp4?sig=xyz")
-    assert result.key == "tenants/t-1/appliance-uploads/task-9/chunk_3.mp4"
-    assert result.expires_in == 1800
-    assert route.called
-    assert route.calls.last.request.headers["authorization"] == "Bearer tok-z"
+    assert upload == MultipartUpload(upload_id="up-1", key=key)
+    assert part_url == UploadUrl(url="https://r2.example/p2?sig=xyz", key=key, expires_in=1800)
+    assert json.loads(open_route.calls.last.request.content) == {"task_id": "task-9", "chunk_n": 3}
+    assert json.loads(complete_route.calls.last.request.content) == {
+        "task_id": "task-9",
+        "chunk_n": 3,
+        "upload_id": "up-1",
+        "parts": [{"part_number": 1, "etag": '"a"'}, {"part_number": 2, "etag": '"b"'}],
+    }
+    assert json.loads(abort_route.calls.last.request.content) == {
+        "task_id": "task-9",
+        "chunk_n": 3,
+        "upload_id": "up-1",
+    }
+    for route in (open_route, part_route, complete_route, abort_route):
+        assert route.calls.last.request.headers["authorization"] == "Bearer tok-z"
+
+
+def test_refused_multipart_call_carries_the_platform_reason() -> None:
+    """A 409 from complete holds R2's reason in ``error``; the raised
+    :class:`PlatformRequestError` keeps it, so the task's error says why."""
+    from client_agent.platform import MultipartUpload, PlatformClient, PlatformRequestError
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.post("/appliance/upload-multipart/complete").mock(
+            return_value=httpx.Response(
+                409, json={"error": "R2 refused the multipart upload: no such upload"}
+            )
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        with pytest.raises(PlatformRequestError) as raised:
+            client.complete_multipart_upload("task-9", 0, MultipartUpload("up-1", "k"), [(1, "a")])
+
+    assert raised.value.status_code == 409
+    assert str(raised.value) == (
+        "platform refused upload-multipart/complete (409): "
+        "R2 refused the multipart upload: no such upload"
+    )
 
 
 # ----- 12.5. _post: retry on httpx.ReadTimeout (issue #42 tracer) -----
@@ -612,29 +652,24 @@ def test_post_retries_on_connect_error() -> None:
     assert sleeps == [1]
 
 
-# ----- 12. get_upload_url: 5xx → retry budget shared with other GETs -----
+# ----- 12. get_upload_part_url: 5xx → retry budget shared with other GETs -----
 
 
-def test_get_upload_url_retries_on_5xx_and_succeeds_on_third_attempt() -> None:
-    """Presigned-URL generation is a normal idempotent GET — the existing
+def test_get_upload_part_url_retries_on_5xx_and_succeeds_on_third_attempt() -> None:
+    """Part-URL signing is a normal idempotent GET — the existing
     3-attempt / 1s+2s backoff in :meth:`PlatformClient._get` covers it.
     This test pins that we did not accidentally bypass the shared retry
     path when wiring the new method."""
-    from client_agent.platform import PlatformClient
+    from client_agent.platform import MultipartUpload, PlatformClient
 
     sleeps: list[float] = []
 
     with respx.mock(base_url="https://platform.example") as mock:
-        mock.get(
-            "/appliance/upload-url",
-            params={"task_id": "task-1", "chunk_n": "0"},
-        ).mock(
+        mock.get("/appliance/upload-part-url").mock(
             side_effect=[
                 httpx.Response(503),
                 httpx.Response(503),
-                httpx.Response(
-                    200, json={"url": "https://r2.example/u", "key": "k", "expires_in": 60}
-                ),
+                httpx.Response(200, json={"url": "https://r2.example/u", "expires_in": 60}),
             ]
         )
         client = PlatformClient(
@@ -643,9 +678,9 @@ def test_get_upload_url_retries_on_5xx_and_succeeds_on_third_attempt() -> None:
             sleep=sleeps.append,
         )
 
-        result = client.get_upload_url("task-1", 0)
+        result = client.get_upload_part_url("task-1", 0, MultipartUpload("up-1", "k"), 1)
 
-    assert result.key == "k"
+    assert result.url == "https://r2.example/u"
     assert sleeps == [1, 2]
 
 

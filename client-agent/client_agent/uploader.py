@@ -1,4 +1,4 @@
-"""Presigned-URL upload manager for the client appliance (issue #28).
+"""Presigned-URL upload manager for the client appliance (issues #28, #128).
 
 Sits between :class:`client_agent.poller.TaskPoller` (which drops a
 trimmed chunk on local disk) and Cloudflare R2. Holds **no R2
@@ -8,11 +8,17 @@ to ``tenants/{tid}/appliance-uploads/{task_id}/chunk_N.mp4``, so a
 compromised appliance with a valid Bearer token still cannot scribble
 outside its task scope (privacy boundary per DD-09).
 
+A chunk goes up as an R2 multipart upload (gpu-exchange#248): R2 takes
+at most 5 GiB in one PUT, and 3 h from a 4K camera is 6-7 GB. Parts of
+``upload_chunk_bytes`` are read straight from the trimmed file and
+retried one by one; on completion R2 joins them into one object under
+the key, so nothing downstream sees the split.
+
 Public surface is two methods:
 
-* :meth:`PresignedUploader.upload_chunk` — one chunk, retry-aware,
-  refresh-on-expiry, returns a :class:`UploadResult` (no exceptions
-  bubble — the poller needs to mark the task ``failed`` cleanly).
+* :meth:`PresignedUploader.upload_chunk` — one chunk, retry-aware per
+  part, refresh-on-expiry, returns a :class:`UploadResult` (the poller
+  needs to mark the task ``failed`` cleanly).
 * :meth:`PresignedUploader.upload_chunks` — many chunks in parallel
   via a :class:`ThreadPoolExecutor`. Results come back in the input
   order regardless of completion order so the poller's error-summary
@@ -22,6 +28,7 @@ Public surface is two methods:
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -32,7 +39,7 @@ from typing import BinaryIO
 
 import httpx
 
-from client_agent.platform import PlatformClient, PlatformRequestError
+from client_agent.platform import MultipartUpload, PlatformClient, PlatformRequestError
 
 logger = logging.getLogger(__name__)
 
@@ -42,20 +49,24 @@ logger = logging.getLogger(__name__)
 # parallel symmetry with the platform client is itself documentation.
 _PUT_BACKOFFS: tuple[int, ...] = (1, 2)
 _PUT_ATTEMPTS = 3
-# Generous per-phase timeout for R2 PUT — chunks are tens of MB and the
+# Generous per-phase timeout for R2 PUT — parts are tens of MB and the
 # appliance often sits on a residential/asymmetric uplink. httpx default
 # is 5s which is essentially "always times out". Write=300s lets a
-# ~200MB chunk land on a 6Mbps uplink (the slowest realistic case).
+# ~200MB part land on a 6Mbps uplink (the slowest realistic case).
 _PUT_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=300.0, pool=10.0)
 
-# Cold-start default for the platform-delivered ``upload_chunk_bytes`` (#85):
-# 50 MiB, matching the platform's documented default. Stored only — the
-# current uploader streams a whole trimmed file per task, so there is no
-# byte-splitting consumer yet; a future chunked uploader reads this.
+# Cold-start default for the platform-delivered ``upload_chunk_bytes`` (#85),
+# the multipart part size: 50 MiB, matching the platform's default.
 _DEFAULT_UPLOAD_CHUNK_BYTES = 52_428_800
+# R2's multipart bounds: every part but the last at least 5 MiB, all but the
+# last the same size, at most 10 000 parts.
+_MIN_PART_BYTES = 5 * 1024 * 1024
+_MAX_PARTS = 10_000
 
 # How often the panel's upload bar may move (#127).
 _PROGRESS_INTERVAL_S = 10.0
+
+_R2_ERROR_CODE = re.compile(r"<Code>([^<]+)</Code>")
 
 
 def _file_size(path: Path) -> int:
@@ -67,28 +78,42 @@ def _file_size(path: Path) -> int:
         return 0
 
 
-class _CountingReader:
-    """A chunk's file handle that counts the bytes httpx reads for the PUT.
+def _r2_error_code(response: httpx.Response) -> str:
+    """R2's S3 error code (``EntityTooLarge``, ``InvalidPart``) with a
+    leading space, or nothing - the status alone does not say why."""
+    match = _R2_ERROR_CODE.search(response.text)
+    return f" {match.group(1)}" if match else ""
 
-    ``fileno`` lets httpx size the body from the file (Content-Length) —
-    R2 refuses a chunked presigned PUT — and ``__iter__`` is what makes
-    httpx accept the object as a stream; it then pulls through ``read``."""
 
-    def __init__(self, fh: BinaryIO, on_read: Callable[[int], None]) -> None:
+class _PartReader:
+    """One part of a chunk file, read from the handle's current position,
+    counting the bytes httpx pulls for the PUT.
+
+    No ``fileno`` on purpose: httpx would size the body from the whole file.
+    The caller sends the part's own Content-Length instead — R2 refuses a
+    chunked presigned PUT. ``__iter__`` is what makes httpx accept the
+    object as a stream; it then pulls through ``read``."""
+
+    def __init__(self, fh: BinaryIO, length: int, on_read: Callable[[int], None]) -> None:
         self._fh = fh
+        self._left = length
         self._on_read = on_read
 
     def read(self, size: int = -1) -> bytes:
+        if size < 0 or size > self._left:
+            size = self._left
         data = self._fh.read(size)
+        self._left -= len(data)
         if data:
             self._on_read(len(data))
         return data
 
-    def fileno(self) -> int:
-        return self._fh.fileno()
-
     def __iter__(self) -> Iterator[bytes]:
         return iter(lambda: self.read(65_536), b"")
+
+
+class _PartFailed(Exception):
+    """A part that cannot go up; the message becomes the chunk's error."""
 
 
 class _UploadProgress:
@@ -109,20 +134,20 @@ class _UploadProgress:
         self._total_bytes = total_bytes
         self._clock = clock
         self._lock = threading.Lock()
-        self._sent: dict[int, int] = {}
+        self._sent: dict[tuple[int, int], int] = {}
         # Counting from now makes the first report wait a full interval — a 0%
         # the moment the PUT starts reads in the panel as a stalled task.
         self._last_report = clock()
         self._enabled = total_bytes > 0
 
-    def restart(self, chunk_n: int) -> None:
-        """A retried or refreshed PUT re-reads the chunk from its first byte."""
+    def restart(self, part: tuple[int, int]) -> None:
+        """A retried or refreshed PUT re-reads the part from its first byte."""
         with self._lock:
-            self._sent[chunk_n] = 0
+            self._sent[part] = 0
 
-    def add(self, chunk_n: int, nbytes: int) -> None:
+    def add(self, part: tuple[int, int], nbytes: int) -> None:
         with self._lock:
-            self._sent[chunk_n] = self._sent.get(chunk_n, 0) + nbytes
+            self._sent[part] = self._sent.get(part, 0) + nbytes
             now = self._clock()
             if not self._enabled or now - self._last_report < _PROGRESS_INTERVAL_S:
                 return
@@ -155,7 +180,7 @@ class UploadResult:
 
 
 class PresignedUploader:
-    """Upload chunks to R2 through platform-issued presigned PUT URLs."""
+    """Upload chunks to R2 as multipart uploads through platform-issued URLs."""
 
     def __init__(
         self,
@@ -171,10 +196,8 @@ class PresignedUploader:
         self._sleep = sleep
         self._max_workers = max_workers
         self._clock = clock
-        # Store-only (issue #85): the platform-delivered per-chunk byte size.
-        # Public attribute (not name-mangled) because it is read state a
-        # future byte-splitting path — and the current tests — inspect
-        # directly. See :meth:`set_upload_chunk_bytes`.
+        # The platform-delivered part size (#85). Public because the
+        # runtime-config applier and the tests read it directly.
         self.upload_chunk_bytes = upload_chunk_bytes
         # Injectable so tests can simulate transport failures deterministically.
         # Production default is ``httpx.put`` (respx patches the transport for
@@ -182,15 +205,13 @@ class PresignedUploader:
         self._http_put = http_put
 
     def set_upload_chunk_bytes(self, nbytes: int) -> None:
-        """Re-point the per-chunk upload size at runtime (issue #85).
+        """Re-point the part size at runtime (issue #85).
 
         The platform ships ``upload_chunk_bytes`` on every register/heartbeat;
-        the runtime-config applier calls this on-change. It is store-only for
-        now — the uploader streams a whole trimmed file per task, so nothing
-        splits by byte size yet — but a chunked uploader would read
-        :attr:`upload_chunk_bytes` for the *next* upload (in-flight uploads
-        keep their current size, per the #85 contract). Plain assignment is
-        atomic in CPython, so no lock for the cross-thread write."""
+        the runtime-config applier calls this on-change. An upload in flight
+        keeps the size it started with — R2 wants every part but the last the
+        same size. Plain assignment is atomic in CPython, so no lock for the
+        cross-thread write."""
         self.upload_chunk_bytes = nbytes
 
     def upload_chunks(self, task_id: str, chunks: list[Path]) -> list[UploadResult]:
@@ -232,80 +253,117 @@ class PresignedUploader:
         *,
         progress: _UploadProgress | None = None,
     ) -> UploadResult:
-        """Fetch a presigned URL, PUT the chunk with retries, return result.
+        """Upload one chunk as an R2 multipart upload; return the result.
 
-        Retry policy: ``_PUT_ATTEMPTS`` total PUT attempts with
-        ``_PUT_BACKOFFS`` (1s/2s) sleeps between them on any 5xx. A 5xx
-        does *not* trigger a URL refresh — the URL is fine, the backend
-        is sick. ``403 SignatureDoesNotMatch`` is special-cased: the URL
-        has expired or been signed by a stale key, so we refetch once
-        from the platform and try again with the fresh URL. A second
-        SignatureDoesNotMatch on the refreshed URL is terminal (a
-        configuration bug, not transient expiry)."""
+        Parts go up one after another, each through a presigned URL fetched
+        right before it. Retry policy per part: ``_PUT_ATTEMPTS`` PUTs with
+        ``_PUT_BACKOFFS`` (1s/2s) sleeps on a 5xx or a transport error. A
+        ``403 SignatureDoesNotMatch`` refetches the part's URL once (stale
+        key or expiry); a second one is a configuration bug. Any other
+        status is terminal. A failed upload is aborted, so R2 drops the
+        parts it already holds instead of keeping them for 7 days."""
         try:
-            upload_url = self._platform.get_upload_url(task_id, chunk_n)
+            upload = self._platform.open_multipart_upload(task_id, chunk_n)
         except PlatformRequestError as exc:
-            # Tenant isolation / unknown task / bad chunk_n — the platform
-            # already decided not to issue a URL, so there is nothing to
-            # PUT. Surface a failed result so the poller can mark the
-            # task ``failed`` with a useful error.
-            return UploadResult(
-                chunk_n=chunk_n,
-                success=False,
-                error=f"platform refused upload-url ({exc.status_code})",
-            )
+            # Tenant isolation / unknown task — the platform opened nothing,
+            # so there is nothing to PUT and nothing to abort.
+            return UploadResult(chunk_n=chunk_n, success=False, error=str(exc))
         tracker = progress if progress is not None else self._progress_for(task_id, [local_path])
+        size = _file_size(local_path)
+        part_bytes = max(self.upload_chunk_bytes, _MIN_PART_BYTES, -(-size // _MAX_PARTS))
+        etags: list[tuple[int, str]] = []
+        try:
+            # max(size, 1): an empty file still goes up, as one empty part.
+            for part_number, offset in enumerate(range(0, max(size, 1), part_bytes), start=1):
+                length = min(part_bytes, size - offset)
+                etag = self._put_part(
+                    task_id, chunk_n, upload, part_number, local_path, offset, length, tracker
+                )
+                etags.append((part_number, etag))
+            self._platform.complete_multipart_upload(task_id, chunk_n, upload, etags)
+        except (_PartFailed, PlatformRequestError) as exc:
+            self._abort(task_id, chunk_n, upload)
+            return UploadResult(chunk_n=chunk_n, success=False, error=str(exc))
+        except Exception:
+            self._abort(task_id, chunk_n, upload)
+            raise
+        return UploadResult(chunk_n=chunk_n, success=True, key=upload.key)
+
+    def _put_part(
+        self,
+        task_id: str,
+        chunk_n: int,
+        upload: MultipartUpload,
+        part_number: int,
+        path: Path,
+        offset: int,
+        length: int,
+        tracker: _UploadProgress,
+    ) -> str:
+        """PUT one part under :meth:`upload_chunk`'s retry policy; return its ETag."""
+        part = (chunk_n, part_number)
+        url = self._part_url(task_id, chunk_n, upload, part_number)
         refreshed = False
         while True:
             last: httpx.Response | None = None
-            last_error: str | None = None
-            for i in range(_PUT_ATTEMPTS):
+            last_error = ""
+            attempts = 0
+            for attempts in range(1, _PUT_ATTEMPTS + 1):
                 try:
-                    # Stream the chunk straight off disk — a multi-GB chunk on
+                    # Stream the part straight off disk — a multi-GB chunk on
                     # a mini-PC must not be read whole into RAM (#56). Reopen
-                    # per attempt so a retry/refresh gets a fresh, unconsumed
-                    # handle. httpx reads the file within the call, so closing
-                    # it after the PUT returns is safe.
-                    with local_path.open("rb") as fh:
-                        tracker.restart(chunk_n)
+                    # per attempt so a retry starts from the part's first byte.
+                    with path.open("rb") as fh:
+                        fh.seek(offset)
+                        tracker.restart(part)
                         last = self._http_put(
-                            upload_url.url,
-                            content=_CountingReader(fh, lambda n: tracker.add(chunk_n, n)),
+                            url,
+                            content=_PartReader(fh, length, lambda n: tracker.add(part, n)),
+                            headers={"Content-Length": str(length)},
                             timeout=_PUT_TIMEOUT,
                         )
                 except httpx.HTTPError as exc:
                     # A transport error (ConnectError / ReadError / ReadTimeout
-                    # from a Wi-Fi blip) is not a status code — mirror
-                    # SnapshotPoller.default_http_put and count it against the
-                    # same 3-attempt budget as a 5xx (issue #54). Without this
-                    # the raise escaped the class boundary and wedged the task.
+                    # from a Wi-Fi blip) counts against the same 3-attempt
+                    # budget as a 5xx (issue #54).
                     last = None
                     last_error = f"transport error: {exc}"
                 else:
                     if last.status_code < 500:
                         break
-                if i + 1 >= _PUT_ATTEMPTS:
-                    break
-                self._sleep(_PUT_BACKOFFS[i] if i < len(_PUT_BACKOFFS) else _PUT_BACKOFFS[-1])
+                if attempts < _PUT_ATTEMPTS:
+                    self._sleep(_PUT_BACKOFFS[min(attempts, len(_PUT_BACKOFFS)) - 1])
 
             if last is None:
-                # Every attempt hit a transport error — no response to inspect.
-                return UploadResult(
-                    chunk_n=chunk_n,
-                    success=False,
-                    error=f"{last_error} after {_PUT_ATTEMPTS} attempt(s)",
-                )
+                raise _PartFailed(f"part {part_number}: {last_error} after {attempts} attempt(s)")
             if last.status_code == 403 and "SignatureDoesNotMatch" in last.text and not refreshed:
-                # One-shot refresh: the URL expired between issuance and
-                # this PUT. Most likely on the tail end of a slow parallel
-                # batch. Re-fetch and reset the retry counter.
-                upload_url = self._platform.get_upload_url(task_id, chunk_n)
+                url = self._part_url(task_id, chunk_n, upload, part_number)
                 refreshed = True
                 continue
             if 200 <= last.status_code < 300:
-                return UploadResult(chunk_n=chunk_n, success=True, key=upload_url.key)
-            return UploadResult(
-                chunk_n=chunk_n,
-                success=False,
-                error=f"R2 PUT returned {last.status_code} after {_PUT_ATTEMPTS} attempt(s)",
+                etag = last.headers.get("etag")
+                if not etag:
+                    raise _PartFailed(
+                        f"part {part_number}: R2 PUT returned {last.status_code} without an ETag"
+                    )
+                return etag
+            raise _PartFailed(
+                f"part {part_number}: R2 PUT returned {last.status_code}"
+                f"{_r2_error_code(last)} after {attempts} attempt(s)"
             )
+
+    def _part_url(
+        self, task_id: str, chunk_n: int, upload: MultipartUpload, part_number: int
+    ) -> str:
+        try:
+            return self._platform.get_upload_part_url(task_id, chunk_n, upload, part_number).url
+        except PlatformRequestError as exc:
+            raise _PartFailed(f"part {part_number}: {exc}") from exc
+
+    def _abort(self, task_id: str, chunk_n: int, upload: MultipartUpload) -> None:
+        try:
+            self._platform.abort_multipart_upload(task_id, chunk_n, upload)
+        except Exception:  # noqa: BLE001
+            # Best effort: R2 drops an unfinished upload after 7 days anyway,
+            # and the task's error must name the original failure.
+            logger.warning("aborting the upload of task %s failed", task_id, exc_info=True)

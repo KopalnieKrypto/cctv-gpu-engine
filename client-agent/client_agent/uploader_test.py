@@ -1,22 +1,25 @@
-"""Tests for the presigned-URL upload manager (issue #28, Slice 1c.3).
+"""Tests for the presigned-URL upload manager (issues #28, #128).
 
 The uploader sits between :class:`TaskPoller` (which produces trimmed
 chunks on local disk) and Cloudflare R2 (the durable store the
 gpu-service worker pulls from). It deliberately holds **no R2
-credentials**: every upload is gated on a fresh presigned PUT URL
-issued by the platform on demand. The platform-side check binds the
-URL to ``tenants/{tid}/appliance-uploads/{task_id}/chunk_N.mp4`` so a
-compromised appliance cannot scribble outside its task scope.
+credentials**: every PUT goes through a fresh presigned URL issued by
+the platform on demand, bound to
+``tenants/{tid}/appliance-uploads/{task_id}/chunk_N.mp4``.
 
-Tests are hermetic — respx mocks both the platform's
-``/appliance/upload-url`` endpoint and the presigned-URL PUT itself
-(intercepted by URL pattern). Sleep is injected so retry tests run in
-microseconds, and the executor's parallelism is exercised with a
-``threading.Barrier`` rather than wallclock timing.
+A chunk goes up as an R2 multipart upload (gpu-exchange#248): R2 takes
+at most 5 GiB in one PUT. The platform opens and completes the upload;
+each part travels straight to R2 through its own presigned URL.
+
+Tests are hermetic — respx mocks the platform's multipart endpoints and
+the presigned PUTs (intercepted by URL pattern). Sleep is injected so
+retry tests run in microseconds, and the executor's parallelism is
+exercised with a ``threading.Barrier`` rather than wallclock timing.
 """
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 
@@ -24,518 +27,434 @@ import httpx
 import respx
 
 from client_agent.platform import PlatformClient
-from client_agent.uploader import UploadResult
+from client_agent.uploader import PresignedUploader, UploadResult
 
-# ----- 1. tracer bullet: upload_chunk fetches URL then PUTs the chunk -----
-
-
-def test_upload_chunk_happy_path_gets_url_then_puts_chunk(tmp_path: Path) -> None:
-    """One chunk, no retries, no expiry: GET ``/appliance/upload-url``
-    with Bearer auth → platform returns a presigned PUT URL → uploader
-    PUTs the chunk body to that URL with **no Bearer** (presigned URLs
-    carry their own signature; sending a second auth header confuses
-    some S3-compatible backends) → uploader returns ``UploadResult``
-    flagged success with the platform-supplied key.
-
-    This is the tracer bullet — it forces both ``PlatformClient.
-    get_upload_url`` and ``PresignedUploader.upload_chunk`` to exist
-    in their minimal shape. Edge cases (5xx retry, expiry refresh,
-    parallelism) are layered on in later tests."""
-    from client_agent.uploader import PresignedUploader
-
-    chunk_path = tmp_path / "chunk_001.mp4"
-    chunk_body = b"fake-mp4-bytes-roughly-7MB-or-so" * 100
-    chunk_path.write_bytes(chunk_body)
-
-    presigned_url = "https://r2.example/tenants/t-7/appliance-uploads/task-1/chunk_1.mp4?sig=abc"
-    expected_key = "tenants/t-7/appliance-uploads/task-1/chunk_1.mp4"
-
-    with respx.mock(assert_all_called=True) as mock:
-        url_route = mock.get(
-            "https://platform.example/appliance/upload-url",
-            params={"task_id": "task-1", "chunk_n": "1"},
-        ).mock(
-            return_value=httpx.Response(
-                200,
-                json={"url": presigned_url, "key": expected_key, "expires_in": 1800},
-            )
-        )
-        put_route = mock.put(presigned_url).mock(return_value=httpx.Response(200))
-
-        platform = PlatformClient(base_url="https://platform.example", token="tok-abc")
-        uploader = PresignedUploader(platform=platform)
-
-        result = uploader.upload_chunk("task-1", 1, chunk_path)
-
-    assert result.success is True
-    assert result.chunk_n == 1
-    assert result.key == expected_key
-    assert result.error is None
-
-    # Platform GET carried the Bearer; presigned PUT did NOT.
-    assert url_route.calls.last.request.headers["authorization"] == "Bearer tok-abc"
-    assert put_route.calls.last.request.headers.get("authorization") is None
-    # PUT body is the chunk file's bytes — verifies the uploader actually
-    # streamed the file rather than sending an empty body.
-    assert put_route.calls.last.request.content == chunk_body
+PLATFORM = "https://platform.example"
+MIB = 1024 * 1024
+R2_PUT = r"https://r2\.example/.*"
 
 
-# ----- 1b. upload_chunk streams the file rather than reading it into RAM -----
+def _key(chunk_n: int) -> str:
+    return f"tenants/t-7/appliance-uploads/task-1/chunk_{chunk_n:03d}.mp4"
 
 
-def test_upload_streams_file_content(tmp_path: Path) -> None:
+def _part_url(chunk_n: int, part_number: int, attempt: int = 1) -> str:
+    return f"https://r2.example/c{chunk_n}/p{part_number}?sig={attempt}"
+
+
+def _r2_ok(request: httpx.Request) -> httpx.Response:
+    # R2 answers UploadPart with the part's MD5 as a quoted ETag header.
+    return httpx.Response(200, headers={"ETag": f'"md5-{request.url.path.rsplit("/", 1)[-1]}"'})
+
+
+def _mock_platform(mock: respx.MockRouter) -> dict[str, respx.Route]:
+    """The platform's multipart endpoints for chunks of task ``task-1``:
+    upload ``up-N`` under ``_key(N)``, part URLs from :func:`_part_url`."""
+
+    def open_upload(request: httpx.Request) -> httpx.Response:
+        chunk_n = json.loads(request.content)["chunk_n"]
+        return httpx.Response(200, json={"upload_id": f"up-{chunk_n}", "key": _key(chunk_n)})
+
+    def part_url(request: httpx.Request) -> httpx.Response:
+        params = request.url.params
+        url = _part_url(int(params["chunk_n"]), int(params["part_number"]))
+        return httpx.Response(200, json={"url": url, "expires_in": 1800})
+
+    def complete(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"key": _key(json.loads(request.content)["chunk_n"])})
+
+    return {
+        "open": mock.post(f"{PLATFORM}/appliance/upload-multipart").mock(side_effect=open_upload),
+        "part_url": mock.get(f"{PLATFORM}/appliance/upload-part-url").mock(side_effect=part_url),
+        "complete": mock.post(f"{PLATFORM}/appliance/upload-multipart/complete").mock(
+            side_effect=complete
+        ),
+        "abort": mock.post(f"{PLATFORM}/appliance/upload-multipart/abort").mock(
+            return_value=httpx.Response(204)
+        ),
+    }
+
+
+def _body(route: respx.Route, i: int = -1) -> dict:
+    return json.loads(route.calls[i].request.content)
+
+
+def _uploader(**kwargs: object) -> PresignedUploader:
+    platform = PlatformClient(base_url=PLATFORM, token="tok-abc", sleep=lambda _s: None)
+    kwargs.setdefault("sleep", lambda _s: None)
+    return PresignedUploader(platform=platform, **kwargs)  # type: ignore[arg-type]
+
+
+# ----- 1. tracer bullet: the chunk goes up in parts and R2 joins them -----
+
+
+def test_chunk_goes_up_in_parts_that_r2_joins_under_one_key(tmp_path: Path) -> None:
+    """11 MiB at 5 MiB a part is three PUTs of 5, 5 and 1 MiB, each to its
+    own presigned URL with **no Bearer** (the URL carries its signature) and
+    its own Content-Length (R2 refuses a chunked presigned PUT). The
+    platform then completes the upload with every part's ETag, in order,
+    and the result carries the key the GPU side will read."""
+    chunk_path = tmp_path / "clip.mp4"
+    body = bytes(range(256)) * (11 * MIB // 256)
+    chunk_path.write_bytes(body)
+
+    with respx.mock(assert_all_called=False) as mock:
+        platform = _mock_platform(mock)
+        put = mock.put(url__regex=R2_PUT).mock(side_effect=_r2_ok)
+        uploader = _uploader()
+        uploader.set_upload_chunk_bytes(5 * MIB)
+
+        result = uploader.upload_chunk("task-1", 0, chunk_path)
+
+    assert result == UploadResult(chunk_n=0, success=True, key=_key(0))
+    assert _body(platform["open"]) == {"task_id": "task-1", "chunk_n": 0}
+    assert platform["open"].calls.last.request.headers["authorization"] == "Bearer tok-abc"
+    assert [call.request.url.params["part_number"] for call in platform["part_url"].calls] == [
+        "1",
+        "2",
+        "3",
+    ]
+    assert {call.request.url.params["upload_id"] for call in platform["part_url"].calls} == {"up-0"}
+
+    slices = [body[: 5 * MIB], body[5 * MIB : 10 * MIB], body[10 * MIB :]]
+    assert [str(call.request.url) for call in put.calls] == [_part_url(0, n) for n in (1, 2, 3)]
+    for call, expected in zip(put.calls, slices, strict=True):
+        assert call.request.headers.get("authorization") is None
+        assert call.request.headers["content-length"] == str(len(expected))
+        assert "transfer-encoding" not in call.request.headers
+        assert call.request.content == expected
+
+    assert _body(platform["complete"]) == {
+        "task_id": "task-1",
+        "chunk_n": 0,
+        "upload_id": "up-0",
+        "parts": [
+            {"part_number": 1, "etag": '"md5-p1"'},
+            {"part_number": 2, "etag": '"md5-p2"'},
+            {"part_number": 3, "etag": '"md5-p3"'},
+        ],
+    }
+    assert not platform["abort"].called
+
+
+# ----- 1b. parts stream off disk rather than into RAM -----
+
+
+def test_part_streams_from_disk(tmp_path: Path) -> None:
     """A multi-GB chunk on a mini-PC must not be materialized in RAM before
-    the PUT — ``httpx`` accepts a file-like object as ``content`` and streams
-    it off disk. Assert the injected put-callable receives a readable file
-    object, not a ``bytes`` snapshot of the whole file (#56)."""
-    from client_agent.uploader import PresignedUploader
-
-    chunk_path = tmp_path / "chunk_777.mp4"
-    chunk_path.write_bytes(b"m" * (2 * 1024 * 1024))
-
+    the PUT — the injected put-callable receives a readable object, not a
+    ``bytes`` snapshot (#56)."""
+    chunk_path = tmp_path / "clip.mp4"
+    chunk_path.write_bytes(b"m" * (2 * MIB))
     seen: dict = {}
 
-    def capture_put(url: str, *, content: object, timeout: object) -> httpx.Response:
+    def capture_put(url: str, *, content: object, headers: dict, timeout: object) -> httpx.Response:
         seen["is_bytes"] = isinstance(content, (bytes, bytearray))
         seen["readable"] = hasattr(content, "read")
-        return httpx.Response(200)
+        return httpx.Response(200, headers={"ETag": '"x"'})
 
-    with respx.mock(assert_all_called=True) as mock:
-        mock.get(
-            "https://platform.example/appliance/upload-url",
-            params={"task_id": "task-1", "chunk_n": "7"},
-        ).mock(
-            return_value=httpx.Response(
-                200,
-                json={"url": "https://r2.example/k?sig=ok", "key": "k", "expires_in": 1800},
-            )
-        )
-
-        platform = PlatformClient(base_url="https://platform.example", token="tok")
-        uploader = PresignedUploader(platform=platform, http_put=capture_put)
-
-        result = uploader.upload_chunk("task-1", 7, chunk_path)
+    with respx.mock(assert_all_called=False) as mock:
+        _mock_platform(mock)
+        result = _uploader(http_put=capture_put).upload_chunk("task-1", 0, chunk_path)
 
     assert result.success is True
-    assert seen["is_bytes"] is False
-    assert seen["readable"] is True
+    assert seen == {"is_bytes": False, "readable": True}
 
 
-# ----- 2. upload_chunk retries on 5xx with exp backoff -----
+# ----- 1c. part size: upload_chunk_bytes, never under R2's 5 MiB floor -----
 
 
-def test_upload_chunk_retries_on_5xx_and_succeeds_on_third_attempt(tmp_path: Path) -> None:
-    """A flaky R2 edge (or a transient CF outage) is the most likely
-    real-world failure for an otherwise-valid presigned PUT. Spec
-    matches :class:`PlatformClient`: 3 attempts, 1s/2s exp backoff
-    between them, sleep is injected so the test runs in microseconds.
+def test_part_size_never_drops_below_r2_minimum(tmp_path: Path) -> None:
+    """R2 rejects any part but the last under 5 MiB (EntityTooSmall). A
+    platform still configured for 1 MiB chunks (the pre-#248 lower bound)
+    gets 5 MiB parts instead of a failed upload."""
+    chunk_path = tmp_path / "clip.mp4"
+    chunk_path.write_bytes(b"v" * (6 * MIB))
 
-    The URL is *not* refreshed between 5xx retries — only on a
-    SignatureDoesNotMatch (covered in T4). 5xx means the URL is fine,
-    the backend is sick."""
-    from client_agent.uploader import PresignedUploader
+    with respx.mock(assert_all_called=False) as mock:
+        _mock_platform(mock)
+        put = mock.put(url__regex=R2_PUT).mock(side_effect=_r2_ok)
+        uploader = _uploader()
+        uploader.set_upload_chunk_bytes(1 * MIB)
 
-    chunk_path = tmp_path / "chunk_002.mp4"
-    chunk_path.write_bytes(b"x" * 1024)
+        result = uploader.upload_chunk("task-1", 0, chunk_path)
 
-    presigned_url = "https://r2.example/k?sig=ok"
+    assert result.success is True
+    assert [call.request.headers["content-length"] for call in put.calls] == [
+        str(5 * MIB),
+        str(1 * MIB),
+    ]
+
+
+# ----- 2. a 5xx is retried for the failing part only -----
+
+
+def test_part_retries_on_5xx_without_resending_other_parts(tmp_path: Path) -> None:
+    """A flaky R2 edge costs one part, not the whole recording: part 2 gets
+    3 attempts with 1s/2s backoff while part 1 went up once."""
+    chunk_path = tmp_path / "clip.mp4"
+    chunk_path.write_bytes(b"v" * (6 * MIB))
     sleeps: list[float] = []
+    part2 = iter([503, 503, 200])
 
-    with respx.mock(assert_all_called=True) as mock:
-        url_route = mock.get(
-            "https://platform.example/appliance/upload-url",
-            params={"task_id": "task-1", "chunk_n": "2"},
-        ).mock(
-            return_value=httpx.Response(
-                200, json={"url": presigned_url, "key": "k", "expires_in": 1800}
-            )
-        )
-        put_route = mock.put(presigned_url).mock(
-            side_effect=[
-                httpx.Response(503),
-                httpx.Response(503),
-                httpx.Response(200),
-            ]
-        )
+    def flaky_part2(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/p2"):
+            status = next(part2)
+            if status != 200:
+                return httpx.Response(status)
+        return _r2_ok(request)
 
-        platform = PlatformClient(base_url="https://platform.example", token="tok")
-        uploader = PresignedUploader(platform=platform, sleep=sleeps.append)
+    with respx.mock(assert_all_called=False) as mock:
+        platform = _mock_platform(mock)
+        put = mock.put(url__regex=R2_PUT).mock(side_effect=flaky_part2)
+        uploader = _uploader(sleep=sleeps.append)
+        uploader.set_upload_chunk_bytes(5 * MIB)
 
-        result = uploader.upload_chunk("task-1", 2, chunk_path)
+        result = uploader.upload_chunk("task-1", 0, chunk_path)
 
     assert result.success is True
-    assert result.chunk_n == 2
-    # Three PUT attempts, two sleeps between them — same shape as platform retry.
-    assert put_route.call_count == 3
+    assert [call.request.url.path for call in put.calls] == ["/c0/p1", "/c0/p2", "/c0/p2", "/c0/p2"]
     assert sleeps == [1, 2]
-    # URL was fetched exactly once — 5xx does NOT trigger a refresh.
-    assert url_route.call_count == 1
+    assert [p["part_number"] for p in _body(platform["complete"])["parts"]] == [1, 2]
 
 
-# ----- 3. upload_chunk refreshes presigned URL on 403 SignatureDoesNotMatch -----
+# ----- 3. 403 SignatureDoesNotMatch refetches the part's URL once -----
 
 
-def test_upload_chunk_refreshes_url_on_403_signature_mismatch(tmp_path: Path) -> None:
-    """The 30-min default TTL on presigned URLs means a chunk PUT can
-    land after expiry — especially the *last* chunk of a long parallel
-    batch. R2 surfaces this as ``403 SignatureDoesNotMatch`` (S3-compat
-    error code). On that specific signal the uploader gets one fresh
-    URL and tries again; a second 403 is treated as terminal (likely a
-    misconfigured server, not transient expiry).
+def test_part_refreshes_url_on_403_signature_mismatch(tmp_path: Path) -> None:
+    """A URL signed by a stale key fails with ``403 SignatureDoesNotMatch``.
+    The uploader asks the platform for that part's URL once more and PUTs
+    again; a second mismatch would be a configuration bug, not expiry."""
+    chunk_path = tmp_path / "clip.mp4"
+    chunk_path.write_bytes(b"v" * 1024)
+    fresh = _part_url(0, 1, attempt=2)
 
-    Other 403 bodies (e.g. tenant violation from the URL issuer) are
-    not refresh-eligible — those land at :meth:`PlatformClient.
-    get_upload_url`, never at the PUT, so we do not need to disambiguate
-    here. The refresh path is narrowly scoped to the SignatureDoesNotMatch
-    body."""
-    from client_agent.uploader import PresignedUploader
-
-    chunk_path = tmp_path / "chunk_005.mp4"
-    chunk_path.write_bytes(b"y" * 512)
-
-    stale_url = "https://r2.example/k?sig=stale"
-    fresh_url = "https://r2.example/k?sig=fresh"
-
-    with respx.mock(assert_all_called=True) as mock:
-        url_route = mock.get(
-            "https://platform.example/appliance/upload-url",
-            params={"task_id": "task-1", "chunk_n": "5"},
-        ).mock(
+    with respx.mock(assert_all_called=False) as mock:
+        platform = _mock_platform(mock)
+        platform["part_url"].mock(
             side_effect=[
-                httpx.Response(200, json={"url": stale_url, "key": "k", "expires_in": 1}),
-                httpx.Response(200, json={"url": fresh_url, "key": "k", "expires_in": 1800}),
+                httpx.Response(200, json={"url": _part_url(0, 1), "expires_in": 1800}),
+                httpx.Response(200, json={"url": fresh, "expires_in": 1800}),
             ]
         )
-        stale_put = mock.put(stale_url).mock(
-            return_value=httpx.Response(
-                403,
-                text="<Error><Code>SignatureDoesNotMatch</Code></Error>",
-            )
+        stale = mock.put(_part_url(0, 1)).mock(
+            return_value=httpx.Response(403, text="<Error><Code>SignatureDoesNotMatch</Code>")
         )
-        fresh_put = mock.put(fresh_url).mock(return_value=httpx.Response(200))
+        renewed = mock.put(fresh).mock(return_value=httpx.Response(200, headers={"ETag": '"e"'}))
 
-        platform = PlatformClient(base_url="https://platform.example", token="tok")
-        uploader = PresignedUploader(platform=platform)
-
-        result = uploader.upload_chunk("task-1", 5, chunk_path)
+        result = _uploader().upload_chunk("task-1", 0, chunk_path)
 
     assert result.success is True
-    assert url_route.call_count == 2  # initial + 1 refresh
-    assert stale_put.call_count == 1
-    assert fresh_put.call_count == 1
+    assert stale.call_count == 1
+    assert renewed.call_count == 1
+    assert platform["part_url"].call_count == 2
 
 
-# ----- 4. upload_chunk all retries exhausted → UploadResult(success=False) -----
+# ----- 4. a part that exhausts its retries fails the chunk and aborts the upload -----
 
 
-def test_upload_chunk_all_retries_fail_returns_failed_result(tmp_path: Path) -> None:
-    """Three 5xx in a row exhausts the retry budget. The contract is
-    that the failure surfaces as ``UploadResult(success=False, error=...)``,
-    **not** as an exception — the poller composes ``status=failed`` for
-    the platform from the result objects and a mid-batch raise would
-    abandon other chunks' results.
+def test_part_exhausting_retries_fails_and_aborts_upload(tmp_path: Path) -> None:
+    """Three 503s on a part end the chunk as a failed result (data, not a
+    raise — the poller marks the task ``failed``). The upload is aborted so
+    R2 drops the parts already stored instead of keeping them for 7 days."""
+    chunk_path = tmp_path / "clip.mp4"
+    chunk_path.write_bytes(b"v" * 1024)
 
-    The error message includes the final HTTP status so the operator
-    has something concrete to diagnose ("R2 503 after 3 attempts" beats
-    a generic "upload failed")."""
-    from client_agent.uploader import PresignedUploader
+    with respx.mock(assert_all_called=False) as mock:
+        platform = _mock_platform(mock)
+        mock.put(url__regex=R2_PUT).mock(return_value=httpx.Response(503))
 
-    chunk_path = tmp_path / "chunk_009.mp4"
-    chunk_path.write_bytes(b"z" * 256)
-
-    presigned_url = "https://r2.example/k?sig=ok"
-
-    with respx.mock(assert_all_called=True) as mock:
-        mock.get(
-            "https://platform.example/appliance/upload-url",
-            params={"task_id": "task-1", "chunk_n": "9"},
-        ).mock(
-            return_value=httpx.Response(
-                200, json={"url": presigned_url, "key": "k", "expires_in": 1800}
-            )
-        )
-        put_route = mock.put(presigned_url).mock(
-            side_effect=[httpx.Response(503), httpx.Response(502), httpx.Response(500)]
-        )
-
-        platform = PlatformClient(base_url="https://platform.example", token="tok")
-        uploader = PresignedUploader(platform=platform, sleep=lambda _s: None)
-
-        result = uploader.upload_chunk("task-1", 9, chunk_path)
+        result = _uploader().upload_chunk("task-1", 0, chunk_path)
 
     assert result.success is False
-    assert result.chunk_n == 9
     assert result.key is None
-    assert result.error is not None
-    # Error mentions the final status code — surface for the operator,
-    # not a structured field (callers only display it).
-    assert "500" in result.error
-    assert put_route.call_count == 3
+    assert result.error == "part 1: R2 PUT returned 503 after 3 attempt(s)"
+    assert _body(platform["abort"]) == {"task_id": "task-1", "chunk_n": 0, "upload_id": "up-0"}
+    assert not platform["complete"].called
 
 
-# ----- 5. upload_chunk non-expiry 4xx → terminal failure, no retry, no refresh -----
+# ----- 5. a 4xx is terminal and the error says what R2 said -----
 
 
-def test_upload_chunk_4xx_other_than_expiry_is_terminal(tmp_path: Path) -> None:
-    """A 404 on the presigned URL means the R2 object path doesn't
-    exist in the way the URL signed for — typically a platform bug, not
-    transient. Don't retry, don't refresh; return a failed result
-    immediately so the operator/platform get a fast signal."""
-    from client_agent.uploader import PresignedUploader
+def test_r2_4xx_is_terminal_and_names_r2_code_and_real_attempts(tmp_path: Path) -> None:
+    """A 4xx other than a signature mismatch will not improve on retry, so
+    it ends after one attempt — and the error says so, with R2's code from
+    the response body. Before #128 it read "after 3 attempt(s)" with no
+    reason, which hid the 5 GiB limit behind the five failed tasks of
+    2026-10-03."""
+    chunk_path = tmp_path / "clip.mp4"
+    chunk_path.write_bytes(b"v" * 1024)
+    r2_error = (
+        "<?xml version='1.0' encoding='UTF-8'?><Error><Code>EntityTooLarge</Code>"
+        "<Message>Your proposed upload exceeds the maximum allowed object size.</Message></Error>"
+    )
 
-    chunk_path = tmp_path / "chunk_010.mp4"
-    chunk_path.write_bytes(b"q" * 256)
+    with respx.mock(assert_all_called=False) as mock:
+        platform = _mock_platform(mock)
+        put = mock.put(url__regex=R2_PUT).mock(return_value=httpx.Response(400, text=r2_error))
 
-    presigned_url = "https://r2.example/k?sig=ok"
+        result = _uploader().upload_chunk("task-1", 0, chunk_path)
 
-    with respx.mock(assert_all_called=True) as mock:
-        url_route = mock.get(
-            "https://platform.example/appliance/upload-url",
-            params={"task_id": "task-1", "chunk_n": "10"},
-        ).mock(
-            return_value=httpx.Response(
-                200, json={"url": presigned_url, "key": "k", "expires_in": 1800}
-            )
+    assert result.error == "part 1: R2 PUT returned 400 EntityTooLarge after 1 attempt(s)"
+    assert put.call_count == 1
+    assert platform["abort"].called
+
+
+def test_part_without_etag_fails_instead_of_completing_blind(tmp_path: Path) -> None:
+    """Completing needs every part's ETag; a 200 without one cannot be
+    completed, so it fails here rather than as a vaguer refusal later."""
+    chunk_path = tmp_path / "clip.mp4"
+    chunk_path.write_bytes(b"v" * 1024)
+
+    with respx.mock(assert_all_called=False) as mock:
+        platform = _mock_platform(mock)
+        mock.put(url__regex=R2_PUT).mock(return_value=httpx.Response(200))
+
+        result = _uploader().upload_chunk("task-1", 0, chunk_path)
+
+    assert result.error == "part 1: R2 PUT returned 200 without an ETag"
+    assert not platform["complete"].called
+
+
+# ----- 6. platform refusals -----
+
+
+def test_platform_refusing_to_open_upload_fails_without_any_put(tmp_path: Path) -> None:
+    """Tenant isolation / unknown task: the platform opens nothing, so there
+    is nothing to PUT and nothing to abort."""
+    chunk_path = tmp_path / "clip.mp4"
+    chunk_path.write_bytes(b"v" * 1024)
+
+    with respx.mock(assert_all_called=False) as mock:
+        platform = _mock_platform(mock)
+        platform["open"].mock(return_value=httpx.Response(404, json={"error": "Task not found"}))
+        put = mock.put(url__regex=R2_PUT)
+
+        result = _uploader().upload_chunk("task-1", 0, chunk_path)
+
+    assert result.success is False
+    assert result.error == "platform refused upload-multipart (404): Task not found"
+    assert not put.called
+    assert not platform["abort"].called
+
+
+def test_refused_completion_keeps_r2_reason_and_aborts(tmp_path: Path) -> None:
+    """R2 refusing to join the parts reaches the appliance as a 409 with
+    R2's reason, which goes into the task's error as it is."""
+    chunk_path = tmp_path / "clip.mp4"
+    chunk_path.write_bytes(b"v" * 1024)
+    reason = "R2 refused the multipart upload: one of the specified parts could not be found."
+
+    with respx.mock(assert_all_called=False) as mock:
+        platform = _mock_platform(mock)
+        mock.put(url__regex=R2_PUT).mock(side_effect=_r2_ok)
+        platform["complete"].mock(
+            return_value=httpx.Response(409, json={"error": reason, "code": "MULTIPART_REJECTED"})
         )
-        put_route = mock.put(presigned_url).mock(return_value=httpx.Response(404))
 
-        platform = PlatformClient(base_url="https://platform.example", token="tok")
-        uploader = PresignedUploader(platform=platform)
-
-        result = uploader.upload_chunk("task-1", 10, chunk_path)
+        result = _uploader().upload_chunk("task-1", 0, chunk_path)
 
     assert result.success is False
-    assert result.error is not None
-    assert "404" in result.error
-    assert put_route.call_count == 1  # no retry on 4xx
-    assert url_route.call_count == 1  # no refresh on non-expiry 4xx
+    assert result.error == f"platform refused upload-multipart/complete (409): {reason}"
+    assert platform["abort"].called
 
 
-# ----- 6. upload_chunk tenant isolation: get_upload_url 403 propagates -----
+# ----- 7. upload_chunks: chunks in parallel, results in input order -----
 
 
-def test_upload_chunk_propagates_get_upload_url_403_as_failure(tmp_path: Path) -> None:
-    """The platform's URL issuer is the privacy gate: a Bearer token
-    bound to tenant A asking for an upload URL on task B (which belongs
-    to tenant Z) gets a 403 there, *not* at the PUT. The uploader must
-    surface that 403 as a failed result without attempting any PUT (no
-    URL was issued — there is nothing to PUT to).
-
-    The error must be human-actionable: an operator seeing "tenant
-    isolation: platform refused upload-url (403)" knows to check the
-    APPLIANCE_TOKEN's tenant binding, not the R2 backend. We keep the
-    message generic enough to also cover other 4xx returns from the
-    URL issuer (the platform decides which 4xx to use)."""
-    from client_agent.uploader import PresignedUploader
-
-    chunk_path = tmp_path / "chunk_999.mp4"
-    chunk_path.write_bytes(b"forbidden")
-
-    with respx.mock(assert_all_called=True) as mock:
-        url_route = mock.get(
-            "https://platform.example/appliance/upload-url",
-            params={"task_id": "task-cross-tenant", "chunk_n": "0"},
-        ).mock(return_value=httpx.Response(403, json={"error": "tenant mismatch"}))
-        # No PUT route registered — if upload_chunk tries to PUT despite
-        # the 403, respx will raise an unmocked-request error.
-
-        platform = PlatformClient(base_url="https://platform.example", token="tok")
-        uploader = PresignedUploader(platform=platform)
-
-        result = uploader.upload_chunk("task-cross-tenant", 0, chunk_path)
-
-    assert result.success is False
-    assert result.chunk_n == 0
-    assert result.error is not None
-    assert "403" in result.error
-    assert url_route.call_count == 1  # no retry on 4xx from the URL issuer
-
-
-# ----- 7. upload_chunks runs PUTs in parallel (barrier-verified) -----
-
-
-def test_upload_chunks_runs_puts_in_parallel(tmp_path: Path) -> None:
-    """A 30-minute task can produce a dozen chunks; uploading them
-    sequentially would burn minutes that the platform's status timeline
-    would mistake for an appliance hang. We use a ``ThreadPoolExecutor``
-    to issue PUTs concurrently — bandwidth-bounded by R2, not by single-
-    request RTT.
-
-    We verify *real* parallelism via a ``threading.Barrier``: if 3 PUTs
-    are submitted to a 3-worker pool, all three threads block on the
-    barrier and then release together. A sequential implementation
-    would deadlock at the first PUT (only one thread reaches the
-    barrier; ``timeout=2.0`` makes the deadlock fail loudly instead of
-    hanging the test suite).
-
-    Results return in the input order regardless of which chunk's PUT
-    finished first — the poller composes its ``status=failed`` error
-    from this list and we don't want chunk-order ambiguity to leak."""
+def test_upload_chunks_runs_chunks_in_parallel(tmp_path: Path) -> None:
+    """Chunks go up concurrently. Real parallelism is checked with a
+    ``threading.Barrier``: three PUTs on a 3-worker pool all reach it,
+    while a sequential implementation would break it after 2 s.
+    Results return in input order — the poller names failed chunks by it."""
     import threading
-
-    from client_agent.uploader import PresignedUploader
 
     chunks = []
     for i in range(3):
         p = tmp_path / f"chunk_{i}.mp4"
         p.write_bytes(f"chunk-{i}".encode())
         chunks.append(p)
-
     barrier = threading.Barrier(3, timeout=2.0)
 
-    def _put_side_effect(request: httpx.Request) -> httpx.Response:
-        # All three workers must reach the barrier; if any one is
-        # serialized behind the others, barrier.wait() raises BrokenBarrierError.
+    def put_after_barrier(request: httpx.Request) -> httpx.Response:
         barrier.wait()
-        return httpx.Response(200)
+        return _r2_ok(request)
 
-    with respx.mock(assert_all_called=True) as mock:
-        # Bind responses by chunk_n so parallel races can't shuffle
-        # which response goes to which chunk (a plain side_effect list
-        # would assign in call order, not chunk_n order).
-        for i in range(3):
-            mock.get(
-                "https://platform.example/appliance/upload-url",
-                params={"task_id": "task-1", "chunk_n": str(i)},
-            ).mock(
-                return_value=httpx.Response(
-                    200,
-                    json={
-                        "url": f"https://r2.example/k{i}?sig=ok",
-                        "key": f"k{i}",
-                        "expires_in": 1800,
-                    },
-                )
-            )
-            mock.put(f"https://r2.example/k{i}?sig=ok").mock(side_effect=_put_side_effect)
+    with respx.mock(assert_all_called=False) as mock:
+        _mock_platform(mock)
+        mock.put(url__regex=R2_PUT).mock(side_effect=put_after_barrier)
 
-        platform = PlatformClient(base_url="https://platform.example", token="tok")
-        uploader = PresignedUploader(platform=platform, max_workers=3)
+        results = _uploader(max_workers=3).upload_chunks("task-1", chunks)
 
-        results = uploader.upload_chunks("task-1", chunks)
-
-    assert [r.chunk_n for r in results] == [0, 1, 2]  # input-order preserved
+    assert [r.chunk_n for r in results] == [0, 1, 2]
     assert all(r.success for r in results)
-    assert [r.key for r in results] == ["k0", "k1", "k2"]
-
-
-# ----- 8. upload_chunks: one chunk's PUT fails, others succeed -----
+    assert [r.key for r in results] == [_key(0), _key(1), _key(2)]
 
 
 def test_upload_chunks_returns_mixed_results_when_one_chunk_fails(tmp_path: Path) -> None:
-    """If chunk 1's R2 PUT is stuck on 5xx after all retries, chunks 0
-    and 2 must still complete and return success — otherwise the
-    operator restarting the task uploads what already succeeded a
-    second time, doubling bandwidth costs. The poller turns the mixed
-    result list into a single ``status=failed`` payload that names
-    *which* chunks failed (T10)."""
-    from client_agent.uploader import PresignedUploader
-
+    """Chunk 1 stuck on 5xx must not cost chunks 0 and 2 their uploads."""
     chunks = []
     for i in range(3):
         p = tmp_path / f"chunk_{i}.mp4"
         p.write_bytes(f"chunk-{i}".encode())
         chunks.append(p)
 
-    with respx.mock(assert_all_called=True) as mock:
-        for i in range(3):
-            mock.get(
-                "https://platform.example/appliance/upload-url",
-                params={"task_id": "task-1", "chunk_n": str(i)},
-            ).mock(
-                return_value=httpx.Response(
-                    200,
-                    json={
-                        "url": f"https://r2.example/k{i}?sig=ok",
-                        "key": f"k{i}",
-                        "expires_in": 1800,
-                    },
-                )
-            )
-        # Chunks 0 + 2 succeed, chunk 1 fails permanently (3× 503).
-        mock.put("https://r2.example/k0?sig=ok").mock(return_value=httpx.Response(200))
-        mock.put("https://r2.example/k1?sig=ok").mock(return_value=httpx.Response(503))
-        mock.put("https://r2.example/k2?sig=ok").mock(return_value=httpx.Response(200))
+    def chunk1_down(request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/c1/"):
+            return httpx.Response(503)
+        return _r2_ok(request)
 
-        platform = PlatformClient(base_url="https://platform.example", token="tok")
-        uploader = PresignedUploader(platform=platform, sleep=lambda _s: None, max_workers=3)
+    with respx.mock(assert_all_called=False) as mock:
+        _mock_platform(mock)
+        mock.put(url__regex=R2_PUT).mock(side_effect=chunk1_down)
 
-        results = uploader.upload_chunks("task-1", chunks)
+        results = _uploader(max_workers=3).upload_chunks("task-1", chunks)
 
-    assert [r.chunk_n for r in results] == [0, 1, 2]
     assert [r.success for r in results] == [True, False, True]
-    assert results[1].error is not None
-    assert "503" in results[1].error
+    assert results[1].error == "part 1: R2 PUT returned 503 after 3 attempt(s)"
 
 
-# ----- 9. upload_chunk transport error → failed result, no exception (issue #54) -----
+# ----- 8. transport error → failed result, no exception (issue #54) -----
 
 
 def test_put_transport_error_returns_failed_result(tmp_path: Path) -> None:
-    """A Wi-Fi blip mid-PUT surfaces as ``httpx.ConnectError`` /
-    ``ReadError`` / ``ReadTimeout`` — not a 5xx status. The pre-#54 code
-    only retried on 5xx *status codes*, so a raised transport error escaped
-    ``upload_chunk`` and wedged the task at ``uploading`` (the class
-    docstring promises "no exceptions bubble"). The uploader must catch it,
-    count it against the same 3-attempt budget as a 5xx, and — when all
-    attempts fail transport-wise — return ``UploadResult(success=False,
-    error=...)`` instead of raising.
-
-    ``http_put`` is injected here (the real default is ``httpx.put``) so we
-    can simulate transport failures deterministically without a live socket;
-    the GET for the presigned URL still goes through respx."""
-    from client_agent.uploader import PresignedUploader
-
-    chunk_path = tmp_path / "chunk_003.mp4"
+    """A Wi-Fi blip mid-PUT surfaces as ``httpx.ConnectError`` — not a
+    status. It counts against the same 3-attempt / 1s-2s budget as a 5xx,
+    and when every attempt fails the chunk ends as a failed result instead
+    of a raise that would wedge the task at ``uploading``."""
+    chunk_path = tmp_path / "clip.mp4"
     chunk_path.write_bytes(b"x" * 512)
-
-    presigned_url = "https://r2.example/k?sig=ok"
     put_urls: list[str] = []
     sleeps: list[float] = []
 
-    def flaky_put(url: str, *, content: bytes, timeout: object) -> httpx.Response:
+    def flaky_put(url: str, *, content: object, headers: dict, timeout: object) -> httpx.Response:
         put_urls.append(url)
         raise httpx.ConnectError("[Errno 65] No route to host")
 
-    with respx.mock(assert_all_called=True) as mock:
-        mock.get(
-            "https://platform.example/appliance/upload-url",
-            params={"task_id": "task-1", "chunk_n": "3"},
-        ).mock(
-            return_value=httpx.Response(
-                200, json={"url": presigned_url, "key": "k", "expires_in": 1800}
-            )
-        )
-
-        platform = PlatformClient(base_url="https://platform.example", token="tok")
-        uploader = PresignedUploader(platform=platform, sleep=sleeps.append, http_put=flaky_put)
+    with respx.mock(assert_all_called=False) as mock:
+        platform = _mock_platform(mock)
+        uploader = _uploader(sleep=sleeps.append, http_put=flaky_put)
 
         result = uploader.upload_chunk("task-1", 3, chunk_path)
 
-    # No exception crossed the boundary — the failure is data, not a raise.
     assert result.success is False
     assert result.chunk_n == 3
-    assert result.key is None
-    assert result.error is not None
-    # Transport errors count against the same 3-attempt / 1s-2s budget as 5xx.
-    assert put_urls == [presigned_url, presigned_url, presigned_url]
+    assert result.error == (
+        "part 1: transport error: [Errno 65] No route to host after 3 attempt(s)"
+    )
+    assert put_urls == [_part_url(3, 1)] * 3
     assert sleeps == [1, 2]
+    assert platform["abort"].called
 
 
-# ----- 10. upload_chunk_bytes: store-only runtime setter (#85) -----
+# ----- 9. upload_chunk_bytes: the part size, live-settable (#85) -----
 
 
 def test_upload_chunk_bytes_defaults_and_is_settable() -> None:
     """The platform delivers ``upload_chunk_bytes`` in its runtime-config
-    block (#85). The uploader currently streams a whole trimmed file per task
-    — there is no byte-splitting path yet — so the value is stored, not acted
-    on: it defaults to 50 MiB and a runtime edit re-points it in place for
-    whenever a chunked uploader lands. Storing it keeps the four-setting
-    apply contract honest without building an unused splitter."""
-    from client_agent.uploader import PresignedUploader
-
-    platform = PlatformClient(base_url="https://platform.example", token="tok")
-    uploader = PresignedUploader(platform=platform)
+    block (#85); it is the multipart part size. It defaults to 50 MiB and
+    a runtime edit applies to the next upload."""
+    uploader = _uploader()
 
     assert uploader.upload_chunk_bytes == 52_428_800
 
@@ -544,41 +463,35 @@ def test_upload_chunk_bytes_defaults_and_is_settable() -> None:
     assert uploader.upload_chunk_bytes == 10_485_760
 
 
-# ----- 11. upload progress reported to the platform (#127) -----
+# ----- 10. upload progress reported to the platform (#127) -----
 
 _BLOCK = 65_536
 
 
-def _block_reading_put(clock: list[float], statuses: list[int]) -> Callable[..., httpx.Response]:
+def _block_reading_put(
+    clock: list[float], statuses: list[int], seconds_per_block: float = 4.0
+) -> Callable[..., httpx.Response]:
     """Fake PUT that consumes ``content`` the way httpx does - ``read()`` in
-    64 KiB blocks - with 4 s of wall clock passing before every read. Each
-    call answers with the next status from ``statuses``."""
+    64 KiB blocks - with ``seconds_per_block`` of wall clock passing before
+    every read. Each call answers with the next status from ``statuses``."""
 
-    def put(url: str, *, content: object, timeout: object) -> httpx.Response:
+    def put(url: str, *, content: object, headers: dict, timeout: object) -> httpx.Response:
         while True:
-            clock[0] += 4.0
+            clock[0] += seconds_per_block
             if not content.read(_BLOCK):  # type: ignore[attr-defined]
                 break
-        return httpx.Response(statuses.pop(0))
+        status = statuses.pop(0)
+        return httpx.Response(status, headers={"ETag": '"e"'} if status == 200 else None)
 
     return put
 
 
-def _mock_upload_url(mock: respx.MockRouter) -> None:
-    mock.get(
-        "https://platform.example/appliance/upload-url",
-        params={"task_id": "task-1", "chunk_n": "0"},
-    ).mock(
-        return_value=httpx.Response(
-            200, json={"url": "https://r2.example/k?sig=ok", "key": "k", "expires_in": 1800}
-        )
-    )
-
-
 def _reported(route: respx.Route) -> list[float]:
-    import json as _json
+    return [json.loads(call.request.read())["progress_pct"] for call in route.calls]
 
-    return [_json.loads(call.request.read())["progress_pct"] for call in route.calls]
+
+def _mock_progress(mock: respx.MockRouter, response: httpx.Response) -> respx.Route:
+    return mock.post(f"{PLATFORM}/appliance/tasks/task-1/progress").mock(return_value=response)
 
 
 def test_upload_reports_growing_progress_at_most_once_per_interval(tmp_path: Path) -> None:
@@ -586,27 +499,18 @@ def test_upload_reports_growing_progress_at_most_once_per_interval(tmp_path: Pat
     uploader reports while the PUT streams the file. Ten 64 KiB blocks read
     4 s apart give one report per 10 s interval. The first report waits a
     full interval: a 0% the moment the upload starts reads as a stalled task."""
-    from client_agent.uploader import PresignedUploader
-
     chunk_path = tmp_path / "clip.mp4"
     chunk_path.write_bytes(b"v" * (10 * _BLOCK))
     clock = [0.0]
 
-    with respx.mock(assert_all_called=True) as mock:
-        _mock_upload_url(mock)
-        progress = mock.post("https://platform.example/appliance/tasks/task-1/progress").mock(
-            return_value=httpx.Response(200, json={"ok": True, "applied": True})
-        )
-        platform = PlatformClient(base_url="https://platform.example", token="tok")
-        uploader = PresignedUploader(
-            platform=platform,
-            http_put=_block_reading_put(clock, [200]),
-            clock=lambda: clock[0],
-        )
+    with respx.mock(assert_all_called=False) as mock:
+        _mock_platform(mock)
+        progress = _mock_progress(mock, httpx.Response(200, json={"ok": True, "applied": True}))
+        uploader = _uploader(http_put=_block_reading_put(clock, [200]), clock=lambda: clock[0])
 
         results = uploader.upload_chunks("task-1", [chunk_path])
 
-    assert results == [UploadResult(chunk_n=0, success=True, key="k")]
+    assert results == [UploadResult(chunk_n=0, success=True, key=_key(0))]
     assert _reported(progress) == [30.0, 60.0, 90.0]
 
 
@@ -614,78 +518,58 @@ def test_failed_progress_report_keeps_upload_result_and_stops_reporting(tmp_path
     """The bar is cosmetic. A platform that cannot take the report (down, or
     older than the endpoint) must not change the upload's outcome, and after
     the first failure the uploader stops asking for the rest of the upload."""
-    from client_agent.uploader import PresignedUploader
-
     chunk_path = tmp_path / "clip.mp4"
     chunk_path.write_bytes(b"v" * (10 * _BLOCK))
     clock = [0.0]
 
-    with respx.mock(assert_all_called=True) as mock:
-        _mock_upload_url(mock)
-        progress = mock.post("https://platform.example/appliance/tasks/task-1/progress").mock(
-            return_value=httpx.Response(503)
-        )
-        platform = PlatformClient(base_url="https://platform.example", token="tok")
-        uploader = PresignedUploader(
-            platform=platform,
-            http_put=_block_reading_put(clock, [200]),
-            clock=lambda: clock[0],
-        )
+    with respx.mock(assert_all_called=False) as mock:
+        _mock_platform(mock)
+        progress = _mock_progress(mock, httpx.Response(503))
+        uploader = _uploader(http_put=_block_reading_put(clock, [200]), clock=lambda: clock[0])
 
         results = uploader.upload_chunks("task-1", [chunk_path])
 
-    assert results == [UploadResult(chunk_n=0, success=True, key="k")]
+    assert results == [UploadResult(chunk_n=0, success=True, key=_key(0))]
     assert progress.call_count == 1
 
 
-def test_retried_put_counts_the_chunk_from_zero(tmp_path: Path) -> None:
-    """A 5xx PUT is retried from the file's first byte, so the bytes the
-    failed attempt read no longer count - otherwise the retry would pin the
-    bar at 100% while the file goes up a second time."""
-    from client_agent.uploader import PresignedUploader
-
+def test_retried_part_counts_from_zero(tmp_path: Path) -> None:
+    """A 5xx part is retried from its first byte, so the bytes the failed
+    attempt read no longer count - otherwise the retry would pin the bar
+    at 100% while the part goes up a second time."""
     chunk_path = tmp_path / "clip.mp4"
     chunk_path.write_bytes(b"v" * (10 * _BLOCK))
     clock = [0.0]
 
-    with respx.mock(assert_all_called=True) as mock:
-        _mock_upload_url(mock)
-        progress = mock.post("https://platform.example/appliance/tasks/task-1/progress").mock(
-            return_value=httpx.Response(200, json={"ok": True, "applied": True})
-        )
-        platform = PlatformClient(base_url="https://platform.example", token="tok")
-        uploader = PresignedUploader(
-            platform=platform,
-            sleep=lambda _s: None,
-            http_put=_block_reading_put(clock, [503, 200]),
-            clock=lambda: clock[0],
-        )
+    with respx.mock(assert_all_called=False) as mock:
+        _mock_platform(mock)
+        progress = _mock_progress(mock, httpx.Response(200, json={"ok": True, "applied": True}))
+        uploader = _uploader(http_put=_block_reading_put(clock, [503, 200]), clock=lambda: clock[0])
 
         results = uploader.upload_chunks("task-1", [chunk_path])
 
-    assert results == [UploadResult(chunk_n=0, success=True, key="k")]
+    assert results == [UploadResult(chunk_n=0, success=True, key=_key(0))]
     assert _reported(progress) == [30.0, 60.0, 90.0, 10.0, 40.0, 70.0, 100.0]
 
 
-def test_counted_put_still_sends_content_length(tmp_path: Path) -> None:
-    """R2 presigned PUTs refuse ``Transfer-Encoding: chunked``. Counting the
-    bytes must leave httpx sizing the body from the file itself."""
-    from client_agent.uploader import PresignedUploader
-
+def test_progress_keeps_finished_parts_counted(tmp_path: Path) -> None:
+    """The bar covers the whole chunk: starting part 2 must not drop the
+    bytes part 1 already delivered."""
     chunk_path = tmp_path / "clip.mp4"
-    body = b"v" * (3 * _BLOCK + 17)
-    chunk_path.write_bytes(body)
+    chunk_path.write_bytes(b"v" * (10 * MIB))
+    clock = [0.0]
 
-    with respx.mock(assert_all_called=True) as mock:
-        _mock_upload_url(mock)
-        put_route = mock.put("https://r2.example/k?sig=ok").mock(return_value=httpx.Response(200))
-        platform = PlatformClient(base_url="https://platform.example", token="tok")
-        uploader = PresignedUploader(platform=platform)
+    with respx.mock(assert_all_called=False) as mock:
+        _mock_platform(mock)
+        progress = _mock_progress(mock, httpx.Response(200, json={"ok": True, "applied": True}))
+        # 160 blocks a second apart: a report every 10 blocks, not every 2.5.
+        put = _block_reading_put(clock, [200, 200], seconds_per_block=1.0)
+        uploader = _uploader(http_put=put, clock=lambda: clock[0])
+        uploader.set_upload_chunk_bytes(5 * MIB)
 
         results = uploader.upload_chunks("task-1", [chunk_path])
 
-    assert results == [UploadResult(chunk_n=0, success=True, key="k")]
-    request = put_route.calls.last.request
-    assert request.headers["content-length"] == str(len(body))
-    assert "transfer-encoding" not in request.headers
-    assert request.content == body
+    assert results == [UploadResult(chunk_n=0, success=True, key=_key(0))]
+    reported = _reported(progress)
+    assert reported == sorted(reported)
+    assert reported[-1] > 90.0
