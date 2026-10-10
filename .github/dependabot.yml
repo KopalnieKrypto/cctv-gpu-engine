@@ -1,0 +1,60 @@
+version: 2
+updates:
+  # One pyproject.toml + uv.lock at the root covers every package directory.
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "sunday"
+      time: "06:00"
+      timezone: "Europe/Warsaw"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      # Listed first because a dependency joins the first group it matches.
+      # CI runs on the CPU stub, so a PR from this group is merged only after
+      # `make test-gpu` on cctv-vps.
+      gpu-stack:
+        patterns:
+          - "onnxruntime"
+          - "onnxruntime-gpu"
+          - "nvidia-*"
+      patch-minor:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # torch, transformers, accelerate and qwen-vl-utils are pinned in Dockerfile
+  # ARGs, which Dependabot does not parse; only the base images are tracked here.
+  - package-ecosystem: "docker"
+    directory: "/gpu-service"
+    schedule:
+      interval: "weekly"
+      day: "sunday"
+      time: "06:00"
+      timezone: "Europe/Warsaw"
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "sunday"
+      time: "06:00"
+      timezone: "Europe/Warsaw"
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions:
+        patterns:
+          - "*"
