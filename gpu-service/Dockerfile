@@ -3,7 +3,7 @@
 # Base: nvidia/cuda 12.8 runtime — required by onnxruntime-gpu's
 # CUDAExecutionProvider AND PyTorch cu128 for Blackwell (sm_120) GPUs.
 # python:slim is NOT acceptable per CLAUDE.md.
-FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04
+FROM nvidia/cuda:13.4.2-cudnn-runtime-ubuntu24.04
 
 # OCI source label — links the GHCR package to the repo so collaborators
 # inherit access from repo permissions and the package page renders the
