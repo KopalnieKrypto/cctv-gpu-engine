@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Batch surveillance video analysis: MP4 → YOLO-pose → activity classification → standalone HTML report"
 requires-python = ">=3.11,<3.13"
 dependencies = [
-    "numpy>=1.26,<2.0",
+    "numpy>=1.26,<3.0",
     "pillow>=10.0",
     "opencv-python-headless>=4.8",
     "jinja2>=3.1",
