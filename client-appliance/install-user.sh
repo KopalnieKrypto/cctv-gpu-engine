@@ -65,18 +65,11 @@ if command -v uv >/dev/null 2>&1; then
         --frozen \
         --no-dev
 else
+    # Same [project].dependencies uv would sync - a hand-kept copy drifted and
+    # shipped without httpx (#141, cameraboy2 crash-looped 167 times).
+    mapfile -t DEPS < <("$VENV/bin/python" -c 'import sys, tomllib; print("\n".join(tomllib.load(open(sys.argv[1], "rb"))["project"]["dependencies"]))' "$REPO_ROOT/pyproject.toml")
     "$VENV/bin/pip" install --upgrade pip
-    "$VENV/bin/pip" install \
-        "flask>=3.0" \
-        "waitress>=3.0" \
-        "boto3>=1.34" \
-        "jinja2>=3.1" \
-        "pillow>=10.0" \
-        "numpy>=1.26,<2.0" \
-        "opencv-python-headless>=4.8" \
-        "WSDiscovery>=2.0" \
-        "onvif-zeep>=0.2" \
-        "tinytuya>=1.13"
+    "$VENV/bin/pip" install "${DEPS[@]}"
 fi
 
 # 3. Source modules — drop client_agent into the venv site-packages so the
