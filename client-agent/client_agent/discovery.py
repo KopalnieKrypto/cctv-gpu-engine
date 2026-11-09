@@ -303,8 +303,9 @@ def scrub_url_credentials(text: str) -> str:
     SigV4 presigned-URL query secrets (a leaked R2 PUT url is writable until it
     expires). Everything else — host, path, status code, exception class — is
     left intact so the operator's message stays diagnostic. Idempotent; safe on
-    strings with no URL. Keep the *local* log unscrubbed: journald is
-    operator-side and the operator owns these creds."""
+    strings with no URL. Also applied to the local log: journald lines get
+    pasted into support sessions and notes, and the password must not ride
+    along."""
     text = _URL_USERINFO_RE.sub(r"\1", text)
     return _PRESIGNED_SECRET_RE.sub(r"\1REDACTED", text)
 
@@ -824,7 +825,11 @@ def _ffmpeg_can_open(url: str, *, runner: Callable[..., Any], timeout: float) ->
     except subprocess.TimeoutExpired:
         return False
     except (OSError, ValueError) as exc:  # ffmpeg not installed / bad argv
-        logger.debug("ffmpeg path-probe of %s could not run: %s", url, exc)
+        logger.debug(
+            "ffmpeg path-probe of %s could not run: %s",
+            scrub_url_credentials(url),
+            scrub_url_credentials(str(exc)),
+        )
         return False
     return result.returncode == 0
 

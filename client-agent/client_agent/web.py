@@ -30,7 +30,11 @@ from typing import Any, Protocol
 
 from flask import Flask, jsonify, redirect, request, url_for
 
-from client_agent.discovery import DiscoveredCamera, strip_credentials_from_url
+from client_agent.discovery import (
+    DiscoveredCamera,
+    scrub_url_credentials,
+    strip_credentials_from_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -709,10 +713,13 @@ def create_app(
             # ``rtsp_url`` by design. The grabber's exception message
             # typically interpolates that URL — echoing ``exc`` verbatim
             # into the 503 body would leak the operator's creds to whoever
-            # called the endpoint. Log server-side (where the platform
-            # mode's journald is the appropriate audience), return only
-            # the camera_id in the body.
-            logger.warning("snapshot grab failed for camera_id=%s: %s", camera_id, exc)
+            # called the endpoint. Log server-side (scrubbed: journald lines
+            # get pasted into support sessions), return only the camera_id.
+            logger.warning(
+                "snapshot grab failed for camera_id=%s: %s",
+                camera_id,
+                scrub_url_credentials(str(exc)),
+            )
             return (f"snapshot grab failed for {camera_id}", 503)
         snapshot_cache[camera_id] = (now, jpeg)
         return (jpeg, 200, {"Content-Type": "image/jpeg"})

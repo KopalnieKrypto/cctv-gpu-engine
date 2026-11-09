@@ -1483,6 +1483,35 @@ def test_get_camera_snapshot_returns_503_with_camera_id_when_grabber_fails(caplo
     )
 
 
+def test_get_camera_snapshot_failure_log_does_not_contain_rtsp_password(caplog) -> None:
+    """The grabber's exception embeds the injected ``user:pass@`` URL; the
+    server-side log keeps host and reason but not the password."""
+    import logging
+
+    from client_agent.web import CameraSnapshotSource
+
+    url = "rtsp://admin:test-pass@10.0.0.5:554/h264"
+
+    def exploding_grabber(_url: str, _t: float, _v: str) -> bytes:
+        raise RuntimeError(f"cv2.VideoCapture failed to open '{url}'")
+
+    app = create_app(
+        FakeR2(),
+        recorder=FakeRecorder(),
+        camera_resolver=lambda _id: CameraSnapshotSource(rtsp_url=url),
+        snapshot_grabber=exploding_grabber,
+    )
+    app.config["TESTING"] = True
+    app.config["PROPAGATE_EXCEPTIONS"] = False
+
+    with caplog.at_level(logging.WARNING, logger="client_agent.web"):
+        resp = app.test_client().get("/cameras/cam-abc/snapshot")
+
+    assert resp.status_code == 503
+    assert "test-pass" not in caplog.text
+    assert "10.0.0.5" in caplog.text and "cv2.VideoCapture failed" in caplog.text
+
+
 def test_get_camera_snapshot_resolves_from_last_discovery_by_ip() -> None:
     """Issue #41 implementation note: ``Reuse last_discovery cache keyed
     by camera_id``. In Docker standalone mode, the operator addresses

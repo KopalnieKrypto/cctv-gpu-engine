@@ -96,10 +96,28 @@ sudo nano /etc/cctv-client/platform.env   # PLATFORM_URL + APPLIANCE_TOKEN (tryb
 sudo systemctl restart cctv-client
 ```
 
-UI dostępne na `http://<ip-urządzenia>:8080/`.
+UI dostępne na `http://<adres-tailscale>:8080/` (po zabezpieczeniu niżej
+tylko przez Tailscale).
 
 `install.sh` jest idempotentny — możesz go uruchomić ponownie po pull-u
 nowej wersji repo i nie nadpisze plików w `/etc/cctv-client/`.
+
+### Zabezpieczenie nowego boxa: `harden-appliance.sh` (każdy layout)
+
+Panel na `0.0.0.0:8080` nie ma logowania (podgląd kamer na żywo, discovery,
+test RTSP), więc przed oddaniem boxa klientowi zamknij go przed siecią LAN.
+Wymaga sudo, działającego Tailscale i klucza w `~/.ssh/authorized_keys`
+użytkownika appliance; bez któregoś z nich skrypt niczego nie zmienia:
+
+```bash
+sudo ./client-appliance/harden-appliance.sh <user-appliance>   # np. mvp, cameraboy, cctv
+```
+
+Wejście tylko z `tailscale0`, UDP 41641 (bezpośrednie połączenia Tailscale)
+oraz z sieci prywatnych odpowiedzi ONVIF z portu 3702 i Tuya na 6666-6667.
+SSH tylko na klucz (`/etc/ssh/sshd_config.d/10-key-only.conf`), linger dla
+użytkownika. Wynik sprawdza `audit-appliance.sh` (check 5 i 6). Na miejscu z
+klawiatury dalej wchodzisz hasłem; zdalnie bez Tailscale już nie.
 
 ## Instalacja user-mode (bez roota) — issue #84
 
@@ -119,6 +137,7 @@ sytuacji, w której root jest niedostępny operacyjnie.
 git clone https://github.com/KopalnieKrypto/cctv-gpu-engine.git ~/cctv-gpu-engine
 cd ~/cctv-gpu-engine
 ./client-appliance/install-user.sh          # BEZ sudo — skrypt odmówi startu jako root
+sudo ./client-appliance/harden-appliance.sh "$(id -un)"   # jeśli masz sudo — patrz „Zabezpieczenie nowego boxa”
 nano ~/.config/cctv-client/cameras.env
 nano ~/.config/cctv-client/platform.env
 systemctl --user restart cctv-client
@@ -319,6 +338,17 @@ site-packages, był installer. Dwa ciche sposoby, żeby to przestało być prawd
 Oba warianty wystąpiły na `cameraboy` 2026-07-20; drugi był niewykryty przez
 trzy dni.
 
+**check 5 — ufw wyłączony.** Panel :8080 bez logowania i SSH są wtedy otwarte
+dla całego LAN-u klienta. Audyt czyta `ENABLED` z `/etc/ufw/ufw.conf` (bez
+sudo); samych reguł nie widzi, bo `user.rules` czyta tylko root.
+
+**check 6 — SSH przyjmuje hasło.** Efektywne `PasswordAuthentication` z
+`sshd_config` i `sshd_config.d/*.conf`: sshd bierze pierwszą wartość, a brak
+wpisu znaczy `yes`. Plik nieczytelny bez sudo daje WARN, nie zgadywanie.
+Naprawa obu: `sudo client-appliance/harden-appliance.sh <user-appliance>`.
+Incydent: `cameraboy` 2026-11-09, ufw nieaktywny i SSH na hasło przy
+zielonych check 1-4.
+
 Incydenty źródłowe. **check 1 + 2** (cameraboy, 2026-07-17 → 20): stray proces
 z `nohup` trzymał :8080, unit crash-loopował **4484 razy**, a box obsługiwał
 produkcję kodem sprzed trzech dni. **check 3** (cameraboy, 2026-07-14 → 16):
@@ -361,9 +391,9 @@ do własnej komendy zdalnej i każdy box raportuje jeden fantomowy proces.
 
 ### UI nieosiągalne na :8080
 
-- **Firewall (UFW/nftables)**: `sudo ufw allow 8080/tcp` lub odpowiednik.
-  Ubuntu Server 24.04 ma UFW domyślnie wyłączony, ale RPi OS i custom
-  obrazy mogą blokować.
+- **Firewall (UFW)**: po `harden-appliance.sh` UI jest osiągalne tylko przez
+  adres Tailscale, także z tego samego LAN-u. Nie otwieraj `8080/tcp` dla
+  LAN-u: panel nie ma logowania.
 - **Service nie wstał**: `systemctl status cctv-client` i
   `journalctl -u cctv-client -n 100`. W trybie platformowym częsta
   przyczyna to zła wartość jednego z runtime tunables w `platform.env`:
@@ -417,7 +447,8 @@ sekcji Troubleshooting.
 | `install-user.sh` | idempotentny installer **user-mode** (#84; venv + config w `$HOME`, linger, `systemctl --user`) |
 | `cameras.env.example` | template dla `/etc/cctv-client/cameras.env` (RTSP_DEFAULT_USER/PASS + opcjonalne per-IP) |
 | `platform.env.example` | template dla `/etc/cctv-client/platform.env` (platform credentials + cold-start runtime fallbacks) |
-| `audit-appliance.sh` | read-only audit zdalnego boxa — wykrywa double-run, restart-loop i brak reboot-survival (patrz niżej) |
+| `audit-appliance.sh` | read-only audit zdalnego boxa — wykrywa double-run, restart-loop, brak reboot-survival, wyłączony ufw i SSH na hasło (patrz niżej) |
+| `harden-appliance.sh` | krok root dla nowego boxa — ufw tylko z Tailscale, SSH na klucz, linger |
 
 ## Tryby pracy: standalone vs platform mode (issue #30)
 

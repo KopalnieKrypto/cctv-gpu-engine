@@ -1373,6 +1373,23 @@ def test_ffmpeg_can_open_false_on_timeout_and_missing_binary() -> None:
     assert _ffmpeg_can_open("rtsp://x/y", runner=missing_runner, timeout=1.0) is False
 
 
+def test_ffmpeg_can_open_debug_log_does_not_contain_password(caplog) -> None:
+    import logging
+
+    from client_agent.discovery import _ffmpeg_can_open
+
+    url = "rtsp://admin:test-pass@10.0.0.7:554/live"
+
+    def broken_runner(argv, **kwargs):
+        raise OSError(f"exec failed: {url}")
+
+    with caplog.at_level(logging.DEBUG, logger="client_agent.discovery"):
+        assert _ffmpeg_can_open(url, runner=broken_runner, timeout=1.0) is False
+
+    assert "test-pass" not in caplog.text
+    assert "10.0.0.7" in caplog.text
+
+
 def test_build_rtsp_scan_camera_resolved_path_emits_working_bare_url() -> None:
     """A probe-resolved Unknown-vendor camera stops being ``needs_manual_url``:
     it gets a credential-free working URL, the ``rtsp-probe`` method tag, and a
