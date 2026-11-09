@@ -119,6 +119,17 @@ SSH tylko na klucz (`/etc/ssh/sshd_config.d/10-key-only.conf`), linger dla
 użytkownika. Wynik sprawdza `audit-appliance.sh` (check 5 i 6). Na miejscu z
 klawiatury dalej wchodzisz hasłem; zdalnie bez Tailscale już nie.
 
+### Hasła kamer: osobne dla każdej lokalizacji (każdy layout)
+
+`RTSP_DEFAULT_PASS` i hasła per-IP są inne na każdej lokalizacji. Generujesz je
+w 1Password (osobny wpis na lokalizację) i wpisujesz sam do `cameras.env`; nie
+trafiają do kodu, testów, dokumentacji, notatek ani czatu, a testy używają atrap.
+Powód: 09.11.2026 hasło kamer jednej lokalizacji znalazło się w testach tego
+publicznego repo (od #67, zostaje w historii). Hasło wspólne dla kilku lokalizacji
+otwierałoby je wszystkie naraz, a `RTSP_DEFAULT_*` appliance podaje każdemu
+urządzeniu w LAN z otwartym portem 554, więc nie używaj hasła, które działa gdzie
+indziej (np. konta administratora klienta).
+
 ## Instalacja user-mode (bez roota) — issue #84
 
 Jeśli na urządzeniu **nie masz hasła sudo**, użyj `install-user.sh` zamiast
