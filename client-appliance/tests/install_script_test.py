@@ -116,19 +116,20 @@ def test_env_example_files_copied_when_absent() -> None:
     assert f_guard, "no idempotent seed guard (-f test or cp -n)"
 
 
-def test_env_files_chmod_600() -> None:
-    """The unit references both files; perms 600 keeps the cctv user (or
-    root) the only reader. Accept either literal paths or a loop body that
-    chmods ``$target`` after both names have been bound to it."""
+def test_env_files_chmod_640() -> None:
+    """The unit runs as cctv and reads both files itself (#142), so 0640
+    root:cctv: root writes, the cctv group reads, nobody else. Accept either
+    literal paths or a loop body that chmods ``$target`` after both names
+    have been bound to it."""
     text = INSTALL.read_text()
-    # Either chmod 0600 appears against each file literal, or once inside a
+    # Either chmod 0640 appears against each file literal, or once inside a
     # loop body — the loop pattern is what install.sh uses for DRY-ness.
     has_loop = re.search(r"for\s+\w+\s+in[^\n]*cameras\.env[^\n]*platform\.env", text)
     if has_loop:
-        assert re.search(r"chmod\s+0?600\s+", text), "loop without chmod 0600"
+        assert re.search(r"chmod\s+0?640\s+", text), "loop without chmod 0640"
     else:
-        assert re.search(r"chmod\s+0?600\s+.*cameras\.env", text)
-        assert re.search(r"chmod\s+0?600\s+.*platform\.env", text)
+        assert re.search(r"chmod\s+0?640\s+.*cameras\.env", text)
+        assert re.search(r"chmod\s+0?640\s+.*platform\.env", text)
 
 
 def test_installs_systemd_unit() -> None:
@@ -245,3 +246,31 @@ def test_git_call_tolerates_root_running_on_a_foreign_checkout() -> None:
         "root-run git on a user-owned checkout needs -c safe.directory or it "
         "fails with 'dubious ownership' and records an unknown commit"
     )
+
+
+def _pip_fallback(text: str) -> str:
+    """The ``else`` branch of the ``command -v uv`` check."""
+    return text.split("command -v uv", 1)[1].split("\nelse", 1)[1].split("\nfi", 1)[0]
+
+
+def test_pip_fallback_takes_dependencies_from_pyproject() -> None:
+    """#141: the hand-kept pip list drifted from ``[project].dependencies``
+    (no httpx), so a box without uv got an appliance that crash-looped on
+    import. The fallback must read the same list uv syncs."""
+    fallback = _pip_fallback(INSTALL.read_text())
+    assert "pyproject.toml" in fallback, "pip fallback does not read pyproject.toml"
+    assert not re.search(r'"[A-Za-z0-9_.-]+[<>=]=?\d', fallback), (
+        "pip fallback still hardcodes version specs"
+    )
+
+
+def test_service_user_can_read_env_dir() -> None:
+    """#142: the unit runs as ``cctv`` and reads ``cameras.env`` itself via
+    ``--env-dir``. A 0700 root dir makes ``Path.exists()`` raise
+    PermissionError and the appliance never starts. Dir 0750 and files 0640,
+    both ``root:cctv``: readable by the service, closed to other accounts."""
+    text = INSTALL.read_text()
+    assert not re.search(r'chmod\s+0?700\s+"?\$\{?ETC', text), "env dir chmod 0700 locks out cctv"
+    assert re.search(r'chmod\s+0?750\s+"?\$\{?ETC', text), "env dir not chmod 0750"
+    assert re.search(r"chmod\s+0?640\s+", text), "env files not chmod 0640"
+    assert re.search(r"chown\s+root:cctv\s+", text), "env files not chowned root:cctv"

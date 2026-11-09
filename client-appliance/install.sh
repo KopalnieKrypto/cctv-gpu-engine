@@ -65,18 +65,11 @@ if command -v uv >/dev/null 2>&1; then
         --frozen \
         --no-dev
 else
+    # Same [project].dependencies uv would sync - a hand-kept copy drifted and
+    # shipped without httpx (#141).
+    mapfile -t DEPS < <("$VENV/bin/python" -c 'import sys, tomllib; print("\n".join(tomllib.load(open(sys.argv[1], "rb"))["project"]["dependencies"]))' "$REPO_ROOT/pyproject.toml")
     "$VENV/bin/pip" install --upgrade pip
-    "$VENV/bin/pip" install \
-        "flask>=3.0" \
-        "waitress>=3.0" \
-        "boto3>=1.34" \
-        "jinja2>=3.1" \
-        "pillow>=10.0" \
-        "numpy>=1.26,<2.0" \
-        "opencv-python-headless>=4.8" \
-        "WSDiscovery>=2.0" \
-        "onvif-zeep>=0.2" \
-        "tinytuya>=1.13"
+    "$VENV/bin/pip" install "${DEPS[@]}"
 fi
 
 # 4. Source modules — drop client_agent into the venv site-packages so
@@ -137,22 +130,25 @@ log "build: ${BUILD_COMMIT:0:7} (dirty=$BUILD_DIRTY)"
 #    staying root-owned inside a cctv-owned tree.
 chown -R cctv:cctv "$VENV"
 
-# 6. /etc/cctv-client — directory 0700 root:root keeps env files (with RTSP
-#    and platform secrets) readable only by root and, via 0640 below, the
-#    cctv group.
+# 6. /etc/cctv-client — directory 0750 root:cctv and env files 0640 root:cctv
+#    keep the RTSP and platform secrets readable by root and the cctv service
+#    only. The unit reads them itself via --env-dir as cctv, so a 0700 dir
+#    made Path.exists() raise PermissionError and the appliance never started
+#    (#142). chmod/chown also repair boxes installed with the old perms.
 log "configuring $ETC"
 install -d -o root -g cctv -m 0750 "$ETC"
-chmod 0700 "$ETC"
+chmod 0750 "$ETC"
 
 for name in cameras.env platform.env; do
     target="$ETC/$name"
     if [[ ! -f "$target" ]]; then
         log "seeding $target from $name.example"
-        install -m 0600 -o root -g cctv "$SCRIPT_DIR/$name.example" "$target"
+        install -m 0640 -o root -g cctv "$SCRIPT_DIR/$name.example" "$target"
     else
         log "$target exists, leaving operator edits untouched"
     fi
-    chmod 0600 "$target"
+    chown root:cctv "$target"
+    chmod 0640 "$target"
 done
 
 # 7. systemd unit — install, reload, enable. ``enable --now`` is idempotent

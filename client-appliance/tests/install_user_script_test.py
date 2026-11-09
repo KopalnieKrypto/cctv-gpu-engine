@@ -261,3 +261,14 @@ def test_does_not_depend_on_pythonpath() -> None:
     assert any("cp -R" in line and "client_agent" in line for line in code), (
         "no client_agent copy into the venv site-packages"
     )
+
+
+def test_pip_fallback_takes_dependencies_from_pyproject() -> None:
+    """#141: on cameraboy2 (no uv) the hand-kept pip list lacked httpx and
+    the unit crash-looped 167 times. The fallback must read the same
+    ``[project].dependencies`` uv syncs."""
+    fallback = _text().split("command -v uv", 1)[1].split("\nelse", 1)[1].split("\nfi", 1)[0]
+    assert "pyproject.toml" in fallback, "pip fallback does not read pyproject.toml"
+    assert not re.search(r'"[A-Za-z0-9_.-]+[<>=]=?\d', fallback), (
+        "pip fallback still hardcodes version specs"
+    )
