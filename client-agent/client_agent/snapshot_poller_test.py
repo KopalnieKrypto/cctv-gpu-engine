@@ -314,9 +314,10 @@ def test_run_once_grab_failure_report_scrubs_credentials() -> None:
     assert "10.0.0.5" in error
 
 
-def test_run_once_grab_failure_local_log_keeps_full_detail(caplog) -> None:
-    """Acceptance 2: the operator's own journald keeps the full url (creds
-    included) for diagnosis — only the platform-facing report is scrubbed."""
+def test_run_once_grab_failure_local_log_scrubs_creds_keeps_host(caplog) -> None:
+    """The local log is scrubbed too (reverses #53's "keep journald full"):
+    journald lines get pasted into support sessions and notes, so the camera
+    password must not ride along. Host and camera stay for diagnosis."""
     import logging
 
     platform = FakePlatform(next_claims=[_claim(camera_id="cam-9")])
@@ -338,7 +339,7 @@ def test_run_once_grab_failure_local_log_keeps_full_detail(caplog) -> None:
     with caplog.at_level(logging.WARNING):
         poller.run_once()
 
-    # Operator-side log keeps the creds; platform-facing report does not.
-    assert "s3cret" in caplog.text
+    assert "s3cret" not in caplog.text
+    assert "10.0.0.5" in caplog.text and "cam-9" in caplog.text
     _req, _status, error = platform.status_calls[0]
     assert error is not None and "s3cret" not in error

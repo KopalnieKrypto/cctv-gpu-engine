@@ -137,16 +137,15 @@ class SnapshotPoller:
         try:
             jpeg = self._grab(url, self._grab_timeout_s, claim.variant)
         except Exception as exc:  # noqa: BLE001 — cv2/ffmpeg/urllib failures
-            # Log server-side (with full detail incl. URL → camera_id)
-            # but DON'T echo the URL into the failure message we report
-            # to the platform: the RTSP-scan code path embeds
-            # ``user:pass@`` in the url, and the failure column on the
-            # platform might be displayed to admins of a different
-            # tenant. Keep the platform-facing message scrubbed.
-            logger.warning("snapshot grab failed for camera_id=%s: %s", claim.camera_id, exc)
-            # Scrub before the message crosses to the platform's error column
-            # (issue #53): the grabber's exception embeds the url, which now
-            # carries injected RTSP userinfo. The local log above stays full.
+            # The grabber's exception embeds the url with injected RTSP
+            # userinfo. Scrub it for journald (lines get pasted into support
+            # sessions) and before it crosses to the platform's error column,
+            # which admins of a different tenant may see (issue #53).
+            logger.warning(
+                "snapshot grab failed for camera_id=%s: %s",
+                claim.camera_id,
+                scrub_url_credentials(str(exc)),
+            )
             self._report_failed(
                 claim.request_id,
                 scrub_url_credentials(f"grab failed for camera {claim.camera_id}: {exc}"),
