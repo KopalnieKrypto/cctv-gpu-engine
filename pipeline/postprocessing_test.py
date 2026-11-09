@@ -141,8 +141,8 @@ class TestPostprocessCoordinateScaling:
         )
 
         assert detection.bbox == pytest.approx([x1, y1, x2, y2], abs=1e-3)
-        assert [(kp.x, kp.y) for kp in detection.keypoints] == pytest.approx(
-            [(keypoint_x, keypoint_y)] * 17,
+        assert [c for kp in detection.keypoints for c in (kp.x, kp.y)] == pytest.approx(
+            [keypoint_x, keypoint_y] * 17,
             abs=1e-3,
         )
 
