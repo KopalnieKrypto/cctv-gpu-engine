@@ -482,8 +482,8 @@ def test_inject_credentials_url_encodes_special_password() -> None:
 
     url = "rtsp://192.168.88.89:554/unicast/c1/s0/live"
     assert (
-        inject_credentials(url, ("admin", "#J2Zxs9b0iMP"))
-        == "rtsp://admin:%23J2Zxs9b0iMP@192.168.88.89:554/unicast/c1/s0/live"
+        inject_credentials(url, ("admin", "Dummy#Pass12"))
+        == "rtsp://admin:Dummy%23Pass12@192.168.88.89:554/unicast/c1/s0/live"
     )
 
 
@@ -510,7 +510,7 @@ def test_inject_credentials_round_trips_with_strip() -> None:
     from client_agent.discovery import inject_credentials, strip_credentials_from_url
 
     url = "rtsp://192.168.88.89:554/unicast/c1/s0/live"
-    assert strip_credentials_from_url(inject_credentials(url, ("admin", "#J2Zxs9b0iMP"))) == url
+    assert strip_credentials_from_url(inject_credentials(url, ("admin", "Dummy#Pass12"))) == url
 
 
 # ===== Credentials resolver wired into discover_cameras =====
@@ -1243,8 +1243,8 @@ def test_build_rtsp_url_encodes_hash_password() -> None:
     from client_agent.discovery import build_rtsp_url
 
     assert build_rtsp_url(
-        "192.168.88.89", 554, "/unicast/c1/s0/live", ("admin", "#J2Zxs9b0iMP")
-    ) == ("rtsp://admin:%23J2Zxs9b0iMP@192.168.88.89:554/unicast/c1/s0/live")
+        "192.168.88.89", 554, "/unicast/c1/s0/live", ("admin", "Dummy#Pass12")
+    ) == ("rtsp://admin:Dummy%23Pass12@192.168.88.89:554/unicast/c1/s0/live")
 
 
 def test_rtsp_template_for_vendor_unchanged_after_build_rtsp_url_refactor() -> None:
@@ -1317,7 +1317,7 @@ def test_ffmpeg_prober_returns_first_openable_path() -> None:
     real streaming path."""
     from client_agent.discovery import build_rtsp_url, make_ffmpeg_path_prober
 
-    creds = ("admin", "#J2Zxs9b0iMP")
+    creds = ("admin", "Dummy#Pass12")
     good = build_rtsp_url("192.168.88.83", 554, "/unicast/c1/s0/live", creds)
     runner = _FakeRun(ok_urls={good})
     prober = make_ffmpeg_path_prober(
@@ -1400,7 +1400,7 @@ def test_build_rtsp_scan_camera_resolved_path_emits_working_bare_url() -> None:
         ip="192.168.88.83",
         port=554,
         vendor="Unknown",
-        credentials=("admin", "#J2Zxs9b0iMP"),
+        credentials=("admin", "Dummy#Pass12"),
         resolved_path="/unicast/c1/s0/live",
     )
     assert cam.needs_manual_url is False
