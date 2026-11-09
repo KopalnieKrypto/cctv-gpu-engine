@@ -451,8 +451,8 @@ class TestPoseDetectorInferenceROI:
 
         fake_session.run.assert_called_once()
         assert detection.bbox == pytest.approx([400, 300, 600, 500], abs=1e-3)
-        assert [(kp.x, kp.y) for kp in detection.keypoints] == pytest.approx(
-            [(500, 400)] * 17,
+        assert [c for kp in detection.keypoints for c in (kp.x, kp.y)] == pytest.approx(
+            [500, 400] * 17,
             abs=1e-3,
         )
         assert detection.zone_id == "bending-1"
