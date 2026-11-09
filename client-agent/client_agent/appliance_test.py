@@ -96,12 +96,12 @@ def test_authenticated_rtsp_url_injects_creds_from_environ() -> None:
     Password specials are percent-encoded."""
     from client_agent.appliance import authenticated_rtsp_url
 
-    environ = {"RTSP_DEFAULT_USER": "admin", "RTSP_DEFAULT_PASS": "#J2Zxs9b0iMP"}
+    environ = {"RTSP_DEFAULT_USER": "admin", "RTSP_DEFAULT_PASS": "Dummy#Pass12"}
     url = "rtsp://192.168.88.89:554/unicast/c1/s0/live"
 
     assert (
         authenticated_rtsp_url(url, environ)
-        == "rtsp://admin:%23J2Zxs9b0iMP@192.168.88.89:554/unicast/c1/s0/live"
+        == "rtsp://admin:Dummy%23Pass12@192.168.88.89:554/unicast/c1/s0/live"
     )
 
 
@@ -2044,12 +2044,12 @@ def test_build_camera_registry_injects_rtsp_credentials_from_environ() -> None:
             ]
         }
     )
-    environ = {"RTSP_DEFAULT_USER": "admin", "RTSP_DEFAULT_PASS": "#J2Zxs9b0iMP"}
+    environ = {"RTSP_DEFAULT_USER": "admin", "RTSP_DEFAULT_PASS": "Dummy#Pass12"}
 
     registry = build_camera_registry(response, environ)
 
     # Bare url → creds injected; the '#'-leading password is percent-encoded.
-    assert registry["cam-1"].rtsp_url == "rtsp://admin:%23J2Zxs9b0iMP@192.168.88.89:554/live"
+    assert registry["cam-1"].rtsp_url == "rtsp://admin:Dummy%23Pass12@192.168.88.89:554/live"
     # Already-credentialed url is left as-is.
     assert registry["cam-2"].rtsp_url == "rtsp://u:p@192.168.88.90:554/live"
 
