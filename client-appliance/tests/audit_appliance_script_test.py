@@ -17,6 +17,7 @@ SubState=auto-restart — never ``failed`` — so `systemctl is-active` prints
 
 from __future__ import annotations
 
+import os
 import shutil
 import stat
 import subprocess
@@ -67,12 +68,17 @@ def _blob(
     install_commit: str = "5b43d72f69b2bb607a1d86eb31070b39c3e11c34",
     checkout_commit: str = "5b43d72f69b2bb607a1d86eb31070b39c3e11c34",
     modified: str = "False",
+    ufw: str = "yes",
+    sshd: str = "present",
+    ssh_password: str = "no",
+    ssh_unreadable: str = "",
 ) -> str:
     return (
         f"PROC_COUNT={procs}\nACTIVE_STATE={active}\nSUB_STATE={sub}\n"
         f"N_RESTARTS={restarts}\nUNIT_ENABLED={enabled}\nLINGER={linger}\n"
         f"INSTALL_COMMIT={install_commit}\nCHECKOUT_COMMIT={checkout_commit}\n"
-        f"BUILD_MODIFIED={modified}"
+        f"BUILD_MODIFIED={modified}\nUFW_ENABLED={ufw}\nSSHD_STATE={sshd}\n"
+        f"SSH_PASSWORD_AUTH={ssh_password}\nSSH_UNREADABLE={ssh_unreadable}"
     )
 
 
@@ -289,16 +295,9 @@ def test_multiple_hosts_are_all_audited(tmp_path: Path) -> None:
     assert "boxb" in result.stdout
 
 
-def test_probe_script_actually_executes_against_stubbed_remote(tmp_path: Path) -> None:
-    """Regression: the probe used to be a double-quoted ssh argument, and the
-    escaping mangled the nested ``$(id -un)`` inside the linger lookup. Every
-    box then reported ``Linger=`` empty → a FAIL on correctly-configured hosts.
-
-    A canned-blob fake ssh cannot catch that class of bug — it never runs the
-    script. So this fake *executes* the received remote script against stubbed
-    pgrep/systemctl/loginctl/id, which is what a real box would do. Any future
-    quoting regression in the probe fails here instead of on a live host.
-    """
+def _stubbed_probe_ssh(tmp_path: Path) -> Path:
+    """A fake ssh that *executes* the received remote script against stubbed
+    pgrep/systemctl/loginctl/id/git and a fake $HOME laid out like a healthy box."""
     stub = tmp_path / "bin"
     stub.mkdir()
 
@@ -342,14 +341,61 @@ def test_probe_script_actually_executes_against_stubbed_remote(tmp_path: Path) -
         f'export HOME="{fake_home}"\neval "$cmd"\n'
     )
     fake.chmod(0o755)
+    return fake
 
-    result = subprocess.run(
+
+def _run_probe(
+    tmp_path: Path,
+    *,
+    ufw: str | None = "ENABLED=yes\n",
+    sshd_main: str = "Include sshd_config.d/*.conf\nKbdInteractiveAuthentication no\n",
+    dropins: dict[str, str] | None = None,
+    unreadable: tuple[str, ...] = (),
+) -> subprocess.CompletedProcess[str]:
+    """Run the real probe against a fake /etc (ufw.conf + sshd_config and its
+    drop-ins). Default is a hardened box: ufw on, key-only drop-in."""
+    etc = tmp_path / "etc"
+    dropin_dir = etc / "ssh" / "sshd_config.d"
+    dropin_dir.mkdir(parents=True)
+    (etc / "ufw").mkdir()
+    if ufw is not None:
+        (etc / "ufw" / "ufw.conf").write_text(ufw)
+    (etc / "ssh" / "sshd_config").write_text(sshd_main)
+    if dropins is None:
+        dropins = {"10-key-only.conf": "PasswordAuthentication no\n"}
+    for name, body in dropins.items():
+        (dropin_dir / name).write_text(body)
+    for name in unreadable:
+        (dropin_dir / name).chmod(0)
+    return subprocess.run(
         [str(AUDIT), "cameraboy"],
         capture_output=True,
         text=True,
-        env={"PATH": "/usr/bin:/bin:/usr/local/bin", "SSH": str(fake)},
+        env={
+            "PATH": "/usr/bin:/bin:/usr/local/bin",
+            "SSH": str(_stubbed_probe_ssh(tmp_path)),
+            "UFW_CONF": str(etc / "ufw" / "ufw.conf"),
+            "SSHD_CONFIG": str(etc / "ssh" / "sshd_config"),
+        },
         check=False,
     )
+
+
+def _line(stdout: str, check: int) -> str:
+    return next((ln for ln in stdout.splitlines() if f"check {check}:" in ln), "")
+
+
+def test_probe_script_actually_executes_against_stubbed_remote(tmp_path: Path) -> None:
+    """Regression: the probe used to be a double-quoted ssh argument, and the
+    escaping mangled the nested ``$(id -un)`` inside the linger lookup. Every
+    box then reported ``Linger=`` empty → a FAIL on correctly-configured hosts.
+
+    A canned-blob fake ssh cannot catch that class of bug — it never runs the
+    script. So this fake *executes* the received remote script against stubbed
+    pgrep/systemctl/loginctl/id, which is what a real box would do. Any future
+    quoting regression in the probe fails here instead of on a live host.
+    """
+    result = _run_probe(tmp_path)
 
     assert result.returncode == EXIT_PASS, result.stdout + result.stderr
     assert "survives reboot" in result.stdout, (
@@ -406,3 +452,138 @@ def test_script_is_read_only(tmp_path: Path) -> None:
     assert "pgrep" in sent, "probe should have run"
     for mutating in ("pkill", "kill ", "rm ", "systemctl --user restart", "systemctl --user stop"):
         assert mutating not in sent, f"audit must stay read-only; remote command had {mutating!r}"
+
+
+# checks 5 and 6 - the box is closed to the client LAN.
+#
+# Source incident (2026-11-09, cameraboy): ufw inactive and sshd taking
+# passwords, so the unauthenticated panel on 0.0.0.0:8080 (live camera
+# snapshots) and a password SSH login were open to everyone on the client's
+# LAN. checks 1-4 were green the whole time.
+
+
+def test_healthy_box_reports_firewall_and_ssh(tmp_path: Path) -> None:
+    result = _run(tmp_path, _blob())
+    assert result.returncode == EXIT_PASS, result.stdout
+    assert _line(result.stdout, 5).startswith("PASS")
+    assert _line(result.stdout, 6).startswith("PASS")
+
+
+def test_ufw_disabled_fails_and_names_the_fix(tmp_path: Path) -> None:
+    result = _run(tmp_path, _blob(ufw="no"))
+    assert result.returncode == EXIT_FAIL
+    assert _line(result.stdout, 5).startswith("FAIL")
+    assert "harden-appliance.sh" in _line(result.stdout, 5)
+
+
+def test_ufw_not_installed_fails(tmp_path: Path) -> None:
+    result = _run(tmp_path, _blob(ufw="missing"))
+    assert result.returncode == EXIT_FAIL
+    assert _line(result.stdout, 5).startswith("FAIL")
+
+
+def test_ufw_conf_unreadable_warns(tmp_path: Path) -> None:
+    result = _run(tmp_path, _blob(ufw="unreadable"))
+    assert result.returncode == EXIT_WARN
+    assert _line(result.stdout, 5).startswith("WARN")
+
+
+def test_ssh_password_login_fails_and_names_the_fix(tmp_path: Path) -> None:
+    result = _run(tmp_path, _blob(ssh_password="yes"))
+    assert result.returncode == EXIT_FAIL
+    assert _line(result.stdout, 6).startswith("FAIL")
+    assert "harden-appliance.sh" in _line(result.stdout, 6)
+
+
+def test_ssh_without_any_setting_fails_because_sshd_defaults_to_yes(tmp_path: Path) -> None:
+    """cameraboy's real state: no PasswordAuthentication line anywhere."""
+    result = _run(tmp_path, _blob(ssh_password=""))
+    assert result.returncode == EXIT_FAIL
+    assert _line(result.stdout, 6).startswith("FAIL")
+
+
+def test_ssh_unreadable_dropin_warns_instead_of_guessing(tmp_path: Path) -> None:
+    result = _run(
+        tmp_path,
+        _blob(ssh_password="", ssh_unreadable="/etc/ssh/sshd_config.d/50-cloud-init.conf"),
+    )
+    assert result.returncode == EXIT_WARN
+    assert _line(result.stdout, 6).startswith("WARN")
+    assert "50-cloud-init.conf" in _line(result.stdout, 6)
+
+
+def test_box_without_sshd_passes_check_6(tmp_path: Path) -> None:
+    result = _run(tmp_path, _blob(sshd="missing", ssh_password=""))
+    assert _line(result.stdout, 6).startswith("PASS")
+
+
+def test_probe_finds_key_only_dropin_before_cloud_init(tmp_path: Path) -> None:
+    """sshd keeps the FIRST value it reads; Ubuntu's sshd_config includes the
+    drop-ins at the top, in lexical order, so 10-key-only beats 50-cloud-init."""
+    result = _run_probe(
+        tmp_path,
+        dropins={
+            "10-key-only.conf": "PasswordAuthentication no\n",
+            "50-cloud-init.conf": "PasswordAuthentication yes\n",
+        },
+    )
+    assert _line(result.stdout, 6).startswith("PASS"), result.stdout
+
+
+def test_probe_earlier_dropin_wins_over_key_only(tmp_path: Path) -> None:
+    result = _run_probe(
+        tmp_path,
+        dropins={
+            "05-legacy.conf": "PasswordAuthentication yes\n",
+            "10-key-only.conf": "PasswordAuthentication no\n",
+        },
+    )
+    assert _line(result.stdout, 6).startswith("FAIL"), result.stdout
+
+
+def test_probe_setting_before_include_wins(tmp_path: Path) -> None:
+    result = _run_probe(
+        tmp_path, sshd_main="PasswordAuthentication yes\nInclude sshd_config.d/*.conf\n"
+    )
+    assert _line(result.stdout, 6).startswith("FAIL"), result.stdout
+
+
+def test_probe_ignores_settings_inside_match_blocks(tmp_path: Path) -> None:
+    """A Match block applies only to matching connections; the global value is
+    whatever was set before the first Match (here: nothing, so yes)."""
+    result = _run_probe(
+        tmp_path,
+        sshd_main=(
+            "Include sshd_config.d/*.conf\nMatch User backup\n    PasswordAuthentication no\n"
+        ),
+        dropins={},
+    )
+    assert _line(result.stdout, 6).startswith("FAIL"), result.stdout
+
+
+def test_probe_accepts_equals_mixed_case_and_no_trailing_newline(tmp_path: Path) -> None:
+    result = _run_probe(tmp_path, dropins={"10-key-only.conf": "passwordauthentication=No"})
+    assert _line(result.stdout, 6).startswith("PASS"), result.stdout
+
+
+def test_probe_reports_cameraboy_before_hardening(tmp_path: Path) -> None:
+    result = _run_probe(tmp_path, ufw="ENABLED=no\n", dropins={})
+    assert result.returncode == EXIT_FAIL
+    assert _line(result.stdout, 5).startswith("FAIL"), result.stdout
+    assert _line(result.stdout, 6).startswith("FAIL"), result.stdout
+
+
+def test_probe_reports_missing_ufw(tmp_path: Path) -> None:
+    result = _run_probe(tmp_path, ufw=None)
+    assert _line(result.stdout, 5).startswith("FAIL"), result.stdout
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads a mode-000 file")
+def test_probe_unreadable_dropin_warns(tmp_path: Path) -> None:
+    result = _run_probe(
+        tmp_path,
+        dropins={"05-secret.conf": "PasswordAuthentication no\n"},
+        unreadable=("05-secret.conf",),
+    )
+    assert _line(result.stdout, 6).startswith("WARN"), result.stdout
+    assert "05-secret.conf" in _line(result.stdout, 6)

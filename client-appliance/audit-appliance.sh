@@ -9,6 +9,8 @@
 #   check 2  the unit stuck in a restart loop
 #   check 3  the unit will not survive a reboot (enabled + linger)
 #   check 4  deployed code does not match the checkout (or was hand-patched)
+#   check 5  ufw is off, so the client LAN reaches the panel (:8080, no login)
+#   check 6  sshd accepts passwords
 #
 # All are silent by construction. A unit crash-looping under
 # `Restart=on-failure` reports ActiveState=activating / SubState=auto-restart,
@@ -46,6 +48,9 @@ SSH_FLAGS=(-o BatchMode=yes -o ConnectTimeout=10)
 RESTART_LOOP_THRESHOLD="${RESTART_LOOP_THRESHOLD:-3}"
 
 UNIT="${UNIT:-cctv-client}"
+# Paths on the box; overridable so tests can point the real probe at a fake /etc.
+UFW_CONF="${UFW_CONF:-/etc/ufw/ufw.conf}"
+SSHD_CONFIG="${SSHD_CONFIG:-/etc/ssh/sshd_config}"
 ONLY_CHECK=""
 HOSTS_ARG=()
 
@@ -101,8 +106,10 @@ fail() { printf 'FAIL  %s  check %s: %s\n' "$1" "$2" "$3"; EXIT_FAIL=1; }
 # (it arrives via stdin), so there is nothing for pgrep to self-match on.
 probe() {
   local host="$1"
-  "$SSH" "${SSH_FLAGS[@]}" "$host" "bash -s -- '$UNIT'" 2>/dev/null <<'REMOTE'
+  "$SSH" "${SSH_FLAGS[@]}" "$host" "bash -s -- '$UNIT' '$UFW_CONF' '$SSHD_CONFIG'" 2>/dev/null <<'REMOTE'
 unit="$1"
+ufw_conf="$2"
+sshd_main="$3"
 printf 'PROC_COUNT=%s\n' "$(pgrep -fc 'client_agent[.]appliance' 2>/dev/null || echo 0)"
 printf 'ACTIVE_STATE=%s\n' "$(systemctl --user show "$unit" -p ActiveState --value 2>/dev/null)"
 printf 'SUB_STATE=%s\n' "$(systemctl --user show "$unit" -p SubState --value 2>/dev/null)"
@@ -144,6 +151,48 @@ if [ -n "$checkout" ]; then
     checkout_commit="$(git -c "safe.directory=$checkout" -C "$checkout" rev-parse HEAD 2>/dev/null)"
 fi
 printf 'CHECKOUT_COMMIT=%s\n' "$checkout_commit"
+
+# ufw.conf is world-readable, unlike the rules themselves (user.rules is 0640).
+if [ ! -e "$ufw_conf" ]; then ufw_state=missing
+elif [ ! -r "$ufw_conf" ]; then ufw_state=unreadable
+else
+    ufw_state="$(grep -m1 '^ENABLED=' "$ufw_conf" | cut -d= -f2 | tr -d "\"'")"
+    ufw_state="${ufw_state:-no}"
+fi
+printf 'UFW_ENABLED=%s\n' "$ufw_state"
+
+# Effective global PasswordAuthentication without root (`sshd -T` needs the
+# host keys). sshd keeps the FIRST value it reads, walking Include in place,
+# and everything after the first Match is conditional, so stop there.
+ssh_pa=""; ssh_unreadable=""; ssh_done=""
+scan_sshd() {
+    local file="$1" key rest pat inc pats
+    if [ ! -r "$file" ]; then ssh_unreadable="$file"; ssh_done=1; return; fi
+    while IFS=$' \t=' read -r key rest || [ -n "$key" ]; do
+        case "${key,,}" in
+            include)
+                read -ra pats <<<"$rest"
+                for pat in "${pats[@]}"; do
+                    [[ "$pat" == /* ]] || pat="$(dirname "$sshd_main")/$pat"
+                    for inc in $pat; do
+                        [ -e "$inc" ] || continue
+                        scan_sshd "$inc"
+                        [ -n "$ssh_done" ] && return
+                    done
+                done ;;
+            passwordauthentication) ssh_pa="${rest%%[[:space:]]*}"; ssh_pa="${ssh_pa,,}"; ssh_done=1; return ;;
+            match) ssh_done=1; return ;;
+        esac
+    done < "$file"
+}
+if [ -e "$sshd_main" ]; then
+    printf 'SSHD_STATE=present\n'
+    scan_sshd "$sshd_main"
+else
+    printf 'SSHD_STATE=missing\n'
+fi
+printf 'SSH_PASSWORD_AUTH=%s\n' "$ssh_pa"
+printf 'SSH_UNREADABLE=%s\n' "$ssh_unreadable"
 REMOTE
 }
 
@@ -269,9 +318,53 @@ check_4() {
   pass "$host" 4 "installed ${install_commit:0:7}, matches checkout, contents unmodified"
 }
 
+# check 5 - the firewall is on.
+#
+# The panel binds 0.0.0.0:8080 with no login (live camera snapshots, discovery,
+# RTSP test). Only ufw keeps the client's LAN off it. On 2026-11-09 cameraboy
+# had ufw inactive while checks 1-4 were green.
+check_5() {
+  local host="$1" ufw="$2"
+  case "$ufw" in
+    yes) pass "$host" 5 "ufw enabled (rules not read: user.rules needs root)" ;;
+    no) fail "$host" 5 "ufw disabled - the panel on :8080 (no login, live snapshots) and SSH are open to the whole client LAN. Fix: sudo client-appliance/harden-appliance.sh \$(id -un)" ;;
+    missing) fail "$host" 5 "ufw not installed - nothing filters the client LAN. Fix: sudo apt-get install ufw && sudo client-appliance/harden-appliance.sh \$(id -un)" ;;
+    unreadable) warn "$host" 5 "cannot read ${UFW_CONF} without sudo. Check: sudo ufw status" ;;
+    "") warn "$host" 5 "could not read ufw state (host unreachable?)" ;;
+    *) warn "$host" 5 "unexpected ENABLED=${ufw} in ${UFW_CONF}" ;;
+  esac
+}
+
+# check 6 - SSH takes keys only.
+#
+# sshd defaults PasswordAuthentication to yes, so a box with no setting at all
+# (cameraboy until 2026-11-09) lets anyone on the LAN guess the account
+# password - and that account has sudo.
+check_6() {
+  local host="$1" state="$2" pa="$3" unreadable="$4"
+  if [[ -z "$state" ]]; then
+    warn "$host" 6 "could not read sshd config (host unreachable?)"
+    return
+  fi
+  if [[ "$state" == "missing" ]]; then
+    pass "$host" 6 "no ${SSHD_CONFIG} - SSH server not installed"
+    return
+  fi
+  if [[ -n "$unreadable" ]]; then
+    warn "$host" 6 "cannot read ${unreadable} without sudo, so the effective PasswordAuthentication is unknown. Check: sudo sshd -T | grep -i passwordauthentication"
+    return
+  fi
+  if [[ "$pa" == "no" ]]; then
+    pass "$host" 6 "SSH key-only (PasswordAuthentication no)"
+    return
+  fi
+  fail "$host" 6 "SSH accepts passwords (PasswordAuthentication ${pa:-not set, sshd default yes}). Fix: sudo client-appliance/harden-appliance.sh \$(id -un)"
+}
+
 for host in "${HOSTS_ARG[@]}"; do
   PROC_COUNT=""; ACTIVE_STATE=""; SUB_STATE=""; N_RESTARTS=""; UNIT_ENABLED=""; LINGER=""
   INSTALL_COMMIT=""; CHECKOUT_COMMIT=""; BUILD_MODIFIED=""
+  UFW_ENABLED=""; SSHD_STATE=""; SSH_PASSWORD_AUTH=""; SSH_UNREADABLE=""
   while IFS='=' read -r key value; do
     case "$key" in
       PROC_COUNT) PROC_COUNT="$value" ;;
@@ -283,6 +376,10 @@ for host in "${HOSTS_ARG[@]}"; do
       INSTALL_COMMIT) INSTALL_COMMIT="$value" ;;
       CHECKOUT_COMMIT) CHECKOUT_COMMIT="$value" ;;
       BUILD_MODIFIED) BUILD_MODIFIED="$value" ;;
+      UFW_ENABLED) UFW_ENABLED="$value" ;;
+      SSHD_STATE) SSHD_STATE="$value" ;;
+      SSH_PASSWORD_AUTH) SSH_PASSWORD_AUTH="$value" ;;
+      SSH_UNREADABLE) SSH_UNREADABLE="$value" ;;
     esac
   done < <(probe "$host")
 
@@ -291,6 +388,9 @@ for host in "${HOSTS_ARG[@]}"; do
   [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "3" ]] && check_3 "$host" "$UNIT_ENABLED" "$LINGER"
   [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "4" ]] &&
     check_4 "$host" "$INSTALL_COMMIT" "$CHECKOUT_COMMIT" "$BUILD_MODIFIED"
+  [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "5" ]] && check_5 "$host" "$UFW_ENABLED"
+  [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "6" ]] &&
+    check_6 "$host" "$SSHD_STATE" "$SSH_PASSWORD_AUTH" "$SSH_UNREADABLE"
 done
 
 if [[ "$EXIT_FAIL" -eq 1 ]]; then exit 1; fi
