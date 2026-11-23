@@ -1,0 +1,34 @@
+# zone-annotator behind the panel's proxy (gpu-exchange#298), rendered by install-annotator.sh.
+# A system unit, so the agent's home is spelled out: systemd's home specifier here would be /root,
+# not the home of User=.
+[Unit]
+Description=zone-annotator behind the panel's proxy
+After=network.target
+
+[Service]
+Type=simple
+User=@AGENT@
+Group=@GROUP@
+# Three zones: about 265 MB of crops each per 20-minute window (zone-annotator README).
+ExecStart=/opt/zone-annotator/current/.venv/bin/python -m zone_annotator.serve --root @PROJECTS@ --windows @WINDOWS@ --max-zones 3 --port 8713
+Restart=on-failure
+RestartSec=5
+# Reached only by the tunnel on localhost, and reaches nothing itself.
+IPAddressDeny=any
+IPAddressAllow=localhost
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=@PROJECTS@
+PrivateTmp=yes
+# Taking over the tool must not hand out the appliance token or the shipping key.
+InaccessiblePaths=-@HOME@/.config/cctv-client -@HOME@/.ssh -/etc/cctv-client
+# Recording runs in another cgroup, where nice alone does not reach: the weights keep cutting behind it.
+CPUWeight=20
+IOWeight=20
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+MemoryMax=1536M
+
+[Install]
+WantedBy=multi-user.target

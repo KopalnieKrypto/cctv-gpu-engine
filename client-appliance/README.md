@@ -130,6 +130,30 @@ otwierałoby je wszystkie naraz, a `RTSP_DEFAULT_*` appliance podaje każdemu
 urządzeniu w LAN z otwartym portem 554, więc nie używaj hasła, które działa gdzie
 indziej (np. konta administratora klienta).
 
+### Oznaczanie stref: `install-annotator.sh` (gpu-exchange#298, każdy layout)
+
+Instaluje zone-annotator w trybie za proxy panelu i tunel boxa. Kolejność: tunel,
+paczka, instalator.
+
+1. W gpu-exchange skrypt `scripts/provision/appliance-tunnel.ts` zakłada tunel
+   boxa i przez ssh zostawia token w `~/.config/cctv-client/zone-annotator-tunnel.token`.
+2. Repo zone-annotatora jest prywatne, więc paczkę robisz u siebie, z commita
+   z `zone-annotator.pin`, i kopiujesz na box:
+
+   ```bash
+   git -C ../zone-annotator archive -o zone-annotator.tar "$(cat client-appliance/zone-annotator.pin)"
+   scp zone-annotator.tar BOX:
+   ```
+
+3. Na boxie: `sudo client-appliance/install-annotator.sh $(id -un) ~/zone-annotator.tar`.
+   Przerywa bez zmian, gdy nie ma wyjścia TCP na 7844 albo paczka jest z innego
+   commita. Na końcu wypisuje dwie linie `ANNOTATION_*` do `platform.env` agenta.
+   Bez nich agent nie wycina okien.
+
+Nowa wersja narzędzia to nowy commit w `zone-annotator.pin`, nowa paczka i ten sam
+instalator. Ponowne uruchomienie niczego nie zmienia, a przy rozjeździe z audytu
+(checki 7–11) jest naprawą.
+
 ## Instalacja user-mode (bez roota) — issue #84
 
 Jeśli na urządzeniu **nie masz hasła sudo**, użyj `install-user.sh` zamiast
@@ -360,6 +384,17 @@ Naprawa obu: `sudo client-appliance/harden-appliance.sh <user-appliance>`.
 Incydent: `cameraboy` 2026-11-09, ufw nieaktywny i SSH na hasło przy
 zielonych check 1-4.
 
+**check 7–11 — zone-annotator i tunel boxa (gpu-exchange#298).**
+- 7: wersja równa `zone-annotator.pin`;
+- 8: usługa działa i słucha tylko na `127.0.0.1:8713`;
+- 9: efektywny unit nadal ma ograniczenia sieci i ścieżek, więc drop-in też się liczy;
+- 10: tunel działa, a plik tokenu ma prawa 0600;
+- 11: jest wyjście TCP na 7844.
+
+Box bez zone-annotatora dostaje jedną linię SKIP i nie zmienia kodu wyjścia.
+Naprawa 7–10 to ponowny `install-annotator.sh`. Przy 11 trzeba otworzyć port
+u klienta.
+
 Incydenty źródłowe. **check 1 + 2** (cameraboy, 2026-07-17 → 20): stray proces
 z `nohup` trzymał :8080, unit crash-loopował **4484 razy**, a box obsługiwał
 produkcję kodem sprzed trzech dni. **check 3** (cameraboy, 2026-07-14 → 16):
@@ -460,6 +495,10 @@ sekcji Troubleshooting.
 | `platform.env.example` | template dla `/etc/cctv-client/platform.env` (platform credentials + cold-start runtime fallbacks) |
 | `audit-appliance.sh` | read-only audit zdalnego boxa — wykrywa double-run, restart-loop, brak reboot-survival, wyłączony ufw i SSH na hasło (patrz niżej) |
 | `harden-appliance.sh` | krok root dla nowego boxa — ufw tylko z Tailscale, SSH na klucz, linger |
+| `install-annotator.sh` | idempotentny installer **root** zone-annotatora za proxy i tunelu boxa (gpu-exchange#298) |
+| `zone-annotator.pin` | jedyne miejsce z wersją zone-annotatora: pełny commit |
+| `zone-annotator.service` | systemd unit zone-annotatora — tylko localhost, bez dostępu do konfiguracji agenta i `~/.ssh`, niższy priorytet niż nagrywanie |
+| `zone-annotator-tunnel.service` | systemd unit `cloudflared` — token przez `LoadCredential`, nigdy w argv |
 
 ## Tryby pracy: standalone vs platform mode (issue #30)
 

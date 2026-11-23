@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+# Installs zone-annotator behind the panel's proxy, and the box's tunnel (gpu-exchange#298).
+#
+# Run as root on the box, after copying the package next to this checkout:
+#
+#     sudo ./client-appliance/install-annotator.sh <agent-user> <zone-annotator.tar>
+#
+# The package is `git archive` of the commit in zone-annotator.pin, made on the operator's
+# machine because the zone-annotator repo is private:
+#
+#     git -C ../zone-annotator archive -o zone-annotator.tar "$(cat client-appliance/zone-annotator.pin)"
+#
+# Layout:
+#
+#     /opt/zone-annotator/releases/<commit>/   the tool and its venv, root-owned
+#     /opt/zone-annotator/current              symlink to the release the unit runs
+#
+# DESTDIR prefixes every root-owned path and lifts the root check, so the tests run this script
+# for real; SYSTEMCTL stands in for systemctl there.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DESTDIR="${DESTDIR:-}"
+SYSTEMCTL="${SYSTEMCTL:-systemctl}"
+
+log() { printf '[install-annotator] %s\n' "$*"; }
+die() { printf '[install-annotator] %s\n' "$*" >&2; exit 1; }
+
+[[ $# -eq 2 ]] || die "usage: $0 <agent-user> <zone-annotator.tar>"
+AGENT="$1"
+PACKAGE="$2"
+
+if [[ -z "$DESTDIR" && $EUID -ne 0 ]]; then
+    die "must run as root (sudo)"
+fi
+
+# cloudflared reaches the edge on 7844 and nothing else will do, so check before touching the box.
+# TCP only: a UDP probe cannot tell a drop from silence, and cloudflared falls back to TCP on its own.
+EGRESS_HOST="${EGRESS_HOST:-region1.v2.argotunnel.com}"
+EGRESS_PORT="${EGRESS_PORT:-7844}"
+timeout 5 bash -c "exec 3<>/dev/tcp/$EGRESS_HOST/$EGRESS_PORT" 2>/dev/null ||
+    die "no outbound TCP to $EGRESS_HOST:$EGRESS_PORT: the box's tunnel needs port 7844 open to Cloudflare"
+
+PIN="${ZONE_ANNOTATOR_PIN:-$(tr -d '[:space:]' <"$SCRIPT_DIR/zone-annotator.pin")}"
+PREFIX="$DESTDIR/opt/zone-annotator"
+RELEASE="$PREFIX/releases/$PIN"
+
+# The commit git wrote into the archive itself; a file name can be renamed, this cannot.
+PACKAGE_COMMIT="$(git get-tar-commit-id <"$PACKAGE" || true)"
+[[ "$PACKAGE_COMMIT" == "$PIN" ]] ||
+    die "package is ${PACKAGE_COMMIT:0:7}, zone-annotator.pin wants ${PIN:0:7}; cut it again with git archive"
+
+CHANGED=0
+if [[ "$(readlink "$PREFIX/current" 2>/dev/null)" == "releases/$PIN" && -x "$RELEASE/.venv/bin/python" ]]; then
+    log "zone-annotator ${PIN:0:7} already installed"
+else
+    log "installing zone-annotator ${PIN:0:7}"
+    rm -rf "$RELEASE"
+    mkdir -p "$RELEASE"
+    tar -xf "$PACKAGE" -C "$RELEASE"
+    # System python, never a uv-managed one: uv would download it into root's home, which the
+    # service user cannot read.
+    UV_PROJECT_ENVIRONMENT="$RELEASE/.venv" UV_PYTHON_DOWNLOADS=never \
+        uv sync --project "$RELEASE" --frozen --no-dev --python python3 -q
+    (cd "$RELEASE" && .venv/bin/python -m zone_annotator.smoke_phase1)
+    ln -sfn "releases/$PIN" "$PREFIX/current"
+    find "$PREFIX/releases" -mindepth 1 -maxdepth 1 ! -name "$PIN" -exec rm -rf {} +
+    CHANGED=1
+fi
+
+# Footage the agent cuts for the panel, and the projects the tool writes.
+AGENT_HOME="${AGENT_HOME:-$(getent passwd "$AGENT" | cut -d: -f6)}"
+GROUP="$(id -gn "$AGENT")"
+STATE="$AGENT_HOME/.local/state/zone-annotator"
+for dir in "$AGENT_HOME/.local" "$AGENT_HOME/.local/state" "$STATE"; do
+    [[ -d "$dir" ]] || install -d -o "$AGENT" -g "$GROUP" "$dir"
+done
+install -d -o "$AGENT" -g "$GROUP" -m 0750 "$STATE/windows" "$STATE/projects"
+
+# Writes a unit only when its text differs; fails (returns 1) when nothing changed.
+put_unit() {
+    local path="$DESTDIR/etc/systemd/system/$1"
+    [[ -f "$path" && "$(cat "$path")" == "$2" ]] && return 1
+    log "installing $path"
+    mkdir -p "$(dirname "$path")"
+    printf '%s\n' "$2" >"$path"
+    "$SYSTEMCTL" daemon-reload
+}
+
+# A re-run is also the repair after a failed audit, so it brings back a stopped or disabled unit.
+run_unit() {
+    if (($2)); then
+        "$SYSTEMCTL" enable "$1"
+        "$SYSTEMCTL" restart "$1"
+    else
+        "$SYSTEMCTL" is-enabled --quiet "$1" || "$SYSTEMCTL" enable "$1"
+        "$SYSTEMCTL" is-active --quiet "$1" || "$SYSTEMCTL" start "$1"
+    fi
+}
+
+put_unit zone-annotator.service "$(sed -e "s|@AGENT@|$AGENT|g" -e "s|@GROUP@|$GROUP|g" \
+    -e "s|@HOME@|$AGENT_HOME|g" -e "s|@PROJECTS@|$STATE/projects|g" -e "s|@WINDOWS@|$STATE/windows|g" \
+    "$SCRIPT_DIR/zone-annotator.service")" && CHANGED=1
+run_unit zone-annotator.service "$CHANGED"
+
+# cloudflared, pinned and checksummed as in gpu-exchange's install-cloudflared-sglang.sh: bump the
+# version and both hashes together (github.com/cloudflare/cloudflared/releases).
+CLOUDFLARED="${CLOUDFLARED:-/usr/bin/cloudflared}"
+CLOUDFLARED_VERSION=2026.7.1
+if [[ "$("$CLOUDFLARED" --version 2>/dev/null)" == *"version $CLOUDFLARED_VERSION "* ]]; then
+    log "cloudflared $CLOUDFLARED_VERSION already installed"
+else
+    ARCH="$(dpkg --print-architecture)"
+    case "$ARCH" in
+        amd64) CLOUDFLARED_SHA256=79f790b45e6a9152c6cf63f60f4901e3d8a029f7f4be1345a24cd2373aba8e7d ;;
+        arm64) CLOUDFLARED_SHA256=4cc3570b4f86ca8b90d7d86d327a2138ade04905d5177a98652f461292725043 ;;
+        *) die "no pinned cloudflared checksum for $ARCH" ;;
+    esac
+    log "installing cloudflared $CLOUDFLARED_VERSION"
+    DEB="$(mktemp --suffix=.deb)"
+    curl -fsSL -o "$DEB" \
+        "https://github.com/cloudflare/cloudflared/releases/download/$CLOUDFLARED_VERSION/cloudflared-linux-$ARCH.deb"
+    echo "$CLOUDFLARED_SHA256  $DEB" | sha256sum -c - >/dev/null ||
+        { rm -f "$DEB"; die "cloudflared $CLOUDFLARED_VERSION ($ARCH) checksum mismatch, refusing to install"; }
+    dpkg -i "$DEB" >/dev/null
+    rm -f "$DEB"
+fi
+
+# The tunnel script in gpu-exchange stages the connector token over ssh in the agent's config,
+# which zone-annotator cannot read; from here only root and the tunnel's credential can.
+TOKEN="$DESTDIR/etc/zone-annotator/tunnel.token"
+STAGED="$AGENT_HOME/.config/cctv-client/zone-annotator-tunnel.token"
+TUNNEL_CHANGED=0
+if [[ -f "$STAGED" ]]; then
+    log "installing the tunnel token"
+    # 0755, not 0700: the audit stats the token as the unprivileged user; the file stays 0600.
+    install -d -m 0755 "$(dirname "$TOKEN")"
+    install -m 0600 "$STAGED" "$TOKEN"
+    rm -f "$STAGED"
+    TUNNEL_CHANGED=1
+elif [[ -f "$TOKEN" ]]; then
+    chmod 0755 "$(dirname "$TOKEN")"
+    chmod 0600 "$TOKEN"
+fi
+put_unit zone-annotator-tunnel.service "$(cat "$SCRIPT_DIR/zone-annotator-tunnel.service")" &&
+    TUNNEL_CHANGED=1
+if [[ -f "$TOKEN" ]]; then
+    run_unit zone-annotator-tunnel.service "$TUNNEL_CHANGED"
+else
+    log "no tunnel token yet: run gpu-exchange's appliance tunnel script for this box, then this installer again"
+fi
+
+log "done. The agent cuts windows only with both of these in its platform.env:"
+log "  ANNOTATION_WINDOWS_DIR=$STATE/windows"
+log "  ANNOTATION_PROJECTS_DIR=$STATE/projects"
