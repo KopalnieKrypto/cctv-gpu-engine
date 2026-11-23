@@ -542,6 +542,40 @@ class PlatformClient:
             body["error"] = error
         self._post(f"/appliance/snapshot/{request_id}/status", json=body)
 
+    def claim_next_annotation_job(self) -> AnnotationJobClaim | None:
+        """GET ``/appliance/annotation/next`` — claim the oldest window to glue
+        for a zone-annotator project (gpu-exchange#302). ``None`` on 204."""
+        response = self._get("/appliance/annotation/next")
+        if response.status_code == 204:
+            return None
+        data = response.json()
+        return AnnotationJobClaim(
+            job_id=data["job_id"],
+            window_id=data["window_id"],
+            project_id=data["project_id"],
+            camera_id=data["camera_id"],
+            start=_parse_iso(data["start"]),
+            end=_parse_iso(data["end"]),
+        )
+
+    def report_annotation_job(
+        self,
+        job_id: str,
+        *,
+        status: str,
+        clip_path: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        """POST ``/appliance/annotation/{job_id}/status``: ``awaiting_zones``
+        with the glued clip's absolute path, or ``failed`` with a sentence."""
+        body: dict = {"status": status}
+        if clip_path is not None:
+            body["clip_path"] = clip_path
+        if error is not None:
+            body["error"] = error
+        response = self._post(f"/appliance/annotation/{job_id}/status", json=body)
+        _raise_if_refused(response, "annotation status")
+
     def _get(self, path: str, *, params: dict | None = None) -> httpx.Response:
         """GET ``path`` with Bearer auth, 5xx retry, and typed errors.
 
@@ -642,6 +676,19 @@ class Task:
     camera_id: str
     start_time: datetime
     end_time: datetime
+
+
+@dataclass(frozen=True)
+class AnnotationJobClaim:
+    """One window the platform wants glued from this appliance's buffer for a
+    zone-annotator project (gpu-exchange#302). Times are aware UTC."""
+
+    job_id: str
+    window_id: str
+    project_id: str
+    camera_id: str
+    start: datetime
+    end: datetime
 
 
 def _parse_iso(s: str) -> datetime:

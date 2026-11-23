@@ -1333,3 +1333,56 @@ def test_report_task_progress_is_one_attempt_that_never_raises() -> None:
     assert results == [False, False, False, False]
     assert route.call_count == len(outcomes)
     assert sleeps == []
+
+
+# ----- annotation jobs (gpu-exchange#302) -----
+
+
+def test_claim_next_annotation_job_parses_the_window_and_is_none_when_idle() -> None:
+    from datetime import UTC, datetime
+
+    from client_agent.platform import PlatformClient
+
+    body = {
+        "job_id": "job-1",
+        "window_id": "window-1",
+        "project_id": "project-1",
+        "camera_id": "cam-1",
+        "start": "2026-11-23T09:00:00.000Z",
+        "end": "2026-11-23T09:20:00.000Z",
+    }
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.get("/appliance/annotation/next").mock(
+            side_effect=[httpx.Response(200, json=body), httpx.Response(204)]
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        claim = client.claim_next_annotation_job()
+        idle = client.claim_next_annotation_job()
+
+    assert claim is not None
+    assert (claim.job_id, claim.project_id, claim.camera_id) == ("job-1", "project-1", "cam-1")
+    assert claim.start == datetime(2026, 11, 23, 9, 0, tzinfo=UTC)
+    assert claim.end == datetime(2026, 11, 23, 9, 20, tzinfo=UTC)
+    assert idle is None
+
+
+def test_report_annotation_job_posts_only_the_fields_of_its_status() -> None:
+    import json
+
+    from client_agent.platform import PlatformClient
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        route = mock.post("/appliance/annotation/job-1/status").mock(
+            return_value=httpx.Response(200, json={"ok": True})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        client.report_annotation_job("job-1", status="awaiting_zones", clip_path="/w/p/w1.mp4")
+        client.report_annotation_job("job-1", status="failed", error="brak nagrań")
+
+    bodies = [json.loads(call.request.content) for call in route.calls]
+    assert bodies == [
+        {"status": "awaiting_zones", "clip_path": "/w/p/w1.mp4"},
+        {"status": "failed", "error": "brak nagrań"},
+    ]
