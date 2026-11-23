@@ -1,4 +1,4 @@
-"""Checks 7-11 of audit-appliance.sh: zone-annotator and the box's tunnel (gpu-exchange#298).
+"""Checks 7-12 of audit-appliance.sh: zone-annotator, its tunnel, its shipping key (#298, #300).
 
 The audit stays read-only. Repair is a re-run of install-annotator.sh, so "FAIL then repair then
 PASS" is a probe blob with the drift, then the same blob as the installer leaves it.
@@ -45,6 +45,7 @@ HEALTHY = {
     "ZT_ACTIVE": "active",
     "ZT_TOKEN_MODE": "600",
     "EGRESS_7844": "ok",
+    "ZA_DROP_KEY_MODE": "600",
 }
 
 
@@ -76,7 +77,7 @@ def test_a_healthy_annotation_box_passes_checks_7_to_11(tmp_path: Path) -> None:
     result = _audit(tmp_path, _blob())
 
     assert result.returncode == 0, result.stdout + result.stderr
-    for check in range(7, 12):
+    for check in range(7, 13):
         assert _line(result.stdout, check).startswith("PASS"), result.stdout
 
 
@@ -85,7 +86,7 @@ def test_a_box_without_annotation_skips_and_keeps_its_exit_code(tmp_path: Path) 
 
     assert result.returncode == 0, result.stdout
     assert "SKIP" in result.stdout and "zone-annotator not installed" in result.stdout
-    assert not any(_line(result.stdout, c) for c in range(7, 12))
+    assert not any(_line(result.stdout, c) for c in range(7, 13))
 
 
 @pytest.mark.parametrize(
@@ -101,6 +102,8 @@ def test_a_box_without_annotation_skips_and_keeps_its_exit_code(tmp_path: Path) 
         (10, {"ZT_TOKEN_MODE": "644"}, "644"),
         (10, {"ZT_ACTIVE": "inactive"}, "inactive"),
         (11, {"EGRESS_7844": "fail"}, "7844"),
+        (12, {"ZA_DROP_KEY_MODE": ""}, "missing"),
+        (12, {"ZA_DROP_KEY_MODE": "644"}, "644"),
     ],
 )
 def test_drift_fails_with_its_name_and_the_installer_state_passes(
@@ -127,6 +130,10 @@ def test_the_real_probe_reads_a_stubbed_annotation_box(tmp_path: Path) -> None:
     token.parent.mkdir(parents=True)
     token.write_text("t")
     token.chmod(0o600)
+    home = tmp_path / "home"
+    (home / ".ssh").mkdir(parents=True)
+    (home / ".ssh" / "annotation-drop").write_text("k")
+    (home / ".ssh" / "annotation-drop").chmod(0o600)
     names = ("IPAddressDeny", "IPAddressAllow", "NoNewPrivileges", "ProtectSystem")
     props = "\n".join(f"{n}={HEALTHY[f'ZA_{n}']}" for n in (*names, "InaccessiblePaths"))
     (stub / "systemctl").write_text(
@@ -151,7 +158,7 @@ def test_the_real_probe_reads_a_stubbed_annotation_box(tmp_path: Path) -> None:
         ssh = tmp_path / "fake-ssh"
         ssh.write_text(
             f'#!/usr/bin/env bash\ncmd="${{@: -1}}"\nexport PATH="{stub}:$PATH"\n'
-            f'export ZA_PREFIX="{prefix}" ZA_TOKEN="{token}"\n'
+            f'export ZA_PREFIX="{prefix}" ZA_TOKEN="{token}" HOME="{home}"\n'
             f"export EGRESS_HOST=127.0.0.1 EGRESS_PORT={edge.getsockname()[1]}\n"
             'eval "$cmd"\n'
         )
@@ -159,5 +166,5 @@ def test_the_real_probe_reads_a_stubbed_annotation_box(tmp_path: Path) -> None:
 
         result = _audit(tmp_path, "", ssh=ssh)
 
-    for check in range(7, 12):
+    for check in range(7, 13):
         assert _line(result.stdout, check).startswith("PASS"), result.stdout + result.stderr

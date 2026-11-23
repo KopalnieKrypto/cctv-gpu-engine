@@ -16,8 +16,9 @@
 #   check 9  its unit lost a network or path restriction
 #   check 10 the box's tunnel is down, or its token file is not 0600
 #   check 11 no outbound TCP to Cloudflare on 7844
+#   check 12 the key packages ship with is missing, or not 0600 (gpu-exchange#300)
 #
-# Checks 7-11 print one SKIP line on a box without zone-annotator. Their repair is a re-run of
+# Checks 7-12 print one SKIP line on a box without zone-annotator. Their repair is a re-run of
 # install-annotator.sh, which is idempotent; this audit stays read-only for them too.
 #
 # All are silent by construction. A unit crash-looping under
@@ -219,6 +220,7 @@ if timeout 5 bash -c "exec 3<>/dev/tcp/${EGRESS_HOST:-region1.v2.argotunnel.com}
 else
     echo EGRESS_7844=fail
 fi
+printf 'ZA_DROP_KEY_MODE=%s\n' "$(stat -c %a "$HOME/.ssh/annotation-drop" 2>/dev/null)"
 REMOTE
 }
 
@@ -387,7 +389,7 @@ check_6() {
   fail "$host" 6 "SSH accepts passwords (PasswordAuthentication ${pa:-not set, sshd default yes}). Fix: sudo client-appliance/harden-appliance.sh \$(id -un)"
 }
 
-FIX_ANNOTATOR="sudo client-appliance/install-annotator.sh \$(id -un) zone-annotator.tar"
+FIX_ANNOTATOR="sudo client-appliance/install-annotator.sh \$(id -un) zone-annotator.tar <appliance uuid>"
 
 # check 7 - the installed zone-annotator is the pinned commit.
 check_7() {
@@ -473,11 +475,25 @@ check_11() {
   fail "$host" 11 "no outbound TCP to Cloudflare on 7844 - the tunnel cannot connect. Open it on the client's router or firewall"
 }
 
+# check 12 - the key annotation packages leave with, readable by the agent user alone.
+check_12() {
+  local host="$1" mode="$2"
+  if [[ -z "$mode" ]]; then
+    fail "$host" 12 "shipping key ~/.ssh/annotation-drop missing - packages cannot reach cctv-vps. Fix: $FIX_ANNOTATOR, then register the key it prints"
+    return
+  fi
+  if [[ "$mode" != "600" ]]; then
+    fail "$host" 12 "shipping key ~/.ssh/annotation-drop has mode $mode, not 600. Fix: $FIX_ANNOTATOR"
+    return
+  fi
+  pass "$host" 12 "shipping key present, 0600"
+}
+
 for host in "${HOSTS_ARG[@]}"; do
   PROC_COUNT=""; ACTIVE_STATE=""; SUB_STATE=""; N_RESTARTS=""; UNIT_ENABLED=""; LINGER=""
   ZA_COMMIT=""; ZA_LOAD=""; ZA_ACTIVE=""; ZA_LISTEN=""; ZA_IPAddressDeny=""; ZA_IPAddressAllow=""
   ZA_NoNewPrivileges=""; ZA_ProtectSystem=""; ZA_InaccessiblePaths=""
-  ZT_ACTIVE=""; ZT_TOKEN_MODE=""; EGRESS_7844=""
+  ZT_ACTIVE=""; ZT_TOKEN_MODE=""; EGRESS_7844=""; ZA_DROP_KEY_MODE=""
   INSTALL_COMMIT=""; CHECKOUT_COMMIT=""; BUILD_MODIFIED=""
   UFW_ENABLED=""; SSHD_STATE=""; SSH_PASSWORD_AUTH=""; SSH_UNREADABLE=""
   while IFS='=' read -r key value; do
@@ -507,6 +523,7 @@ for host in "${HOSTS_ARG[@]}"; do
       ZT_ACTIVE) ZT_ACTIVE="$value" ;;
       ZT_TOKEN_MODE) ZT_TOKEN_MODE="$value" ;;
       EGRESS_7844) EGRESS_7844="$value" ;;
+      ZA_DROP_KEY_MODE) ZA_DROP_KEY_MODE="$value" ;;
     esac
   done < <(probe "$host")
 
@@ -521,7 +538,7 @@ for host in "${HOSTS_ARG[@]}"; do
 
   if [[ -z "$ZA_COMMIT" && "$ZA_LOAD" != "loaded" ]]; then
     [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" -ge 7 ]] &&
-      skip "$host" 7-11 "zone-annotator not installed (a box without annotation)"
+      skip "$host" 7-12 "zone-annotator not installed (a box without annotation)"
   else
     [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "7" ]] &&
       check_7 "$host" "$ZA_COMMIT" "$(tr -d '[:space:]' <"$PIN_FILE")"
@@ -531,6 +548,7 @@ for host in "${HOSTS_ARG[@]}"; do
         "$ZA_ProtectSystem" "$ZA_InaccessiblePaths"
     [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "10" ]] && check_10 "$host" "$ZT_ACTIVE" "$ZT_TOKEN_MODE"
     [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "11" ]] && check_11 "$host" "$EGRESS_7844"
+    [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "12" ]] && check_12 "$host" "$ZA_DROP_KEY_MODE"
   fi
 done
 

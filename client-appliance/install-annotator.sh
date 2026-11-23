@@ -3,7 +3,10 @@
 #
 # Run as root on the box, after copying the package next to this checkout:
 #
-#     sudo ./client-appliance/install-annotator.sh <agent-user> <zone-annotator.tar>
+#     sudo ./client-appliance/install-annotator.sh <agent-user> <zone-annotator.tar> <appliance uuid>
+#
+# The appliance uuid is the one the panel shows; the box itself keeps no record of it, and it
+# names this box's key on cctv-vps (gpu-exchange#300).
 #
 # The package is `git archive` of the commit in zone-annotator.pin, made on the operator's
 # machine because the zone-annotator repo is private:
@@ -26,9 +29,12 @@ SYSTEMCTL="${SYSTEMCTL:-systemctl}"
 log() { printf '[install-annotator] %s\n' "$*"; }
 die() { printf '[install-annotator] %s\n' "$*" >&2; exit 1; }
 
-[[ $# -eq 2 ]] || die "usage: $0 <agent-user> <zone-annotator.tar>"
+[[ $# -eq 3 ]] || die "usage: $0 <agent-user> <zone-annotator.tar> <appliance uuid>"
 AGENT="$1"
 PACKAGE="$2"
+APPLIANCE="$3"
+[[ $APPLIANCE =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] ||
+    die "appliance id must be the appliance's lowercase UUID, as the panel shows it"
 
 if [[ -z "$DESTDIR" && $EUID -ne 0 ]]; then
     die "must run as root (sudo)"
@@ -40,6 +46,9 @@ EGRESS_HOST="${EGRESS_HOST:-region1.v2.argotunnel.com}"
 EGRESS_PORT="${EGRESS_PORT:-7844}"
 timeout 5 bash -c "exec 3<>/dev/tcp/$EGRESS_HOST/$EGRESS_PORT" 2>/dev/null ||
     die "no outbound TCP to $EGRESS_HOST:$EGRESS_PORT: the box's tunnel needs port 7844 open to Cloudflare"
+
+# Packages leave for cctv-vps over rsync (gpu-exchange#300); without it nothing here can ship.
+command -v "${RSYNC:-rsync}" >/dev/null || die "rsync not installed: sudo apt-get install rsync"
 
 PIN="${ZONE_ANNOTATOR_PIN:-$(tr -d '[:space:]' <"$SCRIPT_DIR/zone-annotator.pin")}"
 PREFIX="$DESTDIR/opt/zone-annotator"
@@ -149,6 +158,22 @@ if [[ -f "$TOKEN" ]]; then
 else
     log "no tunnel token yet: run gpu-exchange's appliance tunnel script for this box, then this installer again"
 fi
+
+# The key packages leave with, over rsync into cctv-vps's drop account. In ~/.ssh, which the
+# zone-annotator unit cannot see (InaccessiblePaths); a re-run keeps the key and repairs its mode.
+DROP_KEY="$AGENT_HOME/.ssh/annotation-drop"
+if [[ ! -d "$AGENT_HOME/.ssh" ]]; then
+    install -d -m 0700 -o "$AGENT" -g "$GROUP" "$AGENT_HOME/.ssh"
+fi
+if [[ ! -f "$DROP_KEY" ]]; then
+    log "creating the shipping key $DROP_KEY"
+    ssh-keygen -q -t ed25519 -N "" -C "appliance-$APPLIANCE" -f "$DROP_KEY"
+    chown "$AGENT:$GROUP" "$DROP_KEY" "$DROP_KEY.pub"
+fi
+chmod 0600 "$DROP_KEY"
+read -r _type DROP_PUB _comment <"$DROP_KEY.pub"
+log "register this box's shipping key on cctv-vps (gpu-exchange scripts/provision):"
+log "  sudo scripts/provision/annotation-drop.sh add $APPLIANCE \"ssh-ed25519 $DROP_PUB\""
 
 log "done. The agent cuts windows only with both of these in its platform.env:"
 log "  ANNOTATION_WINDOWS_DIR=$STATE/windows"

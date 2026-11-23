@@ -145,10 +145,18 @@ paczka, instalator.
    scp zone-annotator.tar BOX:
    ```
 
-3. Na boxie: `sudo client-appliance/install-annotator.sh $(id -un) ~/zone-annotator.tar`.
-   Przerywa bez zmian, gdy nie ma wyjścia TCP na 7844 albo paczka jest z innego
-   commita. Na końcu wypisuje dwie linie `ANNOTATION_*` do `platform.env` agenta.
-   Bez nich agent nie wycina okien.
+3. Na boxie: `sudo client-appliance/install-annotator.sh $(id -un) ~/zone-annotator.tar <uuid appliance>`.
+   UUID jest ten sam, co w panelu. Box sam go nigdzie nie zapisuje.
+   Instalator przerywa bez zmian, gdy:
+   - nie ma wyjścia TCP na 7844;
+   - nie ma `rsync`;
+   - paczka jest z innego commita.
+
+   Na końcu wypisuje dwie rzeczy. Pierwsza to dwie linie `ANNOTATION_*` do `platform.env` agenta,
+   bez nich agent nie wycina okien. Druga to linia
+   `annotation-drop.sh add <uuid> "ssh-ed25519 …"`. Uruchamiasz ją na cctv-vps
+   (gpu-exchange `scripts/provision`), żeby zarejestrować klucz wysyłki
+   `~/.ssh/annotation-drop` (gpu-exchange#300).
 
 Nowa wersja narzędzia to nowy commit w `zone-annotator.pin`, nowa paczka i ten sam
 instalator. Ponowne uruchomienie niczego nie zmienia, a przy rozjeździe z audytu
@@ -384,15 +392,16 @@ Naprawa obu: `sudo client-appliance/harden-appliance.sh <user-appliance>`.
 Incydent: `cameraboy` 2026-11-09, ufw nieaktywny i SSH na hasło przy
 zielonych check 1-4.
 
-**check 7–11 — zone-annotator i tunel boxa (gpu-exchange#298).**
+**check 7–12 — zone-annotator, tunel boxa i klucz wysyłki (gpu-exchange#298, #300).**
 - 7: wersja równa `zone-annotator.pin`;
 - 8: usługa działa i słucha tylko na `127.0.0.1:8713`;
 - 9: efektywny unit nadal ma ograniczenia sieci i ścieżek, więc drop-in też się liczy;
 - 10: tunel działa, a plik tokenu ma prawa 0600;
-- 11: jest wyjście TCP na 7844.
+- 11: jest wyjście TCP na 7844;
+- 12: klucz wysyłki `~/.ssh/annotation-drop` istnieje i ma prawa 0600.
 
 Box bez zone-annotatora dostaje jedną linię SKIP i nie zmienia kodu wyjścia.
-Naprawa 7–10 to ponowny `install-annotator.sh`. Przy 11 trzeba otworzyć port
+Naprawa 7–10 i 12 to ponowny `install-annotator.sh`. Przy 11 trzeba otworzyć port
 u klienta.
 
 Incydenty źródłowe. **check 1 + 2** (cameraboy, 2026-07-17 → 20): stray proces

@@ -90,8 +90,17 @@ def _closed_port() -> int:
         return server.getsockname()[1]
 
 
+APPLIANCE = "3f2b8c1e-9d4a-4e6b-8a7f-2c5d1e0b9a64"
+
+
 def _run(
-    tmp_path: Path, tar: Path, pin: str, *, egress_port: int
+    tmp_path: Path,
+    tar: Path,
+    pin: str,
+    *,
+    egress_port: int,
+    appliance: str = APPLIANCE,
+    **extra_env: str,
 ) -> subprocess.CompletedProcess[str]:
     destdir = tmp_path / "root"
     home = tmp_path / "home"
@@ -114,11 +123,33 @@ def _run(
         "CLOUDFLARED": str(cloudflared),
         "EGRESS_HOST": "127.0.0.1",
         "EGRESS_PORT": str(egress_port),
+        **extra_env,
     }
     user = subprocess.run(["id", "-un"], capture_output=True, text=True, check=True).stdout.strip()
     return subprocess.run(
-        ["bash", str(INSTALL), user, str(tar)], capture_output=True, text=True, env=env, check=False
+        ["bash", str(INSTALL), user, str(tar), appliance],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
     )
+
+
+def test_creates_the_shipping_key_and_prints_the_line_to_register_it(
+    tmp_path: Path, tunnel_port: int
+) -> None:
+    """gpu-exchange#300: packages leave over rsync with this key, into cctv-vps's drop account."""
+    tar, commit = _package(tmp_path)
+
+    result = _run(tmp_path, tar, commit, egress_port=tunnel_port)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    key = tmp_path / "home" / ".ssh" / "annotation-drop"
+    assert key.stat().st_mode & 0o777 == 0o600
+    public = (key.parent / "annotation-drop.pub").read_text().split()
+    assert public[0] == "ssh-ed25519"
+    assert f'annotation-drop.sh add {APPLIANCE} "ssh-ed25519 {public[1]}' in result.stdout
+    assert key.read_text() not in result.stdout + result.stderr
 
 
 def test_installs_the_pinned_package_and_its_smoke_passes(tmp_path: Path, tunnel_port: int) -> None:
@@ -268,3 +299,38 @@ def test_stops_before_changing_anything_without_egress_to_7844(tmp_path: Path) -
     assert result.returncode != 0
     assert "7844" in result.stderr
     assert not (tmp_path / "root").exists()
+
+
+@pytest.mark.parametrize(
+    ("extra", "named"),
+    [
+        ({"RSYNC": "/nonexistent/rsync"}, "rsync"),
+        ({"appliance": "../3f2b8c1e"}, "UUID"),
+    ],
+)
+def test_stops_before_changing_anything_without_rsync_or_with_a_bad_appliance_id(
+    tmp_path: Path, tunnel_port: int, extra: dict[str, str], named: str
+) -> None:
+    tar, commit = _package(tmp_path)
+
+    result = _run(tmp_path, tar, commit, egress_port=tunnel_port, **extra)
+
+    assert result.returncode != 0
+    assert named in result.stderr
+    assert not (tmp_path / "root").exists()
+    assert not (tmp_path / "home" / ".ssh").exists()
+
+
+def test_a_rerun_keeps_the_shipping_key_and_repairs_its_mode(
+    tmp_path: Path, tunnel_port: int
+) -> None:
+    tar, commit = _package(tmp_path)
+    assert _run(tmp_path, tar, commit, egress_port=tunnel_port).returncode == 0
+    key = tmp_path / "home" / ".ssh" / "annotation-drop"
+    before = key.read_bytes()
+    key.chmod(0o644)
+
+    assert _run(tmp_path, tar, commit, egress_port=tunnel_port).returncode == 0
+
+    assert key.read_bytes() == before
+    assert key.stat().st_mode & 0o777 == 0o600
