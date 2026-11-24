@@ -1464,3 +1464,53 @@ def test_report_annotation_export_posts_only_the_fields_of_its_status() -> None:
         {"status": "waiting_for_vps", "error": "timed out"},
         {"status": "on_vps", "samples": 8, "destination": "annotation-drop@cctv-vps:export-1/"},
     ]
+
+
+def test_claim_next_annotation_job_reads_a_split_with_its_folds() -> None:
+    """gpu-exchange#308: folds of window ids, and the name and reason an amendment may need."""
+    from client_agent.platform import AnnotationSplitClaim, PlatformClient
+
+    body = {
+        "job_id": "job-4",
+        "kind": "split",
+        "split_id": "split-1",
+        "project_id": "project-1",
+        "folds": {"train": ["w1"], "heldout": ["w2"]},
+        "by": "Anna Kowalska",
+        "reason": None,
+    }
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.get("/appliance/annotation/next").mock(return_value=httpx.Response(200, json=body))
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        claim = client.claim_next_annotation_job()
+
+    assert claim == AnnotationSplitClaim(
+        job_id="job-4",
+        split_id="split-1",
+        project_id="project-1",
+        folds={"train": ["w1"], "heldout": ["w2"]},
+        by="Anna Kowalska",
+        reason=None,
+    )
+
+
+def test_report_annotation_split_posts_the_answer_with_the_ledger() -> None:
+    import json
+
+    from client_agent.platform import PlatformClient
+
+    ledger = {"entries": [{"kind": "model_run", "at": "2026-11-24T11:00:00+00:00", "model": "m"}]}
+    with respx.mock(base_url="https://platform.example") as mock:
+        route = mock.post("/appliance/annotation/job-4/split-status").mock(
+            return_value=httpx.Response(200, json={"ok": True})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        client.report_annotation_split("job-4", status="applied", ledger=ledger)
+        client.report_annotation_split("job-4", status="failed", ledger=ledger, error="needs --by")
+
+    assert [json.loads(call.request.content) for call in route.calls] == [
+        {"status": "applied", "ledger": ledger},
+        {"status": "failed", "ledger": ledger, "error": "needs --by"},
+    ]

@@ -27,7 +27,7 @@ from pathlib import Path
 from client_agent import annotation_poller
 from client_agent.annotation_poller import AnnotationPoller
 from client_agent.buffer import BufferChunk
-from client_agent.platform import AnnotationExportClaim, AnnotationJobClaim
+from client_agent.platform import AnnotationExportClaim, AnnotationJobClaim, AnnotationSplitClaim
 
 START = datetime(2026, 11, 23, 9, 0, tzinfo=UTC)
 END = datetime(2026, 11, 23, 9, 20, tzinfo=UTC)
@@ -46,6 +46,9 @@ class FakePlatform:
         self.reports.append({"job_id": job_id, **body})
 
     def report_annotation_export(self, job_id: str, **body: object) -> None:
+        self.reports.append({"job_id": job_id, **body})
+
+    def report_annotation_split(self, job_id: str, **body: object) -> None:
         self.reports.append({"job_id": job_id, **body})
 
 
@@ -522,3 +525,122 @@ def test_the_export_path_reaches_neither_r2_nor_a_signed_url():
     names |= {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module}
     found = [n for n in names if re.search(r"r2|presign|signed|upload|boto", n, re.IGNORECASE)]
     assert found == []
+
+
+# ----- splits into folds (gpu-exchange#308) -----
+
+DECLARED = {
+    "kind": "declaration",
+    "at": "2026-11-24T10:00:00+00:00",
+    "declared_before_any_model_run": True,
+    "folds": {"train": [1], "heldout": [2]},
+}
+RUN = {"kind": "model_run", "at": "2026-11-24T11:00:00+00:00", "model": "hala/v1.0.0"}
+
+
+def a_project_with_clips(tmp_path: Path, *entries: dict) -> Path:
+    """A project whose clips are the glued windows `w1.mp4` and `w2.mp4`, as on the box."""
+    project = a_project(tmp_path)
+    clips = [{"id": i, "clip": {"path": f"/state/windows/project-1/w{i}.mp4"}} for i in (1, 2)]
+    (project / "manifest.json").write_text(json.dumps({"clips": clips}), encoding="utf-8")
+    if entries:
+        ledger = {"schema": "zone-annotator/split/1", "entries": list(entries)}
+        (project / "split.json").write_text(json.dumps(ledger), encoding="utf-8")
+    return project
+
+
+@dataclass
+class SplitTool:
+    """zone-annotator's `split`: writes the declaration it was given, or refuses."""
+
+    project: Path
+    code: int = 0
+    err: str = ""
+    commands: list[list[str]] = field(default_factory=list)
+
+    def __call__(self, cmd: list[str], **_kw):
+        self.commands.append(cmd)
+        if self.code == 0 and "declare" in cmd:
+            ledger = {"schema": "zone-annotator/split/1", "entries": [DECLARED]}
+            (self.project / "split.json").write_text(json.dumps(ledger), encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, self.code, "", self.err)
+
+
+def a_split_claim(**overrides) -> AnnotationSplitClaim:
+    claim = AnnotationSplitClaim(
+        job_id="job-4",
+        split_id="split-1",
+        project_id="project-1",
+        folds={"train": ["w1"], "heldout": ["w2"]},
+    )
+    return replace(claim, **overrides)
+
+
+def test_a_first_split_is_declared_over_the_windows_clips_and_reports_the_ledger(tmp_path):
+    project = a_project_with_clips(tmp_path)
+    platform = FakePlatform(claims=[a_split_claim()])
+    tool = SplitTool(project)
+    poller = a_poller(tmp_path, platform=platform, buffer=FakeBuffer(), runner=tool)
+
+    assert poller.run_once() is True
+
+    [split] = tool.commands
+    assert split[6:] == [
+        "/opt/zone-annotator/current/.venv/bin/python",
+        "-m",
+        "zone_annotator.split",
+        str(project),
+        "declare",
+        "--fold=train=w1.mp4",
+        "--fold=heldout=w2.mp4",
+    ]
+    assert platform.reports == [
+        {
+            "job_id": "job-4",
+            "status": "applied",
+            "ledger": {
+                "entries": [
+                    {
+                        "kind": "declaration",
+                        "at": "2026-11-24T10:00:00+00:00",
+                        "folds": {"train": ["w1.mp4"], "heldout": ["w2.mp4"]},
+                    }
+                ]
+            },
+        }
+    ]
+
+
+def test_a_split_after_a_registered_run_is_an_amendment_the_tool_may_refuse(tmp_path):
+    project = a_project_with_clips(tmp_path, DECLARED, RUN)
+    platform = FakePlatform(claims=[a_split_claim(folds={"train": ["w1", "w2"]})])
+    said = "split failed: a model run has been registered, so amending needs --by"
+    tool = SplitTool(project, code=1, err=f"{said}\n")
+    poller = a_poller(tmp_path, platform=platform, buffer=FakeBuffer(), runner=tool)
+
+    poller.run_once()
+
+    [split] = tool.commands
+    assert split[10:] == ["amend", "--fold=train=w1.mp4,w2.mp4"]
+    [report] = platform.reports
+    assert report["status"] == "failed" and report["error"] == said
+    assert [e["kind"] for e in report["ledger"]["entries"]] == ["declaration", "model_run"]
+    assert report["ledger"]["entries"][1] == {
+        "kind": "model_run",
+        "at": "2026-11-24T11:00:00+00:00",
+        "model": "hala/v1.0.0",
+    }
+
+
+def test_an_amendment_carries_the_name_and_reason_it_was_given_as_values(tmp_path):
+    project = a_project_with_clips(tmp_path, DECLARED, RUN)
+    claim = a_split_claim(by="-Anna Kowalska", reason="doszło trzecie okno")
+    tool = SplitTool(project)
+    poller = a_poller(
+        tmp_path, platform=FakePlatform(claims=[claim]), buffer=FakeBuffer(), runner=tool
+    )
+
+    poller.run_once()
+
+    [split] = tool.commands
+    assert split[-2:] == ["--by=-Anna Kowalska", "--reason=doszło trzecie okno"]

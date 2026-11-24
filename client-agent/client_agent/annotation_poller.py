@@ -17,6 +17,9 @@ An export (gpu-exchange#306) leaves the box only as zone-annotator's checked
 package, over the tailnet to this box's write-only directory on cctv-vps. When
 cctv-vps cannot be reached the package waits here and is sent again later.
 
+A split (gpu-exchange#308) is zone-annotator's ``split declare`` or ``amend``
+over the windows' clips; the panel is told the tool's ledger as it then stands.
+
 Mirrors :class:`client_agent.snapshot_poller.SnapshotPoller`: every system
 boundary is injected and ``run_once`` is what the tests drive.
 """
@@ -36,7 +39,7 @@ from typing import Protocol
 from client_agent.buffer import BufferChunk
 from client_agent.discovery import scrub_url_credentials
 from client_agent.ffmpeg_trim import trim_and_concat
-from client_agent.platform import AnnotationExportClaim, AnnotationJobClaim
+from client_agent.platform import AnnotationExportClaim, AnnotationJobClaim, AnnotationSplitClaim
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +66,12 @@ RETRY_AFTER_S = 300.0
 
 
 class _PlatformLike(Protocol):
-    def claim_next_annotation_job(self) -> AnnotationJobClaim | AnnotationExportClaim | None: ...
+    def claim_next_annotation_job(
+        self,
+    ) -> AnnotationJobClaim | AnnotationExportClaim | AnnotationSplitClaim | None: ...
+    def report_annotation_split(
+        self, job_id: str, *, status: str, ledger: dict, error: str | None = None
+    ) -> None: ...
     def report_annotation_job(
         self,
         job_id: str,
@@ -147,6 +155,9 @@ class AnnotationPoller:
             return False
         if isinstance(claim, AnnotationExportClaim):
             self._export(claim)
+            return True
+        if isinstance(claim, AnnotationSplitClaim):
+            self._split(claim)
             return True
 
         project_dir = self._projects_dir / claim.project_id
@@ -243,6 +254,59 @@ class AnnotationPoller:
             self._fail(claim, said[-2000:])
             return
         self._platform.report_annotation_job(claim.job_id, status="ready")
+
+    def _split(self, claim: AnnotationSplitClaim) -> None:
+        """Apply the panel's folds with zone-annotator's ``split`` (gpu-exchange#308).
+
+        ``declare`` while the project has no split, ``amend`` once it has one: the
+        tool's own ledger decides, not the panel's last view of it. The name and
+        reason go to an amendment only, as ``--by=`` so no value reads as a flag.
+        Either way the ledger is reported as it stands afterwards, so the panel
+        shows what the tool holds.
+        """
+        project = self._projects_dir / claim.project_id
+        declared = any(e["kind"] != "model_run" for e in self._ledger(project)["entries"])
+        # Each window's clip is named after it: the box glues `<windows>/<project>/<window>.mp4`.
+        args = [str(project), "amend" if declared else "declare"]
+        args += [
+            f"--fold={name}=" + ",".join(f"{window}.mp4" for window in windows)
+            for name, windows in claim.folds.items()
+        ]
+        if declared and claim.by:
+            args.append(f"--by={claim.by}")
+        if declared and claim.reason:
+            args.append(f"--reason={claim.reason}")
+        result = self._zone_annotator("split", *args)
+        ledger = self._ledger(project)
+        if result.returncode != 0:
+            self._platform.report_annotation_split(
+                claim.job_id, status="failed", ledger=ledger, error=_said(result, "split")
+            )
+            return
+        self._platform.report_annotation_split(claim.job_id, status="applied", ledger=ledger)
+
+    def _ledger(self, project: Path) -> dict:
+        """zone-annotator's ``split.json``, its clip ids read as clip names from the manifest."""
+        entries = _json_or_empty(project / "split.json").get("entries") or []
+        clips = _json_or_empty(project / "manifest.json").get("clips") or []
+        names = {c.get("id"): Path(c.get("clip", {}).get("path", "")).name for c in clips}
+        out = []
+        for entry in entries:
+            if entry.get("kind") == "model_run":
+                out.append({"kind": "model_run", "at": entry["at"], "model": entry["model"]})
+                continue
+            read = {
+                "kind": entry["kind"],
+                "at": entry["at"],
+                "folds": {
+                    fold: [names.get(clip) or f"clip {clip}" for clip in clip_ids]
+                    for fold, clip_ids in entry.get("folds", {}).items()
+                },
+            }
+            if entry["kind"] == "amendment":
+                read |= {"by": entry.get("by"), "reason": entry.get("reason")}
+            out.append(read)
+        return {"entries": out}
 
     def _export(self, claim: AnnotationExportClaim) -> None:
         """Export the project's answers, check the package and send it (gpu-exchange#306).
@@ -385,3 +449,11 @@ def _said(result: subprocess.CompletedProcess, tool: str) -> str:
     """What a tool said, ending where its reason is: the platform keeps 2000 characters."""
     said = f"{result.stdout or ''}{result.stderr or ''}".strip()
     return (said or f"{tool} exited {result.returncode}")[-2000:]
+
+
+def _json_or_empty(path: Path) -> dict:
+    """A file zone-annotator wrote whole, or ``{}`` while it has not written one."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}

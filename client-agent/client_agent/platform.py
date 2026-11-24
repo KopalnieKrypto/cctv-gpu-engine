@@ -542,14 +542,25 @@ class PlatformClient:
             body["error"] = error
         self._post(f"/appliance/snapshot/{request_id}/status", json=body)
 
-    def claim_next_annotation_job(self) -> AnnotationJobClaim | AnnotationExportClaim | None:
+    def claim_next_annotation_job(
+        self,
+    ) -> AnnotationJobClaim | AnnotationExportClaim | AnnotationSplitClaim | None:
         """GET ``/appliance/annotation/next`` — claim the oldest window to glue
-        for a zone-annotator project (gpu-exchange#302), or package to export
-        (gpu-exchange#306). ``None`` on 204."""
+        for a zone-annotator project (gpu-exchange#302), package to export
+        (gpu-exchange#306) or split to apply (gpu-exchange#308). ``None`` on 204."""
         response = self._get("/appliance/annotation/next")
         if response.status_code == 204:
             return None
         data = response.json()
+        if data.get("kind") == "split":
+            return AnnotationSplitClaim(
+                job_id=data["job_id"],
+                split_id=data["split_id"],
+                project_id=data["project_id"],
+                folds=data["folds"],
+                by=data.get("by"),
+                reason=data.get("reason"),
+            )
         if data.get("kind") == "export":
             return AnnotationExportClaim(
                 job_id=data["job_id"],
@@ -609,6 +620,18 @@ class PlatformClient:
             body["error"] = error
         response = self._post(f"/appliance/annotation/{job_id}/export-status", json=body)
         _raise_if_refused(response, "annotation export status")
+
+    def report_annotation_split(
+        self, job_id: str, *, status: str, ledger: dict, error: str | None = None
+    ) -> None:
+        """POST ``/appliance/annotation/{job_id}/split-status`` (gpu-exchange#308):
+        ``applied`` or ``failed`` with zone-annotator's sentence, and the split
+        ledger as the box read it afterwards either way."""
+        body: dict = {"status": status, "ledger": ledger}
+        if error is not None:
+            body["error"] = error
+        response = self._post(f"/appliance/annotation/{job_id}/split-status", json=body)
+        _raise_if_refused(response, "annotation split status")
 
     def _get(self, path: str, *, params: dict | None = None) -> httpx.Response:
         """GET ``path`` with Bearer auth, 5xx retry, and typed errors.
@@ -741,6 +764,19 @@ class AnnotationExportClaim:
     export_id: str
     project_id: str
     bound_to: str
+
+
+@dataclass(frozen=True)
+class AnnotationSplitClaim:
+    """Folds for a zone-annotator project's windows (gpu-exchange#308): fold name
+    → window ids. ``by`` and ``reason`` are for an amendment after a registered run."""
+
+    job_id: str
+    split_id: str
+    project_id: str
+    folds: dict[str, list[str]]
+    by: str | None = None
+    reason: str | None = None
 
 
 def _parse_iso(s: str) -> datetime:
