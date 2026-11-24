@@ -444,9 +444,19 @@ def fit_model(train_clips, n_class: int, device: str):
 
 def train_fold(train_clips, xte, n_class: int, device: str):
     """Fit on the training windows and predict the held-out one."""
+    model, mu, sd = fit_model(train_clips, n_class, device)
+    return predict(model, mu, sd, xte, n_class, device)
+
+
+def predict(model, mu, sd, xte, n_class: int, device: str):
+    """Class index per frame of one held-out window, from a fitted model.
+
+    Split out of `train_fold` so a fold holding out several windows (#301, the
+    zone-annotator package) fits once and predicts each window on its own: the
+    windows are never concatenated, for the same seam reason as in `fit_model`.
+    """
     import torch
 
-    model, mu, sd = fit_model(train_clips, n_class, device)
     xte_n = (xte - mu) / sd
 
     # Inference: overlapping windows, logits averaged, so every frame is predicted
