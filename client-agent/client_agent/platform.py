@@ -542,13 +542,21 @@ class PlatformClient:
             body["error"] = error
         self._post(f"/appliance/snapshot/{request_id}/status", json=body)
 
-    def claim_next_annotation_job(self) -> AnnotationJobClaim | None:
+    def claim_next_annotation_job(self) -> AnnotationJobClaim | AnnotationExportClaim | None:
         """GET ``/appliance/annotation/next`` — claim the oldest window to glue
-        for a zone-annotator project (gpu-exchange#302). ``None`` on 204."""
+        for a zone-annotator project (gpu-exchange#302), or package to export
+        (gpu-exchange#306). ``None`` on 204."""
         response = self._get("/appliance/annotation/next")
         if response.status_code == 204:
             return None
         data = response.json()
+        if data.get("kind") == "export":
+            return AnnotationExportClaim(
+                job_id=data["job_id"],
+                export_id=data["export_id"],
+                project_id=data["project_id"],
+                bound_to=data["bound_to"],
+            )
         return AnnotationJobClaim(
             job_id=data["job_id"],
             window_id=data["window_id"],
@@ -579,6 +587,28 @@ class PlatformClient:
             body["error"] = error
         response = self._post(f"/appliance/annotation/{job_id}/status", json=body)
         _raise_if_refused(response, "annotation status")
+
+    def report_annotation_export(
+        self,
+        job_id: str,
+        *,
+        status: str,
+        samples: int | None = None,
+        destination: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        """POST ``/appliance/annotation/{job_id}/export-status`` (gpu-exchange#306):
+        ``checking``, ``sending``, ``waiting_for_vps`` or ``failed`` with a sentence,
+        ``on_vps`` with the sample count and where the package landed."""
+        body: dict = {"status": status}
+        if samples is not None:
+            body["samples"] = samples
+        if destination is not None:
+            body["destination"] = destination
+        if error is not None:
+            body["error"] = error
+        response = self._post(f"/appliance/annotation/{job_id}/export-status", json=body)
+        _raise_if_refused(response, "annotation export status")
 
     def _get(self, path: str, *, params: dict | None = None) -> httpx.Response:
         """GET ``path`` with Bearer auth, 5xx retry, and typed errors.
@@ -700,6 +730,17 @@ class AnnotationJobClaim:
     #: zone-annotator's spelling, from the panel's fixed list; ``None`` when not given.
     shift: str | None = None
     lighting: str | None = None
+
+
+@dataclass(frozen=True)
+class AnnotationExportClaim:
+    """A project's package to export, check and send to cctv-vps (gpu-exchange#306),
+    bound to the head it leaves for (zone-annotator's ``--bound-to``)."""
+
+    job_id: str
+    export_id: str
+    project_id: str
+    bound_to: str
 
 
 def _parse_iso(s: str) -> datetime:

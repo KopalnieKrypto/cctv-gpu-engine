@@ -1414,3 +1414,53 @@ def test_report_annotation_job_posts_only_the_fields_of_its_status() -> None:
         {"status": "failed", "error": "brak nagrań"},
         {"status": "ready"},
     ]
+
+
+def test_claim_next_annotation_job_reads_an_export_and_its_head() -> None:
+    """gpu-exchange#306: a package to export, check and send to cctv-vps."""
+    from client_agent.platform import AnnotationExportClaim, PlatformClient
+
+    body = {
+        "job_id": "job-3",
+        "kind": "export",
+        "export_id": "export-1",
+        "project_id": "project-1",
+        "bound_to": "hala-prawe-skrzydlo/v1.0.0",
+    }
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.get("/appliance/annotation/next").mock(return_value=httpx.Response(200, json=body))
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        claim = client.claim_next_annotation_job()
+
+    assert claim == AnnotationExportClaim(
+        job_id="job-3",
+        export_id="export-1",
+        project_id="project-1",
+        bound_to="hala-prawe-skrzydlo/v1.0.0",
+    )
+
+
+def test_report_annotation_export_posts_only_the_fields_of_its_status() -> None:
+    import json
+
+    from client_agent.platform import PlatformClient
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        route = mock.post("/appliance/annotation/job-3/export-status").mock(
+            return_value=httpx.Response(200, json={"ok": True})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        client.report_annotation_export("job-3", status="checking")
+        client.report_annotation_export("job-3", status="waiting_for_vps", error="timed out")
+        client.report_annotation_export(
+            "job-3", status="on_vps", samples=8, destination="annotation-drop@cctv-vps:export-1/"
+        )
+
+    bodies = [json.loads(call.request.content) for call in route.calls]
+    assert bodies == [
+        {"status": "checking"},
+        {"status": "waiting_for_vps", "error": "timed out"},
+        {"status": "on_vps", "samples": 8, "destination": "annotation-drop@cctv-vps:export-1/"},
+    ]

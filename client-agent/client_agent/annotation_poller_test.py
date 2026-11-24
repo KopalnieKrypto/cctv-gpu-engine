@@ -16,15 +16,18 @@ What these tests encode:
 
 from __future__ import annotations
 
+import ast
 import json
+import re
 import subprocess
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
+from client_agent import annotation_poller
 from client_agent.annotation_poller import AnnotationPoller
 from client_agent.buffer import BufferChunk
-from client_agent.platform import AnnotationJobClaim
+from client_agent.platform import AnnotationExportClaim, AnnotationJobClaim
 
 START = datetime(2026, 11, 23, 9, 0, tzinfo=UTC)
 END = datetime(2026, 11, 23, 9, 20, tzinfo=UTC)
@@ -40,6 +43,9 @@ class FakePlatform:
         return self.claims.pop(0) if self.claims else None
 
     def report_annotation_job(self, job_id: str, **body: object) -> None:
+        self.reports.append({"job_id": job_id, **body})
+
+    def report_annotation_export(self, job_id: str, **body: object) -> None:
         self.reports.append({"job_id": job_id, **body})
 
 
@@ -80,7 +86,9 @@ class Trims:
         return start
 
 
-def a_poller(tmp_path: Path, *, platform, buffer, trim=None, free=60 * GIB, runner=None):
+def a_poller(
+    tmp_path: Path, *, platform, buffer, trim=None, free=60 * GIB, runner=None, clock=None
+):
     return AnnotationPoller(
         platform=platform,
         buffer=buffer,
@@ -89,6 +97,7 @@ def a_poller(tmp_path: Path, *, platform, buffer, trim=None, free=60 * GIB, runn
         trim_fn=trim or Trims(),
         runner=runner or (lambda cmd, **kw: None),
         free_bytes=lambda _path: free,
+        clock=clock or (lambda: 0.0),
     )
 
 
@@ -313,3 +322,203 @@ def test_a_later_window_before_the_project_has_zones_fails_before_gluing(tmp_pat
     [report] = platform.reports
     assert report["status"] == "failed"
     assert "stref" in report["error"], report["error"]
+
+
+# ----- exports to cctv-vps (gpu-exchange#306) -----
+
+UNREACHABLE = "ssh: connect to host cctv-vps port 22: Connection timed out"
+
+
+@dataclass
+class Tools:
+    """The runner for zone-annotator's export and check_export and for rsync:
+    records every command and answers each as told."""
+
+    export_code: int = 0
+    export_err: str = ""
+    check_code: int = 0
+    check_out: str = ""
+    #: One exit code per rsync call, 0 once they run out.
+    rsync_codes: list[int] = field(default_factory=list)
+    samples: int = 3
+    commands: list[list[str]] = field(default_factory=list)
+
+    def __call__(self, cmd: list[str], **_kw):
+        self.commands.append(cmd)
+        if "zone_annotator.export" in cmd:
+            out = Path(cmd[cmd.index("--out") + 1])
+            (out / "images").mkdir(parents=True)
+            if self.export_code == 0:
+                doc = {"samples": [{"id": i} for i in range(self.samples)]}
+                (out / "export.json").write_text(json.dumps(doc), encoding="utf-8")
+            return subprocess.CompletedProcess(cmd, self.export_code, "", self.export_err)
+        if "zone_annotator.check_export" in cmd:
+            return subprocess.CompletedProcess(cmd, self.check_code, self.check_out, "")
+        if "rsync" in cmd:
+            code = self.rsync_codes.pop(0) if self.rsync_codes else 0
+            return subprocess.CompletedProcess(cmd, code, "", UNREACHABLE if code else "")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    def named(self, tool: str) -> list[list[str]]:
+        return [c for c in self.commands if tool in c]
+
+
+def an_export_claim() -> AnnotationExportClaim:
+    return AnnotationExportClaim(
+        job_id="job-3", export_id="export-1", project_id="project-1", bound_to="hala/v1.0.0"
+    )
+
+
+def test_an_export_is_exported_checked_and_sent_to_cctv_vps(tmp_path):
+    project = a_project(tmp_path)
+    platform = FakePlatform(claims=[an_export_claim()])
+    tools = Tools()
+    poller = a_poller(tmp_path, platform=platform, buffer=FakeBuffer(), runner=tools)
+
+    assert poller.run_once() is True
+
+    package = tmp_path / "exports" / "export-1"
+    [export] = tools.named("zone_annotator.export")
+    assert export[:6] == ["nice", "-n", "10", "ionice", "-c2", "-n7"]
+    assert export[6:] == [
+        "/opt/zone-annotator/current/.venv/bin/python",
+        "-m",
+        "zone_annotator.export",
+        str(project),
+        "--out",
+        str(package),
+        "--bound-to",
+        "hala/v1.0.0",
+    ]
+    [check] = tools.named("zone_annotator.check_export")
+    assert check[-1] == str(package)
+    [rsync] = tools.named("rsync")
+    ssh = rsync[rsync.index("-e") + 1]
+    key = str(Path.home() / ".ssh" / "annotation-drop")
+    assert f"-i {key}" in ssh and "BatchMode=yes" in ssh
+    assert "StrictHostKeyChecking=accept-new" in ssh
+    assert f"UserKnownHostsFile={key}.known_hosts" in ssh
+    assert rsync[-2:] == [f"{package}/", "annotation-drop@cctv-vps:export-1/"]
+    assert platform.reports == [
+        {"job_id": "job-3", "status": "checking"},
+        {"job_id": "job-3", "status": "sending"},
+        {
+            "job_id": "job-3",
+            "status": "on_vps",
+            "samples": 3,
+            "destination": "annotation-drop@cctv-vps:export-1/",
+        },
+    ]
+    assert not package.exists(), "nothing of the package stays on the box once it is on cctv-vps"
+
+
+def test_an_export_zone_annotator_refuses_is_reported_in_its_words_and_never_sent(tmp_path):
+    a_project(tmp_path)
+    platform = FakePlatform(claims=[an_export_claim()])
+    said = "export failed: no labelled sample in this project, so there is nothing to export"
+    tools = Tools(export_code=1, export_err=f"{said}\n")
+    poller = a_poller(tmp_path, platform=platform, buffer=FakeBuffer(), runner=tools)
+
+    poller.run_once()
+
+    assert platform.reports == [{"job_id": "job-3", "status": "failed", "error": said}]
+    assert tools.named("zone_annotator.check_export") == [] and tools.named("rsync") == []
+    assert not (tmp_path / "exports" / "export-1").exists()
+
+
+def test_a_package_check_export_refuses_is_reported_in_its_words_and_never_sent(tmp_path):
+    a_project(tmp_path)
+    platform = FakePlatform(claims=[an_export_claim()])
+    said = "  ✗ images/W1-d20fccbd/stanowisko-1/t00001.jpg has sha256 13815f9a…\n1 problem(s)"
+    tools = Tools(check_code=1, check_out=said)
+    poller = a_poller(tmp_path, platform=platform, buffer=FakeBuffer(), runner=tools)
+
+    poller.run_once()
+
+    assert platform.reports == [
+        {"job_id": "job-3", "status": "checking"},
+        {"job_id": "job-3", "status": "failed", "error": said.strip()},
+    ]
+    assert tools.named("rsync") == []
+    assert not (tmp_path / "exports" / "export-1").exists()
+
+
+def test_an_unreachable_cctv_vps_keeps_the_checked_package_and_retries_it_later(tmp_path):
+    a_project(tmp_path)
+    platform = FakePlatform(claims=[an_export_claim()])
+    tools = Tools(rsync_codes=[255])
+    now = [1000.0]
+    poller = a_poller(
+        tmp_path, platform=platform, buffer=FakeBuffer(), runner=tools, clock=lambda: now[0]
+    )
+
+    poller.run_once()
+    package = tmp_path / "exports" / "export-1"
+    assert package.is_dir(), "the checked package waits on the box"
+    assert platform.reports[-1] == {
+        "job_id": "job-3",
+        "status": "waiting_for_vps",
+        "error": UNREACHABLE,
+    }
+
+    now[0] += 60
+    assert poller.run_once() is False
+    assert len(tools.named("rsync")) == 1, "no retry before the interval"
+
+    now[0] += 300
+    poller.run_once()
+    assert len(tools.named("zone_annotator.export")) == 1, "the package is sent again, not re-cut"
+    assert [r["status"] for r in platform.reports] == [
+        "checking",
+        "sending",
+        "waiting_for_vps",
+        "sending",
+        "on_vps",
+    ]
+    assert not package.exists()
+    assert not list((tmp_path / "exports").iterdir())
+
+
+def test_a_package_waiting_from_before_a_restart_is_sent_by_the_next_poller(tmp_path):
+    a_project(tmp_path)
+    first = FakePlatform(claims=[an_export_claim()])
+    a_poller(
+        tmp_path, platform=first, buffer=FakeBuffer(), runner=Tools(rsync_codes=[255])
+    ).run_once()
+
+    platform = FakePlatform()
+    tools = Tools()
+    a_poller(tmp_path, platform=platform, buffer=FakeBuffer(), runner=tools).run_once()
+
+    assert tools.named("zone_annotator.export") == []
+    assert [r["status"] for r in platform.reports] == ["sending", "on_vps"]
+    assert platform.reports[-1]["job_id"] == "job-3"
+
+
+def test_a_disk_below_the_floor_refuses_an_export_before_anything_is_written(tmp_path):
+    a_project(tmp_path)
+    platform = FakePlatform(claims=[an_export_claim()])
+    tools = Tools()
+    poller = a_poller(tmp_path, platform=platform, buffer=FakeBuffer(), runner=tools, free=2 * GIB)
+
+    poller.run_once()
+
+    [report] = platform.reports
+    assert report["status"] == "failed" and "2.0 GiB" in report["error"], report
+    assert tools.commands == []
+
+
+def test_the_export_path_reaches_neither_r2_nor_a_signed_url():
+    """The package is the client's know-how: it goes to cctv-vps by the tailnet, nowhere else."""
+    tree = ast.parse(Path(annotation_poller.__file__).read_text(encoding="utf-8"))
+    names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+    names |= {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+    names |= {
+        alias.name
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Import | ast.ImportFrom)
+        for alias in n.names
+    }
+    names |= {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module}
+    found = [n for n in names if re.search(r"r2|presign|signed|upload|boto", n, re.IGNORECASE)]
+    assert found == []

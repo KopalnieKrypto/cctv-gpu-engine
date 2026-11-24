@@ -13,6 +13,10 @@ A later window of the same project (gpu-exchange#305) needs no drawing: this
 box ingests it itself with the first window's zones and stride, under its own
 shift and lighting, and deletes the glued file straight after.
 
+An export (gpu-exchange#306) leaves the box only as zone-annotator's checked
+package, over the tailnet to this box's write-only directory on cctv-vps. When
+cctv-vps cannot be reached the package waits here and is sent again later.
+
 Mirrors :class:`client_agent.snapshot_poller.SnapshotPoller`: every system
 boundary is injected and ``run_once`` is what the tests drive.
 """
@@ -24,7 +28,7 @@ import logging
 import shutil
 import subprocess
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Protocol
@@ -32,7 +36,7 @@ from typing import Protocol
 from client_agent.buffer import BufferChunk
 from client_agent.discovery import scrub_url_credentials
 from client_agent.ffmpeg_trim import trim_and_concat
-from client_agent.platform import AnnotationJobClaim
+from client_agent.platform import AnnotationExportClaim, AnnotationJobClaim
 
 logger = logging.getLogger(__name__)
 
@@ -45,23 +49,36 @@ MIN_FREE_BYTES = 10 * 1024**3
 #: writing all the time could starve indefinitely.
 _LOWER_PRIORITY = ["nice", "-n", "10", "ionice", "-c2", "-n7"]
 
-#: The release install-annotator.sh points ``current`` at (gpu-exchange#298). It runs
-#: as the agent's user, who owns the projects directory the service writes to.
-ZONE_ANNOTATOR_INGEST = (
-    "/opt/zone-annotator/current/.venv/bin/python",
-    "-m",
-    "zone_annotator.ingest",
-)
+#: The release install-annotator.sh points ``current`` at (gpu-exchange#298). Its
+#: tools run as the agent's user, who owns the projects directory the service writes to.
+ZONE_ANNOTATOR_PYTHON = "/opt/zone-annotator/current/.venv/bin/python"
+
+#: install-annotator.sh's shipping key (gpu-exchange#300), and the account on
+#: cctv-vps whose rrsync -wo takes it only into this box's own directory.
+DROP_KEY = Path.home() / ".ssh" / "annotation-drop"
+DROP_TARGET = "annotation-drop@cctv-vps"
+
+#: How long a checked package waits on the box before cctv-vps is tried again.
+RETRY_AFTER_S = 300.0
 
 
 class _PlatformLike(Protocol):
-    def claim_next_annotation_job(self) -> AnnotationJobClaim | None: ...
+    def claim_next_annotation_job(self) -> AnnotationJobClaim | AnnotationExportClaim | None: ...
     def report_annotation_job(
         self,
         job_id: str,
         *,
         status: str,
         clip_path: str | None = None,
+        error: str | None = None,
+    ) -> None: ...
+    def report_annotation_export(
+        self,
+        job_id: str,
+        *,
+        status: str,
+        samples: int | None = None,
+        destination: str | None = None,
         error: str | None = None,
     ) -> None: ...
 
@@ -95,7 +112,12 @@ class AnnotationPoller:
         min_free_bytes: int = MIN_FREE_BYTES,
         poll_interval_s: float = 10.0,
         sleep: Callable[[float], None] = time.sleep,
-        ingest_cmd: Sequence[str] = ZONE_ANNOTATOR_INGEST,
+        zone_annotator_python: str = ZONE_ANNOTATOR_PYTHON,
+        exports_dir: Path | None = None,
+        drop_target: str = DROP_TARGET,
+        drop_key: Path = DROP_KEY,
+        clock: Callable[[], float] = time.monotonic,
+        retry_after_s: float = RETRY_AFTER_S,
     ) -> None:
         self._platform = platform
         self._buffer = buffer
@@ -107,14 +129,25 @@ class AnnotationPoller:
         self._min_free_bytes = min_free_bytes
         self._poll_interval_s = poll_interval_s
         self._sleep = sleep
-        self._ingest_cmd = ingest_cmd
+        self._python = zone_annotator_python
+        # Beside the windows, on the agent's own disk; a package is a copy of crops.
+        self._exports_dir = exports_dir or windows_dir.parent / "exports"
+        self._drop_target = drop_target
+        self._drop_key = drop_key
+        self._clock = clock
+        self._retry_after_s = retry_after_s
+        self._retry_at: dict[str, float] = {}
 
     def run_once(self) -> bool:
-        """Glue one claimed window. ``False`` when the platform had nothing."""
+        """Handle one claimed job. ``False`` when the platform had nothing."""
         self._delete_ingested_windows()
+        self._retry_waiting_exports()
         claim = self._platform.claim_next_annotation_job()
         if claim is None:
             return False
+        if isinstance(claim, AnnotationExportClaim):
+            self._export(claim)
+            return True
 
         project_dir = self._projects_dir / claim.project_id
         # zone-annotator's own test for "a project is here", before 2 GB are glued for nothing.
@@ -126,15 +159,9 @@ class AnnotationPoller:
             )
             return True
 
-        self._windows_dir.mkdir(parents=True, exist_ok=True)
-        free = self._free_bytes(self._windows_dir)
-        if free is None or free < self._min_free_bytes:
-            have = "nieznane" if free is None else f"{free / 1024**3:.1f} GiB"
-            self._fail(
-                claim,
-                f"Za mało miejsca na dysku komputera z nagraniami: wolne {have}, "
-                f"potrzeba co najmniej {self._min_free_bytes / 1024**3:.1f} GiB.",
-            )
+        refusal = self._no_room(self._windows_dir)
+        if refusal:
+            self._fail(claim, refusal)
             return True
 
         chunks = self._buffer.chunks_in_range(claim.camera_id, start=claim.start, end=claim.end)
@@ -188,7 +215,9 @@ class AnnotationPoller:
         footage has no reason to stay on the disk.
         """
         cmd = [
-            *self._ingest_cmd,
+            self._python,
+            "-m",
+            "zone_annotator.ingest",
             str(clip.resolve()),
             "--project",
             str(project_dir),
@@ -214,6 +243,114 @@ class AnnotationPoller:
             self._fail(claim, said[-2000:])
             return
         self._platform.report_annotation_job(claim.job_id, status="ready")
+
+    def _export(self, claim: AnnotationExportClaim) -> None:
+        """Export the project's answers, check the package and send it (gpu-exchange#306).
+
+        Nothing leaves the box before zone-annotator's own ``check_export`` passes,
+        and nothing of it goes anywhere but cctv-vps: no R2, no signed URL. A
+        refused export or check is the client's answer in the tool's own words.
+        """
+        package = self._exports_dir / claim.export_id
+        refusal = self._no_room(self._exports_dir)
+        if refusal:
+            self._export_failed(claim.job_id, refusal)
+            return
+        exported = self._zone_annotator(
+            "export",
+            str(self._projects_dir / claim.project_id),
+            "--out",
+            str(package),
+            "--bound-to",
+            claim.bound_to,
+        )
+        if exported.returncode != 0:
+            shutil.rmtree(package, ignore_errors=True)
+            self._export_failed(claim.job_id, _said(exported, "export"))
+            return
+        self._platform.report_annotation_export(claim.job_id, status="checking")
+        checked = self._zone_annotator("check_export", str(package))
+        if checked.returncode != 0:
+            shutil.rmtree(package, ignore_errors=True)
+            self._export_failed(claim.job_id, _said(checked, "check_export"))
+            return
+        self._send(claim.job_id, claim.export_id)
+
+    def _send(self, job_id: str, export_id: str) -> None:
+        """rsync a checked package to this box's directory on cctv-vps, or wait for it.
+
+        A package that could not be sent stays on the box with a ``.waiting``
+        marker beside it, so it is retried after ``retry_after_s`` and after a
+        restart too, without the client asking again.
+
+        shortcut: a crash between check_export and the first rsync answer leaves the
+        export in ``sending`` with its package on disk; clean it by hand if it happens.
+        """
+        package = self._exports_dir / export_id
+        marker = self._exports_dir / f"{export_id}.waiting"
+        destination = f"{self._drop_target}:{export_id}/"
+        self._platform.report_annotation_export(job_id, status="sending")
+        ssh = (
+            f"ssh -i {self._drop_key} -o IdentitiesOnly=yes -o BatchMode=yes "
+            # The first connection learns cctv-vps's key over the tailnet; later changes are refused
+            "-o StrictHostKeyChecking=accept-new "
+            f"-o UserKnownHostsFile={self._drop_key}.known_hosts -o ConnectTimeout=15 "
+            # Errors only: the client reads this sentence, not ssh's notes.
+            "-o LogLevel=ERROR"
+        )
+        sent = self._run(["rsync", "-rt", "-e", ssh, f"{package}/", destination])
+        if sent.returncode != 0:
+            marker.write_text(json.dumps({"job_id": job_id}), encoding="utf-8")
+            self._retry_at[export_id] = self._clock() + self._retry_after_s
+            self._platform.report_annotation_export(
+                job_id, status="waiting_for_vps", error=_said(sent, "rsync")
+            )
+            return
+        document = json.loads((package / "export.json").read_text(encoding="utf-8"))
+        self._platform.report_annotation_export(
+            job_id, status="on_vps", samples=len(document["samples"]), destination=destination
+        )
+        shutil.rmtree(package, ignore_errors=True)
+        marker.unlink(missing_ok=True)
+        self._retry_at.pop(export_id, None)
+
+    def _retry_waiting_exports(self) -> None:
+        if not self._exports_dir.is_dir():
+            return
+        for marker in sorted(self._exports_dir.glob("*.waiting")):
+            export_id = marker.stem
+            if self._clock() < self._retry_at.get(export_id, float("-inf")):
+                continue
+            job_id = json.loads(marker.read_text(encoding="utf-8"))["job_id"]
+            self._send(job_id, export_id)
+
+    def _zone_annotator(self, tool: str, *args: str) -> subprocess.CompletedProcess:
+        return self._run([self._python, "-m", f"zone_annotator.{tool}", *args])
+
+    def _run(self, cmd: list[str]) -> subprocess.CompletedProcess:
+        """A tool under lowered priority, its output kept; a missing binary is an answer too."""
+        try:
+            return self._lowered(cmd, capture_output=True, text=True)
+        except OSError as exc:
+            return subprocess.CompletedProcess(cmd, 127, "", str(exc))
+
+    def _no_room(self, directory: Path) -> str | None:
+        """The client's sentence when ``directory``'s disk is below the floor, else ``None``."""
+        directory.mkdir(parents=True, exist_ok=True)
+        free = self._free_bytes(directory)
+        if free is not None and free >= self._min_free_bytes:
+            return None
+        have = "nieznane" if free is None else f"{free / 1024**3:.1f} GiB"
+        return (
+            f"Za mało miejsca na dysku komputera z nagraniami: wolne {have}, "
+            f"potrzeba co najmniej {self._min_free_bytes / 1024**3:.1f} GiB."
+        )
+
+    def _export_failed(self, job_id: str, error: str) -> None:
+        try:
+            self._platform.report_annotation_export(job_id, status="failed", error=error)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("failed to report annotation export %s as failed: %s", job_id, exc)
 
     def _fail(self, claim: AnnotationJobClaim, error: str) -> None:
         try:
@@ -242,3 +379,9 @@ class AnnotationPoller:
 
     def _lowered(self, cmd: list[str], **kwargs: object) -> object:
         return self._runner([*_LOWER_PRIORITY, *cmd], **kwargs)
+
+
+def _said(result: subprocess.CompletedProcess, tool: str) -> str:
+    """What a tool said, ending where its reason is: the platform keeps 2000 characters."""
+    said = f"{result.stdout or ''}{result.stderr or ''}".strip()
+    return (said or f"{tool} exited {result.returncode}")[-2000:]
