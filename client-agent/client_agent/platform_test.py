@@ -1514,3 +1514,48 @@ def test_report_annotation_split_posts_the_answer_with_the_ledger() -> None:
         {"status": "applied", "ledger": ledger},
         {"status": "failed", "ledger": ledger, "error": "needs --by"},
     ]
+
+
+def test_claim_next_annotation_job_reads_a_head_run_with_its_model() -> None:
+    """gpu-exchange#314: the head published from an export, by the name zone-annotator registers."""
+    from client_agent.platform import AnnotationRegisterRunClaim, PlatformClient
+
+    body = {
+        "job_id": "job-5",
+        "kind": "register_run",
+        "export_id": "export-1",
+        "project_id": "project-1",
+        "model": "hala/v1.0.0",
+    }
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.get("/appliance/annotation/next").mock(return_value=httpx.Response(200, json=body))
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        claim = client.claim_next_annotation_job()
+
+    assert claim == AnnotationRegisterRunClaim(
+        job_id="job-5", export_id="export-1", project_id="project-1", model="hala/v1.0.0"
+    )
+
+
+def test_report_annotation_register_run_posts_the_answer_with_the_ledger() -> None:
+    import json
+
+    from client_agent.platform import PlatformClient
+
+    ledger = {"entries": [{"kind": "model_run", "at": "2026-11-24T11:00:00+00:00", "model": "m"}]}
+    with respx.mock(base_url="https://platform.example") as mock:
+        route = mock.post("/appliance/annotation/job-5/register-status").mock(
+            return_value=httpx.Response(200, json={"ok": True})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        client.report_annotation_register_run("job-5", status="registered", ledger=ledger)
+        client.report_annotation_register_run(
+            "job-5", status="failed", ledger=ledger, error="no split declared"
+        )
+
+    assert [json.loads(call.request.content) for call in route.calls] == [
+        {"status": "registered", "ledger": ledger},
+        {"status": "failed", "ledger": ledger, "error": "no split declared"},
+    ]

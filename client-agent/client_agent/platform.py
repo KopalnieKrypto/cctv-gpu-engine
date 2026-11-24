@@ -544,14 +544,28 @@ class PlatformClient:
 
     def claim_next_annotation_job(
         self,
-    ) -> AnnotationJobClaim | AnnotationExportClaim | AnnotationSplitClaim | None:
+    ) -> (
+        AnnotationJobClaim
+        | AnnotationExportClaim
+        | AnnotationSplitClaim
+        | AnnotationRegisterRunClaim
+        | None
+    ):
         """GET ``/appliance/annotation/next`` — claim the oldest window to glue
         for a zone-annotator project (gpu-exchange#302), package to export
-        (gpu-exchange#306) or split to apply (gpu-exchange#308). ``None`` on 204."""
+        (gpu-exchange#306), split to apply (gpu-exchange#308) or trained head to
+        register (gpu-exchange#314). ``None`` on 204."""
         response = self._get("/appliance/annotation/next")
         if response.status_code == 204:
             return None
         data = response.json()
+        if data.get("kind") == "register_run":
+            return AnnotationRegisterRunClaim(
+                job_id=data["job_id"],
+                export_id=data["export_id"],
+                project_id=data["project_id"],
+                model=data["model"],
+            )
         if data.get("kind") == "split":
             return AnnotationSplitClaim(
                 job_id=data["job_id"],
@@ -632,6 +646,18 @@ class PlatformClient:
             body["error"] = error
         response = self._post(f"/appliance/annotation/{job_id}/split-status", json=body)
         _raise_if_refused(response, "annotation split status")
+
+    def report_annotation_register_run(
+        self, job_id: str, *, status: str, ledger: dict, error: str | None = None
+    ) -> None:
+        """POST ``/appliance/annotation/{job_id}/register-status`` (gpu-exchange#314):
+        ``registered`` or ``failed`` with zone-annotator's sentence, and the split
+        ledger as the box read it afterwards either way."""
+        body: dict = {"status": status, "ledger": ledger}
+        if error is not None:
+            body["error"] = error
+        response = self._post(f"/appliance/annotation/{job_id}/register-status", json=body)
+        _raise_if_refused(response, "annotation register-run status")
 
     def _get(self, path: str, *, params: dict | None = None) -> httpx.Response:
         """GET ``path`` with Bearer auth, 5xx retry, and typed errors.
@@ -764,6 +790,17 @@ class AnnotationExportClaim:
     export_id: str
     project_id: str
     bound_to: str
+
+
+@dataclass(frozen=True)
+class AnnotationRegisterRunClaim:
+    """A head trained on cctv-vps from one of the project's exports (gpu-exchange#314),
+    to be registered by the name zone-annotator knows it under, freezing the split."""
+
+    job_id: str
+    export_id: str
+    project_id: str
+    model: str
 
 
 @dataclass(frozen=True)

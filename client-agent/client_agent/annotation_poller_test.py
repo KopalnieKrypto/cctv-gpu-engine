@@ -27,7 +27,12 @@ from pathlib import Path
 from client_agent import annotation_poller
 from client_agent.annotation_poller import AnnotationPoller
 from client_agent.buffer import BufferChunk
-from client_agent.platform import AnnotationExportClaim, AnnotationJobClaim, AnnotationSplitClaim
+from client_agent.platform import (
+    AnnotationExportClaim,
+    AnnotationJobClaim,
+    AnnotationRegisterRunClaim,
+    AnnotationSplitClaim,
+)
 
 START = datetime(2026, 11, 23, 9, 0, tzinfo=UTC)
 END = datetime(2026, 11, 23, 9, 20, tzinfo=UTC)
@@ -49,6 +54,9 @@ class FakePlatform:
         self.reports.append({"job_id": job_id, **body})
 
     def report_annotation_split(self, job_id: str, **body: object) -> None:
+        self.reports.append({"job_id": job_id, **body})
+
+    def report_annotation_register_run(self, job_id: str, **body: object) -> None:
         self.reports.append({"job_id": job_id, **body})
 
 
@@ -644,3 +652,60 @@ def test_an_amendment_carries_the_name_and_reason_it_was_given_as_values(tmp_pat
 
     [split] = tool.commands
     assert split[-2:] == ["--by=-Anna Kowalska", "--reason=doszło trzecie okno"]
+
+
+@dataclass
+class RunTool:
+    """zone-annotator's `split register-run`: appends the run to the ledger, or refuses."""
+
+    project: Path
+    code: int = 0
+    err: str = ""
+    commands: list[list[str]] = field(default_factory=list)
+
+    def __call__(self, cmd: list[str], **_kw):
+        self.commands.append(cmd)
+        if self.code == 0:
+            ledger = {"schema": "zone-annotator/split/1", "entries": [DECLARED, RUN]}
+            (self.project / "split.json").write_text(json.dumps(ledger), encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, self.code, "", self.err)
+
+
+def a_run_claim() -> AnnotationRegisterRunClaim:
+    return AnnotationRegisterRunClaim(
+        job_id="job-5", export_id="export-1", project_id="project-1", model="hala/v1.0.0"
+    )
+
+
+def test_a_published_head_is_registered_by_its_name_freezing_the_split(tmp_path):
+    """gpu-exchange#314, D7: the run is registered on the box, and the ledger after it reported."""
+    project = a_project_with_clips(tmp_path, DECLARED)
+    platform = FakePlatform(claims=[a_run_claim()])
+    tool = RunTool(project)
+    poller = a_poller(tmp_path, platform=platform, buffer=FakeBuffer(), runner=tool)
+
+    assert poller.run_once() is True
+
+    [run] = tool.commands
+    assert run[-3:] == [str(project), "register-run", "--model=hala/v1.0.0"]
+    [report] = platform.reports
+    assert report["job_id"] == "job-5" and report["status"] == "registered"
+    assert [e["kind"] for e in report["ledger"]["entries"]] == ["declaration", "model_run"]
+
+
+def test_a_run_the_tool_refuses_is_reported_in_its_words_with_the_ledger(tmp_path):
+    project = a_project_with_clips(tmp_path)
+    platform = FakePlatform(claims=[a_run_claim()])
+    said = "register-run failed: no split has been declared"
+    tool = RunTool(project, code=1, err=f"{said}\n")
+    poller = a_poller(tmp_path, platform=platform, buffer=FakeBuffer(), runner=tool)
+
+    poller.run_once()
+
+    [report] = platform.reports
+    assert report == {
+        "job_id": "job-5",
+        "status": "failed",
+        "error": said,
+        "ledger": {"entries": []},
+    }

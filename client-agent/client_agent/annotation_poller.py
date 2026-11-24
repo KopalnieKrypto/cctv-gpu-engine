@@ -20,6 +20,10 @@ cctv-vps cannot be reached the package waits here and is sent again later.
 A split (gpu-exchange#308) is zone-annotator's ``split declare`` or ``amend``
 over the windows' clips; the panel is told the tool's ledger as it then stands.
 
+A head trained on cctv-vps from one of the project's exports (gpu-exchange#314)
+is registered with ``split register-run``, so the split it was trained on is
+frozen; the ledger is reported the same way.
+
 Mirrors :class:`client_agent.snapshot_poller.SnapshotPoller`: every system
 boundary is injected and ``run_once`` is what the tests drive.
 """
@@ -39,7 +43,12 @@ from typing import Protocol
 from client_agent.buffer import BufferChunk
 from client_agent.discovery import scrub_url_credentials
 from client_agent.ffmpeg_trim import trim_and_concat
-from client_agent.platform import AnnotationExportClaim, AnnotationJobClaim, AnnotationSplitClaim
+from client_agent.platform import (
+    AnnotationExportClaim,
+    AnnotationJobClaim,
+    AnnotationRegisterRunClaim,
+    AnnotationSplitClaim,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -68,8 +77,17 @@ RETRY_AFTER_S = 300.0
 class _PlatformLike(Protocol):
     def claim_next_annotation_job(
         self,
-    ) -> AnnotationJobClaim | AnnotationExportClaim | AnnotationSplitClaim | None: ...
+    ) -> (
+        AnnotationJobClaim
+        | AnnotationExportClaim
+        | AnnotationSplitClaim
+        | AnnotationRegisterRunClaim
+        | None
+    ): ...
     def report_annotation_split(
+        self, job_id: str, *, status: str, ledger: dict, error: str | None = None
+    ) -> None: ...
+    def report_annotation_register_run(
         self, job_id: str, *, status: str, ledger: dict, error: str | None = None
     ) -> None: ...
     def report_annotation_job(
@@ -158,6 +176,9 @@ class AnnotationPoller:
             return True
         if isinstance(claim, AnnotationSplitClaim):
             self._split(claim)
+            return True
+        if isinstance(claim, AnnotationRegisterRunClaim):
+            self._register_run(claim)
             return True
 
         project_dir = self._projects_dir / claim.project_id
@@ -284,6 +305,27 @@ class AnnotationPoller:
             )
             return
         self._platform.report_annotation_split(claim.job_id, status="applied", ledger=ledger)
+
+    def _register_run(self, claim: AnnotationRegisterRunClaim) -> None:
+        """Register the published head with zone-annotator (gpu-exchange#314, D7).
+
+        From here on the tool asks who and why before the split changes. The
+        name goes as ``--model=`` so no head name reads as a flag; the ledger is
+        reported as it stands afterwards, refused or not.
+        """
+        project = self._projects_dir / claim.project_id
+        result = self._zone_annotator(
+            "split", str(project), "register-run", f"--model={claim.model}"
+        )
+        ledger = self._ledger(project)
+        if result.returncode != 0:
+            self._platform.report_annotation_register_run(
+                claim.job_id, status="failed", ledger=ledger, error=_said(result, "register-run")
+            )
+            return
+        self._platform.report_annotation_register_run(
+            claim.job_id, status="registered", ledger=ledger
+        )
 
     def _ledger(self, project: Path) -> dict:
         """zone-annotator's ``split.json``, its clip ids read as clip names from the manifest."""
