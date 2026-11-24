@@ -175,10 +175,6 @@ def embed_windows(
     at that value, so every cache written before this parameter existed still
     hits and no shipped path changes behaviour.
     """
-    import torch
-    from PIL import Image
-    from transformers import AutoImageProcessor, AutoModel
-
     from pipeline.station_classifier import model_input_for_rect
 
     m = json.loads(manifest_path.read_text())
@@ -211,8 +207,7 @@ def embed_windows(
             },
         }
 
-    processor = AutoImageProcessor.from_pretrained(BACKBONE)
-    model = AutoModel.from_pretrained(BACKBONE).to(device).eval()
+    processor, model = load_backbone(device)
 
     windows: dict[str, dict] = {}
     for clip in m["clips"]:
@@ -226,29 +221,9 @@ def embed_windows(
             sys.exit(f"no crops for {slot} in {crops_root} - run run_tcn_arm.py first")
         n = min(len(files), len(labels))
 
-        vecs = []
-        batch = embedding_batch(model_input)
-        for start in range(0, n, batch):
-            imgs = [Image.open(f).convert("RGB") for f in files[start : start + batch]]
-            if detail_scale != 1.0:
-                imgs = [reduce_detail(im, detail_scale) for im in imgs]
-            inputs = processor(
-                images=imgs,
-                return_tensors="pt",
-                size={"height": model_input[0], "width": model_input[1]},
-                # Not a default worth trusting: `crop_size` is independent of
-                # `size` and stays at 224 unless told otherwise, which is how the
-                # head came to read the middle 43% of the station.
-                do_center_crop=False,
-            )
-            inputs = {k: v.to(device) for k, v in inputs.items()}
-            with torch.no_grad():
-                out = model(**inputs)
-            # CLS token: the pooled representation DINOv2 is trained to make
-            # linearly useful, which is exactly what a probe should read.
-            vecs.append(out.last_hidden_state[:, 0].float().cpu().numpy())
-            if (start + batch) % 200 < batch:
-                print(f"  [{slot}] {min(start + batch, n)}/{n}", file=sys.stderr)
+        x = embed_files(
+            files[:n], model_input, processor, model, device, detail_scale=detail_scale, tag=slot
+        )
         # An annotator may leave a sample blank, and the timeline exports it as
         # `activity_id: null` rather than inventing one - W4 has exactly one, its
         # last. Dropping the pair is the only honest handling: `classes.index`
@@ -270,7 +245,6 @@ def embed_windows(
                     "temporal model. Label them, or cut the window at the gap."
                 )
             print(f"  [{slot}] {dropped} unlabelled sample(s) dropped", file=sys.stderr)
-        x = np.concatenate(vecs)[:n]
         windows[slot] = {
             "x": x[keep],
             "y": np.asarray([classes.index(labels[i]) for i in keep], dtype=np.int64),
@@ -285,6 +259,61 @@ def embed_windows(
     )
     meta_file.write_text(json.dumps({s: {"stride": w["stride"]} for s, w in windows.items()}))
     return {"classes": classes, "windows": windows}
+
+
+def load_backbone(device: str):
+    """The frozen backbone and its processor, loaded once per run."""
+    from transformers import AutoImageProcessor, AutoModel
+
+    processor = AutoImageProcessor.from_pretrained(BACKBONE)
+    model = AutoModel.from_pretrained(BACKBONE).to(device).eval()
+    return processor, model
+
+
+def embed_files(
+    files: list[Path],
+    model_input: tuple[int, int],
+    processor,
+    model,
+    device: str,
+    *,
+    detail_scale: float = 1.0,
+    tag: str = "",
+) -> np.ndarray:
+    """One CLS vector per crop, the whole crop resized to ``model_input`` (height, width).
+
+    The one place a crop becomes an embedding, for the manifest's windows and for
+    a zone-annotator package's (#301) alike: two copies of this call are how the
+    centre-crop came to be fixed in one and not the other.
+    """
+    import torch
+    from PIL import Image
+
+    n = len(files)
+    vecs = []
+    batch = embedding_batch(model_input)
+    for start in range(0, n, batch):
+        imgs = [Image.open(f).convert("RGB") for f in files[start : start + batch]]
+        if detail_scale != 1.0:
+            imgs = [reduce_detail(im, detail_scale) for im in imgs]
+        inputs = processor(
+            images=imgs,
+            return_tensors="pt",
+            size={"height": model_input[0], "width": model_input[1]},
+            # Not a default worth trusting: `crop_size` is independent of
+            # `size` and stays at 224 unless told otherwise, which is how the
+            # head came to read the middle 43% of the station.
+            do_center_crop=False,
+        )
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+        with torch.no_grad():
+            out = model(**inputs)
+        # CLS token: the pooled representation DINOv2 is trained to make
+        # linearly useful, which is exactly what a probe should read.
+        vecs.append(out.last_hidden_state[:, 0].float().cpu().numpy())
+        if (start + batch) % 200 < batch:
+            print(f"  [{tag}] {min(start + batch, n)}/{n}", file=sys.stderr)
+    return np.concatenate(vecs)
 
 
 def fit_probe(train, xte, n_class: int, device: str):
