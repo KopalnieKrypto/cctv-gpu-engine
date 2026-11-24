@@ -9,6 +9,10 @@ then draws zones on it in the panel, and zone-annotator cuts the crops.
 The clip is a copy of footage, so it lives only until zone-annotator has
 ingested it: once the project's manifest lists the file, this deletes it.
 
+A later window of the same project (gpu-exchange#305) needs no drawing: this
+box ingests it itself with the first window's zones and stride, under its own
+shift and lighting, and deletes the glued file straight after.
+
 Mirrors :class:`client_agent.snapshot_poller.SnapshotPoller`: every system
 boundary is injected and ``run_once`` is what the tests drive.
 """
@@ -20,7 +24,7 @@ import logging
 import shutil
 import subprocess
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Protocol
@@ -40,6 +44,14 @@ MIN_FREE_BYTES = 10 * 1024**3
 #: Best-effort class at its lowest level rather than idle, which a recorder
 #: writing all the time could starve indefinitely.
 _LOWER_PRIORITY = ["nice", "-n", "10", "ionice", "-c2", "-n7"]
+
+#: The release install-annotator.sh points ``current`` at (gpu-exchange#298). It runs
+#: as the agent's user, who owns the projects directory the service writes to.
+ZONE_ANNOTATOR_INGEST = (
+    "/opt/zone-annotator/current/.venv/bin/python",
+    "-m",
+    "zone_annotator.ingest",
+)
 
 
 class _PlatformLike(Protocol):
@@ -83,6 +95,7 @@ class AnnotationPoller:
         min_free_bytes: int = MIN_FREE_BYTES,
         poll_interval_s: float = 10.0,
         sleep: Callable[[float], None] = time.sleep,
+        ingest_cmd: Sequence[str] = ZONE_ANNOTATOR_INGEST,
     ) -> None:
         self._platform = platform
         self._buffer = buffer
@@ -94,6 +107,7 @@ class AnnotationPoller:
         self._min_free_bytes = min_free_bytes
         self._poll_interval_s = poll_interval_s
         self._sleep = sleep
+        self._ingest_cmd = ingest_cmd
 
     def run_once(self) -> bool:
         """Glue one claimed window. ``False`` when the platform had nothing."""
@@ -101,6 +115,16 @@ class AnnotationPoller:
         claim = self._platform.claim_next_annotation_job()
         if claim is None:
             return False
+
+        project_dir = self._projects_dir / claim.project_id
+        # zone-annotator's own test for "a project is here", before 2 GB are glued for nothing.
+        if claim.kind == "next" and not (project_dir / "labels.sqlite").is_file():
+            self._fail(
+                claim,
+                "Projekt nie ma jeszcze stref. Narysuj je na pierwszym oknie, "
+                "a potem dodaj kolejne okno.",
+            )
+            return True
 
         self._windows_dir.mkdir(parents=True, exist_ok=True)
         free = self._free_bytes(self._windows_dir)
@@ -136,6 +160,9 @@ class AnnotationPoller:
             output.unlink(missing_ok=True)
             self._fail(claim, scrub_url_credentials(f"Sklejanie okna nie powiodło się: {exc}"))
             return True
+        if claim.kind == "next":
+            self._ingest(claim, output, project_dir)
+            return True
         self._platform.report_annotation_job(
             claim.job_id, status="awaiting_zones", clip_path=str(output.resolve())
         )
@@ -151,6 +178,42 @@ class AnnotationPoller:
                 handled = False
             if not handled:
                 self._sleep(self._poll_interval_s)
+
+    def _ingest(self, claim: AnnotationJobClaim, clip: Path, project_dir: Path) -> None:
+        """Add a later window to the project with its first window's zones (gpu-exchange#305).
+
+        The CLI waits on zone-annotator's cutting lock by itself, so a cut that
+        is running on the box only delays this one. The glued copy is deleted
+        either way: once ingested the crops hold it, and a failed window's
+        footage has no reason to stay on the disk.
+        """
+        cmd = [
+            *self._ingest_cmd,
+            str(clip.resolve()),
+            "--project",
+            str(project_dir),
+            "--same-as-first",
+            "--recorded-at",
+            claim.start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        ]
+        # Declared together with the pick: a project knows only the values its windows brought.
+        if claim.shift:
+            cmd += ["--shifts", claim.shift, "--shift", claim.shift]
+        if claim.lighting:
+            cmd += ["--lightings", claim.lighting, "--lighting", claim.lighting]
+        try:
+            result = self._lowered(cmd, capture_output=True, text=True)
+        except Exception as exc:  # noqa: BLE001 — a missing tool is the client's answer too
+            self._fail(claim, f"Wczytanie okna do zone-annotatora nie powiodło się: {exc}")
+            return
+        finally:
+            clip.unlink(missing_ok=True)
+        if result.returncode != 0:
+            said = (result.stderr or "").strip() or f"ingest exited {result.returncode}"
+            # The platform takes at most 2000 characters; the end is where the reason is.
+            self._fail(claim, said[-2000:])
+            return
+        self._platform.report_annotation_job(claim.job_id, status="ready")
 
     def _fail(self, claim: AnnotationJobClaim, error: str) -> None:
         try:

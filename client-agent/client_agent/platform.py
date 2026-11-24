@@ -556,6 +556,9 @@ class PlatformClient:
             camera_id=data["camera_id"],
             start=_parse_iso(data["start"]),
             end=_parse_iso(data["end"]),
+            kind="next" if data.get("kind") == "next" else "first",
+            shift=data.get("shift"),
+            lighting=data.get("lighting"),
         )
 
     def report_annotation_job(
@@ -567,7 +570,8 @@ class PlatformClient:
         error: str | None = None,
     ) -> None:
         """POST ``/appliance/annotation/{job_id}/status``: ``awaiting_zones``
-        with the glued clip's absolute path, or ``failed`` with a sentence."""
+        with the glued clip's absolute path, ``ready`` for a later window
+        zone-annotator has ingested, or ``failed`` with a sentence."""
         body: dict = {"status": status}
         if clip_path is not None:
             body["clip_path"] = clip_path
@@ -689,6 +693,13 @@ class AnnotationJobClaim:
     camera_id: str
     start: datetime
     end: datetime
+    #: ``first`` is glued for zones to be drawn on it; ``next`` is glued and
+    #: ingested with the first window's zones (gpu-exchange#305). A platform
+    #: from before #305 sends no kind, and every window it knows is a first one.
+    kind: Literal["first", "next"] = "first"
+    #: zone-annotator's spelling, from the panel's fixed list; ``None`` when not given.
+    shift: str | None = None
+    lighting: str | None = None
 
 
 def _parse_iso(s: str) -> datetime:

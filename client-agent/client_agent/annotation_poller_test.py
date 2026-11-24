@@ -17,7 +17,8 @@ What these tests encode:
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+import subprocess
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -184,3 +185,131 @@ def test_a_window_zone_annotator_has_ingested_is_deleted(tmp_path):
 
     assert not ingested.exists()
     assert waiting.exists()
+
+
+# ----- later windows (gpu-exchange#305) -----
+
+
+@dataclass
+class Ingests:
+    """The runner: records every command, and answers zone-annotator's ingest as told."""
+
+    returncode: int = 0
+    stderr: str = ""
+    commands: list[list[str]] = field(default_factory=list)
+
+    def __call__(self, cmd: list[str], **_kw):
+        self.commands.append(cmd)
+        return subprocess.CompletedProcess(cmd, self.returncode, stdout="", stderr=self.stderr)
+
+    @property
+    def ingest(self) -> list[str]:
+        [ingest] = [c for c in self.commands if "zone_annotator.ingest" in c]
+        return ingest
+
+
+def a_later_claim(**overrides) -> AnnotationJobClaim:
+    return replace(a_claim(), job_id="job-2", window_id="window-2", kind="next", **overrides)
+
+
+def a_project(tmp_path: Path) -> Path:
+    project = tmp_path / "projects" / "project-1"
+    project.mkdir(parents=True)
+    (project / "labels.sqlite").write_bytes(b"")
+    return project
+
+
+def test_a_later_window_is_ingested_with_the_first_windows_zones_and_its_conditions(tmp_path):
+    project = a_project(tmp_path)
+    platform = FakePlatform(claims=[a_later_claim(shift="popoludnie", lighting="sztuczne")])
+    runner = Ingests()
+    poller = a_poller(
+        tmp_path, platform=platform, buffer=FakeBuffer([a_chunk(tmp_path)]), runner=runner
+    )
+
+    assert poller.run_once() is True
+
+    window = (tmp_path / "windows" / "project-1" / "window-2.mp4").resolve()
+    assert runner.ingest[:6] == ["nice", "-n", "10", "ionice", "-c2", "-n7"]
+    assert runner.ingest[6:] == [
+        "/opt/zone-annotator/current/.venv/bin/python",
+        "-m",
+        "zone_annotator.ingest",
+        str(window),
+        "--project",
+        str(project),
+        "--same-as-first",
+        "--recorded-at",
+        "2026-11-23T09:00:00Z",
+        "--shifts",
+        "popoludnie",
+        "--shift",
+        "popoludnie",
+        "--lightings",
+        "sztuczne",
+        "--lighting",
+        "sztuczne",
+    ]
+    assert not window.exists(), "the glued copy goes once zone-annotator has the crops"
+    assert platform.reports == [{"job_id": "job-2", "status": "ready"}]
+
+
+def test_a_later_window_without_conditions_declares_none(tmp_path):
+    a_project(tmp_path)
+    runner = Ingests()
+    poller = a_poller(
+        tmp_path,
+        platform=FakePlatform(claims=[a_later_claim()]),
+        buffer=FakeBuffer([a_chunk(tmp_path)]),
+        runner=runner,
+    )
+
+    poller.run_once()
+
+    assert not {"--shift", "--shifts", "--lighting", "--lightings"} & set(runner.ingest)
+
+
+def test_a_later_window_waits_out_a_running_cut_and_is_ready(tmp_path):
+    """The CLI waits on the cutting lock by itself and says so on stderr; that is no failure."""
+    a_project(tmp_path)
+    platform = FakePlatform(claims=[a_later_claim()])
+    runner = Ingests(
+        stderr="ingest: another cut is running on this box; waiting for it to finish\n"
+    )
+    poller = a_poller(
+        tmp_path, platform=platform, buffer=FakeBuffer([a_chunk(tmp_path)]), runner=runner
+    )
+
+    poller.run_once()
+
+    assert platform.reports == [{"job_id": "job-2", "status": "ready"}]
+
+
+def test_a_failed_ingest_reports_the_tools_own_words_and_deletes_the_window(tmp_path):
+    a_project(tmp_path)
+    platform = FakePlatform(claims=[a_later_claim()])
+    said = "ingest failed: 'Rano' is not one of this project's shifts (rano)"
+    runner = Ingests(returncode=1, stderr=f"{said}\n")
+    poller = a_poller(
+        tmp_path, platform=platform, buffer=FakeBuffer([a_chunk(tmp_path)]), runner=runner
+    )
+
+    poller.run_once()
+
+    assert platform.reports == [{"job_id": "job-2", "status": "failed", "error": said}]
+    assert not (tmp_path / "windows" / "project-1" / "window-2.mp4").exists()
+
+
+def test_a_later_window_before_the_project_has_zones_fails_before_gluing(tmp_path):
+    platform = FakePlatform(claims=[a_later_claim()])
+    trims = Trims()
+    poller = a_poller(
+        tmp_path, platform=platform, buffer=FakeBuffer([a_chunk(tmp_path)]), trim=trims
+    )
+
+    poller.run_once()
+
+    assert trims.calls == []
+    [report] = platform.reports
+    assert report["status"] == "failed"
+    assert "stref" in report["error"], report["error"]

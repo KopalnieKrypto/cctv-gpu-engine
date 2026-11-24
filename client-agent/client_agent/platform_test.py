@@ -1364,7 +1364,33 @@ def test_claim_next_annotation_job_parses_the_window_and_is_none_when_idle() -> 
     assert (claim.job_id, claim.project_id, claim.camera_id) == ("job-1", "project-1", "cam-1")
     assert claim.start == datetime(2026, 11, 23, 9, 0, tzinfo=UTC)
     assert claim.end == datetime(2026, 11, 23, 9, 20, tzinfo=UTC)
+    assert (claim.kind, claim.shift, claim.lighting) == ("first", None, None)
     assert idle is None
+
+
+def test_claim_next_annotation_job_reads_a_later_window_and_its_conditions() -> None:
+    """gpu-exchange#305: a window to ingest with the first window's zones."""
+    from client_agent.platform import PlatformClient
+
+    body = {
+        "job_id": "job-2",
+        "window_id": "window-2",
+        "project_id": "project-1",
+        "camera_id": "cam-1",
+        "start": "2026-11-23T15:00:00.000Z",
+        "end": "2026-11-23T15:30:00.000Z",
+        "kind": "next",
+        "shift": "popoludnie",
+        "lighting": None,
+    }
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.get("/appliance/annotation/next").mock(return_value=httpx.Response(200, json=body))
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        claim = client.claim_next_annotation_job()
+
+    assert claim is not None
+    assert (claim.kind, claim.shift, claim.lighting) == ("next", "popoludnie", None)
 
 
 def test_report_annotation_job_posts_only_the_fields_of_its_status() -> None:
@@ -1380,9 +1406,11 @@ def test_report_annotation_job_posts_only_the_fields_of_its_status() -> None:
 
         client.report_annotation_job("job-1", status="awaiting_zones", clip_path="/w/p/w1.mp4")
         client.report_annotation_job("job-1", status="failed", error="brak nagrań")
+        client.report_annotation_job("job-1", status="ready")
 
     bodies = [json.loads(call.request.content) for call in route.calls]
     assert bodies == [
         {"status": "awaiting_zones", "clip_path": "/w/p/w1.mp4"},
         {"status": "failed", "error": "brak nagrań"},
+        {"status": "ready"},
     ]
