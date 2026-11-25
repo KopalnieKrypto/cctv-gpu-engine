@@ -21,7 +21,7 @@ import json
 import re
 import subprocess
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -105,7 +105,8 @@ class Trims:
         self.calls.append({"chunks": chunks, "start": start, "end": end, "output": output})
         runner(["ffmpeg", "-i", "x", str(output)], capture_output=True, text=True)
         output.write_bytes(b"glued")
-        return start
+        # As trim_and_concat: the clip starts at the buffer's oldest moment when that is later.
+        return max(start, chunks[0].start)
 
 
 def a_poller(
@@ -300,6 +301,23 @@ def test_a_later_window_is_ingested_with_the_first_windows_zones_and_its_conditi
     ]
     assert not window.exists(), "the glued copy goes once zone-annotator has the crops"
     assert platform.reports == [{"job_id": "job-2", "status": "ready"}]
+
+
+def test_a_later_window_the_buffer_partly_rotated_out_is_recorded_from_its_real_start(tmp_path):
+    """The clip begins where the buffer does; the window's start would shift every sample (#91)."""
+    a_project(tmp_path)
+    runner = Ingests()
+    late = BufferChunk(path=a_chunk(tmp_path).path, start=START + timedelta(minutes=5), end=END)
+    poller = a_poller(
+        tmp_path,
+        platform=FakePlatform(claims=[a_later_claim()]),
+        buffer=FakeBuffer([late]),
+        runner=runner,
+    )
+
+    poller.run_once()
+
+    assert runner.ingest[runner.ingest.index("--recorded-at") + 1] == "2026-11-23T09:05:00Z"
 
 
 def test_a_later_window_without_conditions_declares_none(tmp_path):

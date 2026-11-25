@@ -214,7 +214,7 @@ class AnnotationPoller:
         output = self._windows_dir / claim.project_id / f"{claim.window_id}.mp4"
         output.parent.mkdir(parents=True, exist_ok=True)
         try:
-            self._trim(
+            began = self._trim(
                 chunks=chunks,
                 start=claim.start,
                 end=claim.end,
@@ -226,7 +226,8 @@ class AnnotationPoller:
             self._fail(claim, scrub_url_credentials(f"Sklejanie okna nie powiodło się: {exc}"))
             return True
         if claim.kind == "next":
-            self._ingest(claim, output, project_dir)
+            # Where the clip really begins: the buffer may have rotated past the window's start.
+            self._ingest(claim, output, project_dir, began or claim.start)
             return True
         self._platform.report_annotation_job(
             claim.job_id, status="awaiting_zones", clip_path=str(output.resolve())
@@ -244,7 +245,9 @@ class AnnotationPoller:
             if not handled:
                 self._sleep(self._poll_interval_s)
 
-    def _ingest(self, claim: AnnotationJobClaim, clip: Path, project_dir: Path) -> None:
+    def _ingest(
+        self, claim: AnnotationJobClaim, clip: Path, project_dir: Path, began: datetime
+    ) -> None:
         """Add a later window to the project with its first window's zones (gpu-exchange#305).
 
         The CLI waits on zone-annotator's cutting lock by itself, so a cut that
@@ -261,7 +264,7 @@ class AnnotationPoller:
             str(project_dir),
             "--same-as-first",
             "--recorded-at",
-            claim.start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            began.strftime("%Y-%m-%dT%H:%M:%SZ"),
         ]
         # Declared together with the pick: a project knows only the values its windows brought.
         if claim.shift:
