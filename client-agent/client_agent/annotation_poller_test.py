@@ -507,6 +507,9 @@ def test_an_export_is_exported_checked_and_sent_to_cctv_vps(tmp_path):
     # install-annotator.sh pins cctv-vps's key; a first-use key from the client LAN is refused.
     assert "StrictHostKeyChecking=yes" in ssh
     assert f"UserKnownHostsFile={key}.known_hosts" in ssh
+    # A link that dies mid-transfer ends the try instead of holding the poller's one thread.
+    assert "--timeout=120" in rsync
+    assert "-o ServerAliveInterval=30 -o ServerAliveCountMax=4" in ssh
     assert rsync[-2:] == [f"{package}/", "annotation-drop@cctv-vps:export-1/"]
     assert platform.reports == [
         {"job_id": "job-3", "status": "checking"},

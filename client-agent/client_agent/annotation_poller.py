@@ -501,12 +501,18 @@ class AnnotationPoller:
             # the client's LAN, so a key learned on first use could be anybody's.
             "-o StrictHostKeyChecking=yes "
             f"-o UserKnownHostsFile={self._drop_key}.known_hosts -o ConnectTimeout=15 "
+            # A link dead mid-transfer is noticed in two minutes, not never.
+            "-o ServerAliveInterval=30 -o ServerAliveCountMax=4 "
             # Errors only: the client reads this sentence, not ssh's notes.
             "-o LogLevel=ERROR"
         )
         try:
             self._platform.report_annotation_export(job_id, status="sending")
-            sent = self._run(["rsync", "-rt", "-e", ssh, f"{package}/", destination])
+            # An I/O limit rather than a whole-run one: a large package on a slow uplink may
+            # take hours and still be moving; only silence for 120 s ends the try.
+            sent = self._run(
+                ["rsync", "-rt", "--timeout=120", "-e", ssh, f"{package}/", destination]
+            )
             if sent.returncode != 0:
                 self._platform.report_annotation_export(
                     job_id, status="waiting_for_vps", error=_said(sent, "rsync")
