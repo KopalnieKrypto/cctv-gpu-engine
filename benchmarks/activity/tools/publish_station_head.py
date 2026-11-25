@@ -6,8 +6,8 @@ the agent's own token asks data-service for presigned PUTs, the bytes go
 straight to R2, and completion is reported with the card. The key comes from
 the export, so nothing here names a tenant. Only the server set in the panel
 (``station_head_publisher_server_id``) is let through. Before any byte goes up,
-a card trained from a package must name the export's ``bound_to`` and, when it
-records it, the export's own drop ``/srv/annotation-drop/<appliance>/<export>``.
+the card must come from ``--package`` and name the export's ``bound_to`` and,
+when it records it, the export's own drop ``/srv/annotation-drop/<appliance>/<export>``.
 
 Run it on cctv-vps as the agent's user, after a run worth keeping (D4):
 
@@ -86,9 +86,7 @@ def _check_package_is_the_exports(card: dict, export_id: str, urls: dict) -> Non
     The export id is typed by hand; the platform says which head name and box it
     belongs to, and the card says which package the head was trained on.
     """
-    package = (card.get("training_material") or {}).get("package")
-    if package is None:
-        return
+    package = card["training_material"]["package"]
     for field in ("bound_to", "appliance_id"):
         if not urls.get(field):
             raise PublishError(
@@ -119,6 +117,12 @@ def publish(
     """Upload URLs, both PUTs, completion. Raises :class:`PublishError` on the first refusal."""
     card = json.loads(card_path.read_text(encoding="utf-8"))
     _check_card_matches(head, card)
+    if not isinstance((card.get("training_material") or {}).get("package"), dict):
+        # The platform refuses it at completion; refused here, nothing is opened for it.
+        raise PublishError(
+            "the card names no training_material.package: only a head trained with "
+            "train_station_head.py --package is published for an export"
+        )
     base = f"{platform_url.rstrip('/')}/agent/station-heads/{export_id}"
     auth = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 

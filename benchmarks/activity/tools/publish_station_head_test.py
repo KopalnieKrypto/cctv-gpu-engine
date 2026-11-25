@@ -29,10 +29,15 @@ import publish_station_head as pub  # noqa: E402
 EXPORT = "22222222-2222-4222-8222-222222222222"
 APPLIANCE = "33333333-3333-4333-8333-333333333333"
 PLATFORM = "https://api-panel.example"
+#: What `train_station_head.py --package` records: the package's head name and directory.
+FROM_THE_DROP = {
+    "bound_to": "hala/v1.0.0",
+    "dir": f"/srv/annotation-drop/{APPLIANCE}/{EXPORT}",
+}
 
 
 def a_head(
-    tmp_path: Path, payload: bytes = b"onnx-bytes", package: dict | None = None
+    tmp_path: Path, payload: bytes = b"onnx-bytes", package: dict | None = FROM_THE_DROP
 ) -> tuple[Path, Path, dict]:
     head = tmp_path / "station-head-hala-v1.0.0.onnx"
     head.write_bytes(payload)
@@ -147,12 +152,6 @@ def test_reads_the_agent_token_from_its_state_file_and_refuses_a_file_without_on
         pub.read_agent_token(state)
 
 
-FROM_THE_DROP = {
-    "bound_to": "hala/v1.0.0",
-    "dir": f"/srv/annotation-drop/{APPLIANCE}/{EXPORT}",
-}
-
-
 def test_publishes_a_head_trained_on_this_exports_package(tmp_path):
     head, card_path, _ = a_head(tmp_path, package=FROM_THE_DROP)
     http = FakeHttp()
@@ -190,3 +189,13 @@ def test_refuses_when_the_platform_does_not_say_which_package_the_export_is(tmp_
     with pytest.raises(pub.PublishError, match="appliance_id"):
         pub.publish(EXPORT, head, card_path, platform_url=PLATFORM, token="t", http=http)
     assert [c[0] for c in http.calls] == ["POST"]
+
+
+def test_refuses_a_card_trained_on_no_package_before_any_request(tmp_path):
+    """The platform refuses it at completion too; here it costs no upload and no open version."""
+    head, card_path, _ = a_head(tmp_path, package=None)
+    http = FakeHttp()
+
+    with pytest.raises(pub.PublishError, match="training_material.package"):
+        pub.publish(EXPORT, head, card_path, platform_url=PLATFORM, token="t", http=http)
+    assert http.calls == []
