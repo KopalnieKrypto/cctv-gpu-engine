@@ -83,6 +83,15 @@ DROP_TARGET = "annotation-drop@cctv-vps"
 #: How long a checked package waits on the box before cctv-vps is tried again.
 RETRY_AFTER_S = 300.0
 
+#: Longest an ingest may run, its wait for a cut already running in serve included: a
+#: 60-minute window with 3 zones is about 3 x 24 min of decoding (6-8 min per zone of a
+#: 20-minute window, zone-annotator's README), one such cut ahead of it doubles that to
+#: ~2.4 h. Under the platform's 6 h sweeper, so the box's answer lands first.
+CUT_LIMIT_S = 4 * 3600.0
+
+#: How often a wait for zone-annotator's cutting lock tries again.
+LOCK_POLL_S = 5.0
+
 #: A copy made for annotation stays on the box at most this long: a glued window no manifest
 #: lists, a package cctv-vps has not taken. Footage of people at work, so nothing waits forever.
 COPY_LIMIT_S = 7 * 86400.0
@@ -163,6 +172,7 @@ class AnnotationPoller:
         # Wall time: a marker's age must survive a restart.
         clock: Callable[[], float] = time.time,
         retry_after_s: float = RETRY_AFTER_S,
+        cut_limit_s: float = CUT_LIMIT_S,
     ) -> None:
         self._platform = platform
         self._buffer = buffer
@@ -181,6 +191,7 @@ class AnnotationPoller:
         self._drop_key = drop_key
         self._clock = clock
         self._retry_after_s = retry_after_s
+        self._cut_limit_s = cut_limit_s
         self._retry_at: dict[str, float] = {}
 
     def run_once(self) -> bool:
@@ -283,6 +294,11 @@ class AnnotationPoller:
         footage has no reason to stay on the disk.
         """
         cmd = [
+            # The CLI waits on the cutting lock for ever, and a cut hung in serve holds it.
+            # GNU timeout signals its whole process group, so the tool's ffmpeg stops too.
+            "timeout",
+            "--kill-after=60",
+            f"{self._cut_limit_s:g}",
             self._python,
             "-m",
             "zone_annotator.ingest",
@@ -305,6 +321,14 @@ class AnnotationPoller:
             return
         finally:
             clip.unlink(missing_ok=True)
+        if result.returncode == 124:  # GNU timeout: the limit ran out
+            self._fail(
+                claim,
+                "Wczytanie okna do zone-annotatora trwało dłużej niż "
+                f"{self._cut_limit_s / 3600:g} h i zostało przerwane; na komputerze z "
+                "nagraniami mogło zawiesić się wycinanie. Dodaj to okno ponownie.",
+            )
+            return
         if result.returncode != 0:
             self._fail(claim, (result.stderr or "").strip() or f"ingest exited {result.returncode}")
             return
@@ -370,9 +394,18 @@ class AnnotationPoller:
             doomed += [self._exports_dir / export_id, self._exports_dir / f"{export_id}.waiting"]
             self._retry_at.pop(export_id, None)
         try:
-            with _cutting_lock(self._projects_dir):
+            with self._cutting_lock(wait=True):
                 for path in doomed:
                     _remove(path)
+        except BlockingIOError:
+            self._platform.report_annotation_delete(
+                claim.job_id,
+                status="failed",
+                error="Na komputerze z nagraniami od ponad "
+                f"{self._cut_limit_s / 3600:g} h trwa wycinanie w zone-annotatorze, więc "
+                "projekt nie został usunięty. Usuń go ponownie później.",
+            )
+            return
         except OSError as exc:
             self._platform.report_annotation_delete(
                 claim.job_id, status="failed", error=str(exc)[-2000:]
@@ -593,24 +626,38 @@ class AnnotationPoller:
                 window.unlink(missing_ok=True)
             elif self._clock() - window.stat().st_mtime >= COPY_LIMIT_S:
                 stale.append(window)
-        if stale:
-            with _cutting_lock(self._projects_dir):
+        if not stale:
+            return
+        try:
+            with self._cutting_lock(wait=False):
                 for window in stale:
                     logger.info("deleting %s, kept the longest a glued window may be", window)
                     window.unlink(missing_ok=True)
+        except BlockingIOError:
+            logger.debug("a cut is running; %d spent window(s) wait for it", len(stale))
+
+    @contextmanager
+    def _cutting_lock(self, *, wait: bool) -> Iterator[None]:
+        """zone-annotator's own lock (``ingest.CuttingLock``): no cut runs while its files go.
+
+        A cut hung in serve would hold it for ever, so this waits at most
+        ``cut_limit_s`` (``wait=False``: not at all), then raises BlockingIOError.
+        """
+        self._projects_dir.mkdir(parents=True, exist_ok=True)
+        with open(self._projects_dir / ".cutting.lock", "a+b") as handle:
+            deadline = self._clock() + (self._cut_limit_s if wait else 0.0)
+            while fcntl is not None:
+                try:
+                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if self._clock() >= deadline:
+                        raise
+                    self._sleep(LOCK_POLL_S)
+            yield
 
     def _lowered(self, cmd: list[str], **kwargs: object) -> object:
         return self._runner([*_LOWER_PRIORITY, *cmd], **kwargs)
-
-
-@contextmanager
-def _cutting_lock(projects_dir: Path) -> Iterator[None]:
-    """zone-annotator's own lock (``ingest.CuttingLock``): no cut runs while its files go."""
-    projects_dir.mkdir(parents=True, exist_ok=True)
-    with open(projects_dir / ".cutting.lock", "a+b") as handle:
-        if fcntl is not None:
-            fcntl.flock(handle, fcntl.LOCK_EX)
-        yield
 
 
 def _remove(path: Path) -> None:

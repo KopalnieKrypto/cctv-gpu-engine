@@ -117,7 +117,15 @@ class Trims:
 
 
 def a_poller(
-    tmp_path: Path, *, platform, buffer, trim=None, free=60 * GIB, runner=None, clock=None
+    tmp_path: Path,
+    *,
+    platform,
+    buffer,
+    trim=None,
+    free=60 * GIB,
+    runner=None,
+    clock=None,
+    **extra,
 ):
     return AnnotationPoller(
         platform=platform,
@@ -128,6 +136,7 @@ def a_poller(
         runner=runner or (lambda cmd, **kw: None),
         free_bytes=lambda _path: free,
         clock=clock or (lambda: 0.0),
+        **extra,
     )
 
 
@@ -320,6 +329,9 @@ def test_a_later_window_is_ingested_with_the_first_windows_zones_and_its_conditi
     window = (tmp_path / "windows" / "project-1" / "window-2.mp4").resolve()
     assert runner.ingest[:6] == ["nice", "-n", "10", "ionice", "-c2", "-n7"]
     assert runner.ingest[6:] == [
+        "timeout",
+        "--kill-after=60",
+        "14400",
         "/opt/zone-annotator/current/.venv/bin/python",
         "-m",
         "zone_annotator.ingest",
@@ -1022,3 +1034,97 @@ def test_a_project_the_box_cannot_delete_is_reported_failed_in_the_systems_words
     report = platform.reports[-1]
     assert report["job_id"] == "job-6" and report["status"] == "failed", report
     assert "Permission denied" in report["error"], report
+
+
+# ----- a cut that never ends -----
+
+
+def test_a_later_window_whose_ingest_outlives_the_limit_is_failed_and_its_copy_deleted(
+    tmp_path,
+):
+    """GNU timeout exits 124 when it had to stop the command."""
+    a_project(tmp_path)
+    platform = FakePlatform(claims=[a_later_claim()])
+    runner = Ingests(returncode=124)
+    poller = a_poller(
+        tmp_path, platform=platform, buffer=FakeBuffer([a_chunk(tmp_path)]), runner=runner
+    )
+
+    poller.run_once()
+
+    [report] = platform.reports
+    assert report["status"] == "failed" and "4 h" in report["error"], report
+    assert not (tmp_path / "windows" / "project-1" / "window-2.mp4").exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="GNU timeout and process groups: Linux")
+def test_the_limit_stops_the_whole_ingest_including_what_it_started(tmp_path):
+    """zone-annotator cuts with ffmpeg children; killing only Python would leave them cutting."""
+    a_project(tmp_path)
+    grandchild = tmp_path / "grandchild.pid"
+    hung = tmp_path / "hung-ingest"
+    hung.write_text(f"#!/bin/sh\nsleep 60 &\necho $! >{grandchild}\nwait\n")
+    hung.chmod(0o755)
+    platform = FakePlatform(claims=[a_later_claim()])
+    poller = AnnotationPoller(
+        platform=platform,
+        buffer=FakeBuffer([a_chunk(tmp_path)]),
+        windows_dir=tmp_path / "windows",
+        projects_dir=tmp_path / "projects",
+        trim_fn=Trims(),
+        free_bytes=lambda _path: 60 * GIB,
+        zone_annotator_python=str(hung),
+        cut_limit_s=1,
+    )
+
+    poller.run_once()
+
+    assert platform.reports[-1]["status"] == "failed", platform.reports
+    stat = Path(f"/proc/{grandchild.read_text().strip()}/stat")
+    assert not stat.exists() or stat.read_text().split()[2] == "Z", "ffmpeg's stand-in still runs"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="flock: the box is Linux")
+def test_a_project_whose_cut_outlives_the_limit_is_not_deleted_and_says_why(tmp_path):
+    import fcntl
+
+    doomed = a_project_on_the_box(tmp_path)
+    now = [0.0]
+    platform = FakePlatform(claims=[a_delete_claim()])
+    poller = a_poller(
+        tmp_path,
+        platform=platform,
+        buffer=FakeBuffer(),
+        clock=lambda: now[0],
+        sleep=lambda s: now.__setitem__(0, now[0] + s),
+    )
+
+    with open(tmp_path / "projects" / ".cutting.lock", "a+b") as cut:
+        fcntl.flock(cut, fcntl.LOCK_EX)
+        poller.run_once()
+
+    report = platform.reports[-1]
+    assert report["status"] == "failed" and "4 h" in report["error"], report
+    assert all(p.exists() for p in doomed)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="flock: the box is Linux")
+def test_a_week_old_window_waits_for_the_next_round_while_a_cut_runs(tmp_path):
+    import fcntl
+
+    window = tmp_path / "windows" / "project-1" / "window-1.mp4"
+    window.parent.mkdir(parents=True)
+    window.write_bytes(b"glued")
+    os.utime(window, (1000.0, 1000.0))
+    (tmp_path / "projects").mkdir()
+    poller = a_poller(
+        tmp_path, platform=FakePlatform(), buffer=FakeBuffer(), clock=lambda: 1000.0 + 8 * 86400
+    )
+
+    with open(tmp_path / "projects" / ".cutting.lock", "a+b") as cut:
+        fcntl.flock(cut, fcntl.LOCK_EX)
+        poller.run_once()
+        assert window.exists()
+
+    poller.run_once()
+    assert not window.exists()
