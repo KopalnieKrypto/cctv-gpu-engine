@@ -276,9 +276,7 @@ class AnnotationPoller:
         finally:
             clip.unlink(missing_ok=True)
         if result.returncode != 0:
-            said = (result.stderr or "").strip() or f"ingest exited {result.returncode}"
-            # The platform takes at most 2000 characters; the end is where the reason is.
-            self._fail(claim, said[-2000:])
+            self._fail(claim, (result.stderr or "").strip() or f"ingest exited {result.returncode}")
             return
         self._platform.report_annotation_job(claim.job_id, status="ready")
 
@@ -514,8 +512,9 @@ class AnnotationPoller:
             logger.warning("failed to report annotation export %s as failed: %s", job_id, exc)
 
     def _fail(self, claim: AnnotationJobClaim, error: str) -> None:
+        # The platform takes at most 2000 characters; the end is where the reason is.
         try:
-            self._platform.report_annotation_job(claim.job_id, status="failed", error=error)
+            self._platform.report_annotation_job(claim.job_id, status="failed", error=error[-2000:])
         except Exception as exc:  # noqa: BLE001
             logger.warning("failed to report annotation job %s as failed: %s", claim.job_id, exc)
 

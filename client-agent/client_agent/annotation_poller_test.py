@@ -196,6 +196,23 @@ def test_a_trim_that_fails_is_reported_and_leaves_no_partial_window(tmp_path):
     assert not (tmp_path / "windows" / "project-1" / "window-1.mp4").exists()
 
 
+def test_a_trim_failure_longer_than_the_platform_keeps_is_cut_to_its_end(tmp_path):
+    """The platform takes at most 2000 characters; a longer report was refused and lost."""
+    platform = FakePlatform(claims=[a_claim()])
+
+    def broken(**_kw):
+        raise RuntimeError("ffmpeg trim exited 1: " + "configuration: --enable-x " * 200 + "EOF")
+
+    poller = a_poller(
+        tmp_path, platform=platform, buffer=FakeBuffer([a_chunk(tmp_path)]), trim=broken
+    )
+
+    poller.run_once()
+
+    [report] = platform.reports
+    assert len(report["error"]) == 2000 and report["error"].endswith("EOF"), report["error"]
+
+
 def test_a_window_zone_annotator_has_ingested_is_deleted(tmp_path):
     """The glued file is a copy of the client's footage; once the project's
     manifest lists it, zone-annotator holds its crops and the copy goes."""

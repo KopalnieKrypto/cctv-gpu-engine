@@ -74,6 +74,7 @@ def trim_and_concat(
     if len(chunks) == 1:
         cmd = [
             "ffmpeg",
+            "-hide_banner",
             "-ss",
             str(ss),
             "-to",
@@ -115,6 +116,8 @@ def trim_and_concat(
 
         cmd = [
             "ffmpeg",
+            # Its stderr is the poller's error report; the build banner would fill it.
+            "-hide_banner",
             "-f",
             "concat",
             "-safe",

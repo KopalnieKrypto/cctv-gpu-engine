@@ -84,6 +84,8 @@ def test_trim_single_chunk_builds_ss_to_command_with_stream_copy(tmp_path: Path)
     assert cmd[cmd.index("-to") + 1] == "2700"
     assert "-c" in cmd and cmd[cmd.index("-c") + 1] == "copy"
     assert cmd[-1] == str(output)
+    # Without it a failure's stderr opens with ~2 KB of build banner (gpu-exchange#302 review).
+    assert cmd[1] == "-hide_banner"
 
 
 # ----- 2. multi-chunk trim writes concat list, uses concat demuxer -----
@@ -152,6 +154,7 @@ def test_trim_multi_chunk_uses_concat_demuxer_with_file_list(tmp_path: Path) -> 
     assert cmd[cmd.index("-ss") + 1] == "2700"
     assert cmd[cmd.index("-to") + 1] == "4500"
     assert cmd[-1] == str(output)
+    assert cmd[1] == "-hide_banner"
 
 
 # ----- 3. empty chunks list raises ValueError (caller misuse guard) -----
