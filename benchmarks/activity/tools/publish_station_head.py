@@ -5,7 +5,9 @@ This sends them where the platform says, the way the gpu-agent sends results:
 the agent's own token asks data-service for presigned PUTs, the bytes go
 straight to R2, and completion is reported with the card. The key comes from
 the export, so nothing here names a tenant. Only the server set in the panel
-(``station_head_publisher_server_id``) is let through.
+(``station_head_publisher_server_id``) is let through. Before any byte goes up,
+a card trained from a package must name the export's ``bound_to`` and, when it
+records it, the export's own drop ``/srv/annotation-drop/<appliance>/<export>``.
 
 Run it on cctv-vps as the agent's user, after a run worth keeping (D4):
 
@@ -32,6 +34,8 @@ Http = Callable[[str, str, dict, "bytes | None"], "tuple[int, bytes]"]
 
 DEFAULT_PLATFORM = "https://api-panel.antra.one"
 DEFAULT_STATE = Path.home() / ".local" / "state" / "gpu-agent" / "state.json"
+#: Where rrsync -wo lands each box's packages: <appliance id>/<export id> (gpu-exchange#300).
+DROP_ROOT = "/srv/annotation-drop"
 
 
 class PublishError(Exception):
@@ -76,6 +80,33 @@ def _check_card_matches(head: Path, card: dict) -> None:
         raise PublishError(f"the card's sha256 does not match {head.name}")
 
 
+def _check_package_is_the_exports(card: dict, export_id: str, urls: dict) -> None:
+    """A head trained from a package ships only under the export that package left the box as.
+
+    The export id is typed by hand; the platform says which head name and box it
+    belongs to, and the card says which package the head was trained on.
+    """
+    package = (card.get("training_material") or {}).get("package")
+    if package is None:
+        return
+    for field in ("bound_to", "appliance_id"):
+        if not urls.get(field):
+            raise PublishError(
+                f"the platform did not say the {field} of export {export_id}, so the "
+                "package behind this head cannot be checked; update data-service first"
+            )
+    if package.get("bound_to") != urls["bound_to"]:
+        raise PublishError(
+            f"the head was trained on a package bound to {package.get('bound_to')}, "
+            f"and export {export_id} is bound to {urls['bound_to']}: check --export"
+        )
+    drop = f"{DROP_ROOT}/{urls['appliance_id']}/{export_id}"
+    if "dir" in package and package["dir"] != drop:
+        raise PublishError(
+            f"the head was trained on {package['dir']}, not this export's package {drop}"
+        )
+
+
 def publish(
     export_id: str,
     head: Path,
@@ -95,6 +126,7 @@ def publish(
     if status != 200:
         raise PublishError(f"upload URLs refused: {_said(status, body)}")
     urls = json.loads(body)
+    _check_package_is_the_exports(card, export_id, urls)
     # Presigned URLs carry their own signature; the agent token never goes to R2.
     for part, data in (("head", head.read_bytes()), ("card", card_path.read_bytes())):
         target = urls[part]

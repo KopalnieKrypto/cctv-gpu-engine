@@ -166,6 +166,8 @@ def read_package(package_dir: Path, zone: str | None = None) -> Package:
             "schema": doc.get("schema"),
             "exported_utc": doc.get("exported_utc"),
             "bound_to": (doc.get("retention") or {}).get("bound_to"),
+            # Where the bytes were read: publishing checks it is the export's drop on cctv-vps.
+            "dir": str(package_dir.resolve()),
             "zone": zone,
             "split_decided_utc": split.get("decided_utc"),
             "folds": {f: sorted(w.name for w in windows if w.fold == f) for f in folds},

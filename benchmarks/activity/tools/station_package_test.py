@@ -115,6 +115,8 @@ def test_a_two_fold_package_trains_into_a_card_the_pipeline_loads(tmp_path):
         "fold-2": ["W2.mp4"],
     }
     assert card["training_material"]["package"]["bound_to"] == "station-head-test/v1"
+    # Where it was read from: publish_station_head.py checks it is the export's drop.
+    assert card["training_material"]["package"]["dir"] == str(PACKAGE.resolve())
 
 
 def test_the_cards_geometry_is_the_packages_and_the_golden_rule(tmp_path):
