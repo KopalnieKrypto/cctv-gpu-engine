@@ -1156,3 +1156,69 @@ def test_a_week_old_window_waits_for_the_next_round_while_a_cut_runs(tmp_path):
 
     poller.run_once()
     assert not window.exists()
+
+
+# ----- a job's last report, kept until the platform has it -----
+
+
+def test_a_report_that_does_not_get_through_is_kept_and_sent_again(tmp_path):
+    """A lost `ready` left a cut window to the platform's sweeper, which fails it after 6 h."""
+    a_project(tmp_path)
+    platform = FakePlatform(claims=[a_later_claim(), a_split_claim()], errors={"ready": [DOWN]})
+    now = [1000.0]
+    poller = a_poller(
+        tmp_path,
+        platform=platform,
+        buffer=FakeBuffer([a_chunk(tmp_path)]),
+        runner=Ingests(),
+        clock=lambda: now[0],
+    )
+
+    assert poller.run_once() is True
+    assert poller.run_once() is True, "the next claim is not held up by the lost report"
+    now[0] += 300
+    poller.run_once()
+
+    assert [(r["job_id"], r["status"]) for r in platform.reports] == [
+        ("job-2", "ready"),
+        ("job-4", "applied"),
+        ("job-2", "ready"),
+    ]
+    assert not list((tmp_path / "reports").iterdir())
+
+
+def test_a_kept_report_is_sent_by_the_next_poller_after_a_restart(tmp_path):
+    first = FakePlatform(claims=[a_claim()], errors={"awaiting_zones": [DOWN]})
+    a_poller(tmp_path, platform=first, buffer=FakeBuffer([a_chunk(tmp_path)])).run_once()
+
+    platform = FakePlatform()
+    a_poller(tmp_path, platform=platform, buffer=FakeBuffer()).run_once()
+
+    window = (tmp_path / "windows" / "project-1" / "window-1.mp4").resolve()
+    assert platform.reports == [
+        {"job_id": "job-1", "status": "awaiting_zones", "clip_path": str(window)}
+    ]
+    assert not list((tmp_path / "reports").iterdir())
+
+
+@pytest.mark.parametrize("code", [404, 409])
+def test_a_report_the_platform_answers_404_or_409_is_not_sent_again(tmp_path, code):
+    """The job is gone, or settled without this box: a repeat would get the same answer."""
+    a_project_with_clips(tmp_path)
+    refused = PlatformRequestError(code, f"platform refused annotation split status ({code})")
+    platform = FakePlatform(claims=[a_split_claim()], errors={"applied": [refused]})
+    now = [1000.0]
+    poller = a_poller(
+        tmp_path,
+        platform=platform,
+        buffer=FakeBuffer(),
+        runner=SplitTool(tmp_path / "projects" / "project-1"),
+        clock=lambda: now[0],
+    )
+
+    poller.run_once()
+    now[0] += 3600
+    poller.run_once()
+
+    assert [r["status"] for r in platform.reports] == ["applied"]
+    assert not list((tmp_path / "reports").iterdir())

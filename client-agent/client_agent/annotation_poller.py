@@ -25,6 +25,10 @@ A head trained on cctv-vps from one of the project's exports (gpu-exchange#314)
 is registered with ``split register-run``, so the split it was trained on is
 frozen; the ledger is reported the same way.
 
+A job's last report (a window's, a split's, a run's, a deletion's) waits on the box
+until the platform has taken it, so a lost one is sent again rather than
+left to the platform's sweeper.
+
 Mirrors :class:`client_agent.snapshot_poller.SnapshotPoller`: every system
 boundary is injected and ``run_once`` is what the tests drive.
 """
@@ -187,6 +191,7 @@ class AnnotationPoller:
         self._python = zone_annotator_python
         # Beside the windows, on the agent's own disk; a package is a copy of crops.
         self._exports_dir = exports_dir or windows_dir.parent / "exports"
+        self._reports_dir = windows_dir.parent / "reports"
         self._drop_target = drop_target
         self._drop_key = drop_key
         self._clock = clock
@@ -200,6 +205,7 @@ class AnnotationPoller:
             self._delete_spent_windows()
         except Exception as exc:  # noqa: BLE001 — housekeeping never holds up a claim
             logger.warning("deleting spent annotation windows failed: %s", exc)
+        self._retry_reports()
         self._retry_waiting_exports()
         claim = self._platform.claim_next_annotation_job()
         if claim is None:
@@ -261,15 +267,7 @@ class AnnotationPoller:
             return True
         # serve behind the proxy answers 404 until the project has its directory.
         project_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            self._platform.report_annotation_job(
-                claim.job_id, status="awaiting_zones", clip_path=str(output.resolve())
-            )
-        except PlatformRequestError as exc:
-            if exc.status_code != 409:
-                raise
-            logger.warning("annotation job %s settled without this box (%s)", claim.job_id, exc)
-            output.unlink(missing_ok=True)
+        self._report("job", claim.job_id, status="awaiting_zones", clip_path=str(output.resolve()))
         return True
 
     def run(self) -> None:
@@ -332,7 +330,7 @@ class AnnotationPoller:
         if result.returncode != 0:
             self._fail(claim, (result.stderr or "").strip() or f"ingest exited {result.returncode}")
             return
-        self._platform.report_annotation_job(claim.job_id, status="ready")
+        self._report("job", claim.job_id, status="ready")
 
     def _split(self, claim: AnnotationSplitClaim) -> None:
         """Apply the panel's folds with zone-annotator's ``split`` (gpu-exchange#308).
@@ -358,11 +356,11 @@ class AnnotationPoller:
         result = self._zone_annotator("split", *args)
         ledger = self._ledger(project)
         if result.returncode != 0:
-            self._platform.report_annotation_split(
-                claim.job_id, status="failed", ledger=ledger, error=_said(result, "split")
+            self._report(
+                "split", claim.job_id, status="failed", ledger=ledger, error=_said(result, "split")
             )
             return
-        self._platform.report_annotation_split(claim.job_id, status="applied", ledger=ledger)
+        self._report("split", claim.job_id, status="applied", ledger=ledger)
 
     def _register_run(self, claim: AnnotationRegisterRunClaim) -> None:
         """Register the published head with zone-annotator (gpu-exchange#314, D7).
@@ -377,13 +375,15 @@ class AnnotationPoller:
         )
         ledger = self._ledger(project)
         if result.returncode != 0:
-            self._platform.report_annotation_register_run(
-                claim.job_id, status="failed", ledger=ledger, error=_said(result, "register-run")
+            self._report(
+                "register_run",
+                claim.job_id,
+                status="failed",
+                ledger=ledger,
+                error=_said(result, "register-run"),
             )
             return
-        self._platform.report_annotation_register_run(
-            claim.job_id, status="registered", ledger=ledger
-        )
+        self._report("register_run", claim.job_id, status="registered", ledger=ledger)
 
     def _delete_project(self, claim: AnnotationDeleteProjectClaim) -> None:
         """Everything of a project deleted in the panel: crops and labels, glued windows,
@@ -398,7 +398,8 @@ class AnnotationPoller:
                 for path in doomed:
                     _remove(path)
         except BlockingIOError:
-            self._platform.report_annotation_delete(
+            self._report(
+                "delete",
                 claim.job_id,
                 status="failed",
                 error="Na komputerze z nagraniami od ponad "
@@ -407,11 +408,56 @@ class AnnotationPoller:
             )
             return
         except OSError as exc:
-            self._platform.report_annotation_delete(
-                claim.job_id, status="failed", error=str(exc)[-2000:]
-            )
+            self._report("delete", claim.job_id, status="failed", error=str(exc)[-2000:])
             return
-        self._platform.report_annotation_delete(claim.job_id, status="deleted")
+        self._report("delete", claim.job_id, status="deleted")
+
+    def _report(self, kind: str, job_id: str, **body: object) -> None:
+        """A job's last word to the platform, on disk until the platform has taken it.
+
+        Sent at once and, if that does not get through, again before later claims
+        (``retry_after_s`` apart, after a restart too); the platform answers a
+        repeat as it did the first time.
+        """
+        path = self._reports_dir / f"{job_id}.json"
+        _write_whole(path, {"kind": kind, "job_id": job_id, "body": body})
+        self._deliver(path)
+
+    def _deliver(self, path: Path) -> None:
+        self._retry_at[path.name] = self._clock() + self._retry_after_s
+        report = json.loads(path.read_text(encoding="utf-8"))
+        send = {
+            "job": self._platform.report_annotation_job,
+            "split": self._platform.report_annotation_split,
+            "register_run": self._platform.report_annotation_register_run,
+            "delete": self._platform.report_annotation_delete,
+        }[report["kind"]]
+        try:
+            send(report["job_id"], **report["body"])
+        except PlatformRequestError as exc:
+            # 404, 409 or any refusal: the platform has settled this job, a repeat changes
+            # nothing. A glued window it no longer waits for goes with it.
+            logger.warning("annotation job %s: report not taken (%s)", report["job_id"], exc)
+            clip = Path(report["body"].get("clip_path") or self._windows_dir)
+            if clip.resolve().is_relative_to(self._windows_dir.resolve()) and clip.is_file():
+                clip.unlink()
+        except Exception as exc:  # noqa: BLE001 — kept on disk, sent again after the backoff
+            logger.warning("annotation job %s: report kept for later (%s)", report["job_id"], exc)
+            return
+        path.unlink(missing_ok=True)
+        self._retry_at.pop(path.name, None)
+
+    def _retry_reports(self) -> None:
+        if not self._reports_dir.is_dir():
+            return
+        for path in sorted(self._reports_dir.glob("*.json")):
+            if self._clock() < self._retry_at.get(path.name, float("-inf")):
+                continue
+            try:
+                self._deliver(path)
+            except Exception as exc:  # noqa: BLE001 — a broken file is dropped, not retried
+                logger.warning("dropping unreadable annotation report %s: %s", path.name, exc)
+                path.unlink(missing_ok=True)
 
     def _ledger(self, project: Path) -> dict:
         """zone-annotator's ``split.json``, its clip ids read as clip names from the manifest."""
@@ -477,12 +523,7 @@ class AnnotationPoller:
         get through.
         """
         marker = self._exports_dir / f"{export_id}.waiting"
-        tmp = marker.with_name(f"{marker.name}.tmp")
-        with tmp.open("w", encoding="utf-8") as f:
-            json.dump({"job_id": job_id, "created": self._clock()}, f)
-            f.flush()
-            os.fsync(f.fileno())
-        tmp.replace(marker)
+        _write_whole(marker, {"job_id": job_id, "created": self._clock()})
 
     def _send(self, job_id: str, export_id: str) -> None:
         """rsync a marked package to this box's directory on cctv-vps, or leave it waiting.
@@ -604,10 +645,7 @@ class AnnotationPoller:
 
     def _fail(self, claim: AnnotationJobClaim, error: str) -> None:
         # The platform takes at most 2000 characters; the end is where the reason is.
-        try:
-            self._platform.report_annotation_job(claim.job_id, status="failed", error=error[-2000:])
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("failed to report annotation job %s as failed: %s", claim.job_id, exc)
+        self._report("job", claim.job_id, status="failed", error=error[-2000:])
 
     def _delete_spent_windows(self) -> None:
         """Delete every glued window its project's manifest lists, and the rest after a week.
@@ -666,6 +704,17 @@ class AnnotationPoller:
 
     def _lowered(self, cmd: list[str], **kwargs: object) -> object:
         return self._runner([*_LOWER_PRIORITY, *cmd], **kwargs)
+
+
+def _write_whole(path: Path, data: dict) -> None:
+    """``data`` as JSON at ``path``, whole or not at all, a power cut included."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        json.dump(data, f)
+        f.flush()
+        os.fsync(f.fileno())
+    tmp.replace(path)
 
 
 def _remove(path: Path) -> None:
