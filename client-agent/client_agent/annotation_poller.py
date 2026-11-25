@@ -7,7 +7,8 @@ proxy is allowed to read it: ``<windows>/<project>/<window>.mp4``. The client
 then draws zones on it in the panel, and zone-annotator cuts the crops.
 
 The clip is a copy of footage, so it lives only until zone-annotator has
-ingested it: once the project's manifest lists the file, this deletes it.
+ingested it: once the project's manifest lists the file, this deletes it, and
+a clip no manifest lists goes after a week.
 
 A later window of the same project (gpu-exchange#305) needs no drawing: this
 box ingests it itself with the first window's zones and stride, under its own
@@ -36,7 +37,8 @@ import os
 import shutil
 import subprocess
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Protocol
@@ -51,6 +53,11 @@ from client_agent.platform import (
     AnnotationSplitClaim,
     PlatformRequestError,
 )
+
+try:
+    import fcntl
+except ImportError:  # shortcut: Windows dev machines take no lock; the box is Linux
+    fcntl = None
 
 logger = logging.getLogger(__name__)
 
@@ -75,8 +82,9 @@ DROP_TARGET = "annotation-drop@cctv-vps"
 #: How long a checked package waits on the box before cctv-vps is tried again.
 RETRY_AFTER_S = 300.0
 
-#: A package cctv-vps has not taken in this long is failed and deleted: it is a copy of crops.
-WAITING_LIMIT_S = 7 * 86400.0
+#: A copy made for annotation stays on the box at most this long: a glued window no manifest
+#: lists, a package cctv-vps has not taken. Footage of people at work, so nothing waits forever.
+COPY_LIMIT_S = 7 * 86400.0
 
 
 class _PlatformLike(Protocol):
@@ -172,7 +180,10 @@ class AnnotationPoller:
 
     def run_once(self) -> bool:
         """Handle one claimed job. ``False`` when the platform had nothing."""
-        self._delete_ingested_windows()
+        try:
+            self._delete_spent_windows()
+        except Exception as exc:  # noqa: BLE001 — housekeeping never holds up a claim
+            logger.warning("deleting spent annotation windows failed: %s", exc)
         self._retry_waiting_exports()
         claim = self._platform.claim_next_annotation_job()
         if claim is None:
@@ -229,9 +240,17 @@ class AnnotationPoller:
             # Where the clip really begins: the buffer may have rotated past the window's start.
             self._ingest(claim, output, project_dir, began or claim.start)
             return True
-        self._platform.report_annotation_job(
-            claim.job_id, status="awaiting_zones", clip_path=str(output.resolve())
-        )
+        # serve behind the proxy answers 404 until the project has its directory.
+        project_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self._platform.report_annotation_job(
+                claim.job_id, status="awaiting_zones", clip_path=str(output.resolve())
+            )
+        except PlatformRequestError as exc:
+            if exc.status_code != 409:
+                raise
+            logger.warning("annotation job %s settled without this box (%s)", claim.job_id, exc)
+            output.unlink(missing_ok=True)
         return True
 
     def run(self) -> None:
@@ -475,7 +494,7 @@ class AnnotationPoller:
             )
             self._drop_package(export_id)
             return
-        if self._clock() - created >= WAITING_LIMIT_S:
+        if self._clock() - created >= COPY_LIMIT_S:
             self._export_failed(job_id, "cctv-vps nieosiągalny przez 7 dni, paczka usunięta z boxa")
             self._drop_package(export_id)
             return
@@ -521,27 +540,49 @@ class AnnotationPoller:
         except Exception as exc:  # noqa: BLE001
             logger.warning("failed to report annotation job %s as failed: %s", claim.job_id, exc)
 
-    def _delete_ingested_windows(self) -> None:
-        """Delete every glued window its project's manifest already lists.
+    def _delete_spent_windows(self) -> None:
+        """Delete every glued window its project's manifest lists, and the rest after a week.
 
         The manifest is zone-annotator's record that the crops are cut; it is
         written whole (gpu-exchange#310), so a file listed there is done with.
-        Only files under the windows directory are ever deleted.
+        Any other file there (a first window nobody drew zones on, a clip whose
+        report was lost, a half-glued one) goes after ``COPY_LIMIT_S``, under
+        the cutting lock so no cut loses its clip midway. Only files under the
+        windows directory are ever deleted.
         """
         if not self._windows_dir.is_dir():
             return
-        for window in self._windows_dir.glob("*/*.mp4"):
-            manifest = self._projects_dir / window.parent.name / "manifest.json"
-            try:
-                clips = json.loads(manifest.read_text(encoding="utf-8")).get("clips", [])
-            except (OSError, ValueError):
+        stale = []
+        for window in self._windows_dir.glob("*/*"):
+            if not window.is_file():
                 continue
-            ingested = {str(Path(c.get("clip", {}).get("path", "")).resolve()) for c in clips}
+            clips = _json_or_empty(self._projects_dir / window.parent.name / "manifest.json")
+            ingested = {
+                str(Path(c.get("clip", {}).get("path", "")).resolve())
+                for c in clips.get("clips") or []
+            }
             if str(window.resolve()) in ingested:
                 window.unlink(missing_ok=True)
+            elif self._clock() - window.stat().st_mtime >= COPY_LIMIT_S:
+                stale.append(window)
+        if stale:
+            with _cutting_lock(self._projects_dir):
+                for window in stale:
+                    logger.info("deleting %s, kept the longest a glued window may be", window)
+                    window.unlink(missing_ok=True)
 
     def _lowered(self, cmd: list[str], **kwargs: object) -> object:
         return self._runner([*_LOWER_PRIORITY, *cmd], **kwargs)
+
+
+@contextmanager
+def _cutting_lock(projects_dir: Path) -> Iterator[None]:
+    """zone-annotator's own lock (``ingest.CuttingLock``): no cut runs while its files go."""
+    projects_dir.mkdir(parents=True, exist_ok=True)
+    with open(projects_dir / ".cutting.lock", "a+b") as handle:
+        if fcntl is not None:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+        yield
 
 
 def _remove(path: Path) -> None:

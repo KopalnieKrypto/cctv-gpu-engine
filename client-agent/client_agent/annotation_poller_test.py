@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import re
 import subprocess
 from dataclasses import dataclass, field, replace
@@ -145,6 +146,38 @@ def test_a_claimed_window_is_glued_into_the_projects_windows_dir_and_reported(tm
     assert platform.reports == [
         {"job_id": "job-1", "status": "awaiting_zones", "clip_path": str(window)}
     ]
+    # zone-annotator behind the proxy answers 404 for a project with no directory.
+    assert (tmp_path / "projects" / "project-1").is_dir()
+
+
+def test_a_first_window_the_platform_has_moved_on_from_is_deleted(tmp_path, caplog):
+    platform = FakePlatform(claims=[a_claim()], errors={"awaiting_zones": [GONE]})
+    poller = a_poller(tmp_path, platform=platform, buffer=FakeBuffer([a_chunk(tmp_path)]))
+
+    assert poller.run_once() is True
+
+    assert not (tmp_path / "windows" / "project-1" / "window-1.mp4").exists()
+    assert "job-1" in caplog.text
+
+
+def test_a_glued_file_no_manifest_lists_is_deleted_after_seven_days(tmp_path):
+    """Retention: a first window nobody drew on, a lost report, a crash mid-glue."""
+    windows = tmp_path / "windows" / "project-1"
+    windows.mkdir(parents=True)
+    undrawn, stray = windows / "window-1.mp4", windows / "tmpab12.concat.txt"
+    for path in (undrawn, stray):
+        path.write_bytes(b"x")
+        os.utime(path, (1000.0, 1000.0))
+
+    a_poller(
+        tmp_path, platform=FakePlatform(), buffer=FakeBuffer(), clock=lambda: 1000.0 + 7 * 86400 - 1
+    ).run_once()
+    assert undrawn.exists() and stray.exists()
+
+    a_poller(
+        tmp_path, platform=FakePlatform(), buffer=FakeBuffer(), clock=lambda: 1000.0 + 7 * 86400
+    ).run_once()
+    assert not undrawn.exists() and not stray.exists()
 
 
 def test_a_disk_below_the_floor_refuses_in_words_before_gluing(tmp_path):
