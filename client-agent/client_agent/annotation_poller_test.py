@@ -734,6 +734,31 @@ def test_a_package_cctv_vps_has_not_taken_for_seven_days_is_failed_and_deleted(t
     assert not list((tmp_path / "exports").iterdir())
 
 
+@pytest.mark.parametrize(
+    ("age_s", "statuses"),
+    [(60, ["sending", "on_vps"]), (7 * 86400, ["failed"])],
+    ids=["young", "a-week-old"],
+)
+def test_a_marker_from_before_its_created_field_is_aged_by_its_mtime(tmp_path, age_s, statuses):
+    """A box that waited under the first version of the marker keeps its package."""
+    a_waiting_package(tmp_path)
+    marker = tmp_path / "exports" / "export-1.waiting"
+    marker.write_text(json.dumps({"job_id": "job-3"}), encoding="utf-8")
+    os.utime(marker, (1000.0, 1000.0))
+    platform = FakePlatform()
+
+    a_poller(
+        tmp_path,
+        platform=platform,
+        buffer=FakeBuffer(),
+        runner=Tools(),
+        clock=lambda: 1000.0 + age_s,
+    ).run_once()
+
+    assert [r["status"] for r in platform.reports] == statuses
+    assert not list((tmp_path / "exports").iterdir())
+
+
 def test_a_package_left_by_an_interrupted_export_is_deleted_on_the_next_round(tmp_path):
     a_project(tmp_path)
     platform = FakePlatform(claims=[an_export_claim()], errors={"checking": [DOWN]})

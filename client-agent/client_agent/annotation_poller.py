@@ -552,7 +552,9 @@ class AnnotationPoller:
             return
         try:
             waiting = json.loads(marker.read_text(encoding="utf-8"))
-            job_id, created = waiting["job_id"], float(waiting["created"])
+            # A marker from before `created` was written: the file's own time is the next best.
+            job_id = waiting["job_id"]
+            created = float(waiting.get("created", marker.stat().st_mtime))
             if not (self._exports_dir / export_id).is_dir():
                 raise ValueError("no package beside it")
         except (OSError, ValueError, KeyError, TypeError) as exc:
