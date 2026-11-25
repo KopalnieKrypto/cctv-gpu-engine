@@ -1,0 +1,481 @@
+{
+  "schema": "zone-annotator/export/8",
+  "exported_utc": "2026-11-24T08:42:04+00:00",
+  "clips": [
+    {
+      "id": 1,
+      "name": "W1.mp4",
+      "sha256": "d20fccbdbfd87da1a87e3796d373d7e783556ac36e1034762ea04fb9e78002b6",
+      "size_bytes": 149671,
+      "duration_s": 7.3,
+      "recorded_window_utc": {
+        "start": "2026-11-21T08:00:00Z",
+        "end": "2026-11-21T08:00:07Z",
+        "source": "operator_supplied"
+      },
+      "conditions": {
+        "shift": null,
+        "operator": null,
+        "lighting": null,
+        "date_utc": "2026-11-21",
+        "camera": {
+          "id": "cam-6e3b41",
+          "derived_from": {
+            "frame_size": [
+              320,
+              240
+            ],
+            "codec": "h264"
+          }
+        }
+      },
+      "source_frame_px": [
+        320,
+        240
+      ],
+      "sampling": {
+        "stride_s": 2.0,
+        "anchor": "first_frame_pts",
+        "first_pts_s": 0.5,
+        "count": 4
+      },
+      "boundary_convention": {
+        "rule": "midpoint",
+        "edges": "clip_extent",
+        "stride_s": 2.0,
+        "max_error_s": 1.0,
+        "describe": "A boundary between two differing answers sits halfway between them, so it is wrong by at most 1 s. The first and last edges have no neighbour to take a midpoint with and sit at the clip's own extent."
+      },
+      "findings": [],
+      "coverage": {
+        "labelled": 4,
+        "total": 4
+      },
+      "zones": [
+        {
+          "id": 1,
+          "name": "stanowisko-1",
+          "coverage": {
+            "labelled": 4,
+            "total": 4
+          },
+          "imported_from": null,
+          "intervals": [
+            {
+              "label": "spawanie",
+              "start_s": 0.5,
+              "end_s": 3.5,
+              "duration_s": 3.0
+            },
+            {
+              "label": "postoj",
+              "start_s": 3.5,
+              "end_s": 5.5,
+              "duration_s": 2.0
+            },
+            {
+              "label": "nierozpoznane",
+              "start_s": 5.5,
+              "end_s": 7.7,
+              "duration_s": 2.2
+            }
+          ],
+          "crop_geometry": {
+            "space": "native source pixels",
+            "zone_native_px": {
+              "x": 40,
+              "y": 30,
+              "w": 120,
+              "h": 60
+            },
+            "source_frame_px": [
+              320,
+              240
+            ],
+            "model_input": {
+              "height": 518,
+              "width": 1036,
+              "target_height": 518,
+              "patch": 14,
+              "center_crop": false,
+              "resample": "bicubic",
+              "preserves_aspect_ratio": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "W2.mp4",
+      "sha256": "3d54965f42ae1619b687a5f7c8be950a7e495be2301ab24c191babc5e71463f7",
+      "size_bytes": 149679,
+      "duration_s": 7.3,
+      "recorded_window_utc": {
+        "start": "2026-11-22T08:00:00Z",
+        "end": "2026-11-22T08:00:07Z",
+        "source": "operator_supplied"
+      },
+      "conditions": {
+        "shift": null,
+        "operator": null,
+        "lighting": null,
+        "date_utc": "2026-11-22",
+        "camera": {
+          "id": "cam-6e3b41",
+          "derived_from": {
+            "frame_size": [
+              320,
+              240
+            ],
+            "codec": "h264"
+          }
+        }
+      },
+      "source_frame_px": [
+        320,
+        240
+      ],
+      "sampling": {
+        "stride_s": 2.0,
+        "anchor": "first_frame_pts",
+        "first_pts_s": 0.5,
+        "count": 4
+      },
+      "boundary_convention": {
+        "rule": "midpoint",
+        "edges": "clip_extent",
+        "stride_s": 2.0,
+        "max_error_s": 1.0,
+        "describe": "A boundary between two differing answers sits halfway between them, so it is wrong by at most 1 s. The first and last edges have no neighbour to take a midpoint with and sit at the clip's own extent."
+      },
+      "findings": [],
+      "coverage": {
+        "labelled": 4,
+        "total": 4
+      },
+      "zones": [
+        {
+          "id": 2,
+          "name": "stanowisko-1",
+          "coverage": {
+            "labelled": 4,
+            "total": 4
+          },
+          "imported_from": null,
+          "intervals": [
+            {
+              "label": "postoj",
+              "start_s": 0.5,
+              "end_s": 1.5,
+              "duration_s": 1.0
+            },
+            {
+              "label": "spawanie",
+              "start_s": 1.5,
+              "end_s": 5.5,
+              "duration_s": 4.0
+            },
+            {
+              "label": "postoj",
+              "start_s": 5.5,
+              "end_s": 7.7,
+              "duration_s": 2.2
+            }
+          ],
+          "crop_geometry": {
+            "space": "native source pixels",
+            "zone_native_px": {
+              "x": 40,
+              "y": 30,
+              "w": 120,
+              "h": 60
+            },
+            "source_frame_px": [
+              320,
+              240
+            ],
+            "model_input": {
+              "height": 518,
+              "width": 1036,
+              "target_height": 518,
+              "patch": 14,
+              "center_crop": false,
+              "resample": "bicubic",
+              "preserves_aspect_ratio": false
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "vocabulary": {
+    "schema": "zone-annotator/vocabulary/2",
+    "labels": [
+      {
+        "name": "spawanie",
+        "means_cannot_tell": false
+      },
+      {
+        "name": "postoj",
+        "means_cannot_tell": false
+      },
+      {
+        "name": "nierozpoznane",
+        "means_cannot_tell": true
+      }
+    ]
+  },
+  "findings": [
+    {
+      "code": "label_too_rare_to_report",
+      "severity": "warning",
+      "summary": "spawanie has 4 answer(s) behind it and one error moves its score 25.0 points \u2014 every sample of the footage it occurs in has already been answered, so no labelling left to do can change that.",
+      "message": "spawanie: 4 of the answers in this project chose it, and it occurs in 50.0% of the samples somebody has answered. One error about it is worth 25.0 percentage points of anything reported about it, against a floor of 100 answers \u2014 one error in a hundred is a point, and a figure that moves by more than a point on one mistake is not a figure. Every span this label occurs in has been answered in full, which is what separates this from a label that is merely unfinished: the shortfall is what this footage holds, not what this session has got to. Nothing has been done about it. The label is in the export, its samples are in the export, and what follows from a number this small is the reader's to decide.",
+      "detail": {
+        "label": "spawanie",
+        "count": 4,
+        "verdict": "rare",
+        "sensitivity_points": 25.0,
+        "occurrence_rate": 0.5,
+        "unlabelled_fraction": 0.0,
+        "reachable": 4
+      }
+    },
+    {
+      "code": "label_too_rare_to_report",
+      "severity": "warning",
+      "summary": "postoj has 3 answer(s) behind it and one error moves its score 33.3 points \u2014 every sample of the footage it occurs in has already been answered, so no labelling left to do can change that.",
+      "message": "postoj: 3 of the answers in this project chose it, and it occurs in 37.5% of the samples somebody has answered. One error about it is worth 33.3 percentage points of anything reported about it, against a floor of 100 answers \u2014 one error in a hundred is a point, and a figure that moves by more than a point on one mistake is not a figure. Every span this label occurs in has been answered in full, which is what separates this from a label that is merely unfinished: the shortfall is what this footage holds, not what this session has got to. Nothing has been done about it. The label is in the export, its samples are in the export, and what follows from a number this small is the reader's to decide.",
+      "detail": {
+        "label": "postoj",
+        "count": 3,
+        "verdict": "rare",
+        "sensitivity_points": 33.3333,
+        "occurrence_rate": 0.375,
+        "unlabelled_fraction": 0.0,
+        "reachable": 3
+      }
+    }
+  ],
+  "coverage": {
+    "labelled": 8,
+    "total": 8
+  },
+  "unrecognised": {
+    "label": "nierozpoznane",
+    "count": 1,
+    "labelled": 8,
+    "rate": 0.125
+  },
+  "support": [
+    {
+      "label": "spawanie",
+      "count": 4,
+      "verdict": "rare",
+      "sensitivity_points": 25.0,
+      "occurrence_rate": 0.5,
+      "unlabelled_fraction": 0.0,
+      "reachable": 4
+    },
+    {
+      "label": "postoj",
+      "count": 3,
+      "verdict": "rare",
+      "sensitivity_points": 33.3333,
+      "occurrence_rate": 0.375,
+      "unlabelled_fraction": 0.0,
+      "reachable": 3
+    },
+    {
+      "label": "nierozpoznane",
+      "count": 1,
+      "verdict": null,
+      "sensitivity_points": 100.0,
+      "occurrence_rate": 0.125,
+      "unlabelled_fraction": 0.0,
+      "reachable": 1
+    }
+  ],
+  "split": {
+    "declared": true,
+    "folds": {
+      "fold-1": [
+        {
+          "clip_id": 1,
+          "name": "W1.mp4"
+        }
+      ],
+      "fold-2": [
+        {
+          "clip_id": 2,
+          "name": "W2.mp4"
+        }
+      ]
+    },
+    "decided_utc": "2026-11-24T08:42:04+00:00",
+    "declared_before_any_model_run": true,
+    "unassigned": [],
+    "entries": [
+      {
+        "kind": "declaration",
+        "at": "2026-11-24T08:42:04+00:00",
+        "declared_before_any_model_run": true,
+        "folds": {
+          "fold-1": [
+            {
+              "clip_id": 1,
+              "name": "W1.mp4"
+            }
+          ],
+          "fold-2": [
+            {
+              "clip_id": 2,
+              "name": "W2.mp4"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "retention": {
+    "bound_to": "station-head-test/v1",
+    "manifest": {
+      "counts": {
+        "crops": 8
+      },
+      "crops": [
+        {
+          "image": "images/W1-d20fccbd/stanowisko-1/t00001.jpg",
+          "sha256": "42f7afe472aeea4ffb217e607b0fbd389263bee1db4be98f060770b8d6b11c22",
+          "size_bytes": 1292
+        },
+        {
+          "image": "images/W1-d20fccbd/stanowisko-1/t00002.jpg",
+          "sha256": "1003ecb070a5a5e8e8456ecc7b5116f1f52ef64ed094463fb488d5c0577d23cb",
+          "size_bytes": 1968
+        },
+        {
+          "image": "images/W1-d20fccbd/stanowisko-1/t00003.jpg",
+          "sha256": "49f8cf0ced536def47a270d9cfb858630686f8e9fcdbfdbe6c29e318350afdbb",
+          "size_bytes": 1141
+        },
+        {
+          "image": "images/W1-d20fccbd/stanowisko-1/t00004.jpg",
+          "sha256": "8fcf798c6237ae828f2c8ed70f5c45c2b60713aea57a891f4c494d7424405e00",
+          "size_bytes": 1922
+        },
+        {
+          "image": "images/W2-3d54965f/stanowisko-1/t00001.jpg",
+          "sha256": "42f7afe472aeea4ffb217e607b0fbd389263bee1db4be98f060770b8d6b11c22",
+          "size_bytes": 1292
+        },
+        {
+          "image": "images/W2-3d54965f/stanowisko-1/t00002.jpg",
+          "sha256": "1003ecb070a5a5e8e8456ecc7b5116f1f52ef64ed094463fb488d5c0577d23cb",
+          "size_bytes": 1968
+        },
+        {
+          "image": "images/W2-3d54965f/stanowisko-1/t00003.jpg",
+          "sha256": "49f8cf0ced536def47a270d9cfb858630686f8e9fcdbfdbe6c29e318350afdbb",
+          "size_bytes": 1141
+        },
+        {
+          "image": "images/W2-3d54965f/stanowisko-1/t00004.jpg",
+          "sha256": "8fcf798c6237ae828f2c8ed70f5c45c2b60713aea57a891f4c494d7424405e00",
+          "size_bytes": 1922
+        }
+      ]
+    }
+  },
+  "samples": [
+    {
+      "id": 1,
+      "clip_id": 1,
+      "zone_id": 1,
+      "pts_s": 0.5,
+      "image": "images/W1-d20fccbd/stanowisko-1/t00001.jpg",
+      "label": "spawanie",
+      "author": "fixture-301",
+      "labelled_at": "2026-11-24T08:42:04+00:00",
+      "human_confirmed": true
+    },
+    {
+      "id": 2,
+      "clip_id": 1,
+      "zone_id": 1,
+      "pts_s": 2.5,
+      "image": "images/W1-d20fccbd/stanowisko-1/t00002.jpg",
+      "label": "spawanie",
+      "author": "fixture-301",
+      "labelled_at": "2026-11-24T08:42:04+00:00",
+      "human_confirmed": true
+    },
+    {
+      "id": 3,
+      "clip_id": 1,
+      "zone_id": 1,
+      "pts_s": 4.5,
+      "image": "images/W1-d20fccbd/stanowisko-1/t00003.jpg",
+      "label": "postoj",
+      "author": "fixture-301",
+      "labelled_at": "2026-11-24T08:42:04+00:00",
+      "human_confirmed": true
+    },
+    {
+      "id": 4,
+      "clip_id": 1,
+      "zone_id": 1,
+      "pts_s": 6.5,
+      "image": "images/W1-d20fccbd/stanowisko-1/t00004.jpg",
+      "label": "nierozpoznane",
+      "author": "fixture-301",
+      "labelled_at": "2026-11-24T08:42:04+00:00",
+      "human_confirmed": true
+    },
+    {
+      "id": 5,
+      "clip_id": 2,
+      "zone_id": 2,
+      "pts_s": 0.5,
+      "image": "images/W2-3d54965f/stanowisko-1/t00001.jpg",
+      "label": "postoj",
+      "author": "fixture-301",
+      "labelled_at": "2026-11-24T08:42:04+00:00",
+      "human_confirmed": true
+    },
+    {
+      "id": 6,
+      "clip_id": 2,
+      "zone_id": 2,
+      "pts_s": 2.5,
+      "image": "images/W2-3d54965f/stanowisko-1/t00002.jpg",
+      "label": "spawanie",
+      "author": "fixture-301",
+      "labelled_at": "2026-11-24T08:42:04+00:00",
+      "human_confirmed": true
+    },
+    {
+      "id": 7,
+      "clip_id": 2,
+      "zone_id": 2,
+      "pts_s": 4.5,
+      "image": "images/W2-3d54965f/stanowisko-1/t00003.jpg",
+      "label": "spawanie",
+      "author": "fixture-301",
+      "labelled_at": "2026-11-24T08:42:04+00:00",
+      "human_confirmed": true
+    },
+    {
+      "id": 8,
+      "clip_id": 2,
+      "zone_id": 2,
+      "pts_s": 6.5,
+      "image": "images/W2-3d54965f/stanowisko-1/t00004.jpg",
+      "label": "postoj",
+      "author": "fixture-301",
+      "labelled_at": "2026-11-24T08:42:04+00:00",
+      "human_confirmed": true
+    }
+  ]
+}

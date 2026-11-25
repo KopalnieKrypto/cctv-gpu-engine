@@ -86,7 +86,9 @@ def _figures(scores: dict) -> dict:
     }
 
 
-def build_card(manifest: dict, report: dict, arm: str, training: dict) -> dict:
+def build_card(
+    manifest: dict, report: dict, arm: str, training: dict, *, source: str = "C0-report.json"
+) -> dict:
     """The model card. Every figure in it is read from `report`, never passed in."""
     entry = next((a for a in report["arms"] if a["name"] == arm), None)
     if entry is None:
@@ -219,11 +221,11 @@ def build_card(manifest: dict, report: dict, arm: str, training: dict) -> dict:
         },
         "accuracy": {
             "arm": arm,
-            "source": "C0-report.json",
+            "source": source,
             "from_these_weights": False,
             "measured_on": (
                 "cross-validated held-out folds, on models that are not the shipped "
-                "weights; read programmatically from C0-report.json at generation time"
+                f"weights; read programmatically from {source} at generation time"
             ),
             "union": _figures(scores),
             # The union is one number over folds that held out different material.
@@ -232,6 +234,25 @@ def build_card(manifest: dict, report: dict, arm: str, training: dict) -> dict:
             # behaves consistently - and this one does not.
             "per_window": {w: _figures(ws) for w, ws in sorted(per_window.items())},
         },
+    }
+
+
+def head_hyperparameters(feature_width: int) -> dict:
+    """The card's `head.hyperparameters`: the constants `run_tcn_arm` fits with."""
+    from run_tcn_arm import CHANNELS, DILATIONS, EPOCHS, KERNEL, LR, SEED, WEIGHT_DECAY, WINDOW
+
+    return {
+        "window": WINDOW,
+        "channels": CHANNELS,
+        "dilations": list(DILATIONS),
+        "kernel": KERNEL,
+        "epochs": EPOCHS,
+        "lr": LR,
+        "weight_decay": WEIGHT_DECAY,
+        "seed": SEED,
+        "receptive_field_frames": 1 + (KERNEL - 1) * sum(DILATIONS),
+        "feature_width": int(feature_width),
+        "normalisation": "baked into the exported graph as a leading layer",
     }
 
 

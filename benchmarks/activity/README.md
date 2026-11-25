@@ -179,6 +179,21 @@ python benchmarks/activity/tools/train_station_head.py \
   --version 1.0.0 --out-dir models
 ```
 
+A station annotated in zone-annotator trains from its export instead
+(gpu-exchange#301). The package's own `check_export` runs first, the folds are
+the package's declared split (at least two, each with answers), the zone
+geometry is the package's `crop_geometry`, and the cross-validation that steps
+1-2 do above runs in the same command. The package declares no delivered
+vocabulary, so `--collapse` names it:
+
+```bash
+python benchmarks/activity/tools/train_station_head.py \
+  --package .../hala-paczka --station hala-lewe-v1 \
+  --collapse pozostale=sciaganie_elementu,inna_czynnosc,postoj,brak_na_stanowisku \
+  --zone-annotator-python /opt/zone-annotator/current/.venv/bin/python \
+  --version 1.0.0 --out-dir models
+```
+
 The ONNX exports need `onnxscript` (`torch.onnx.export` routes through the
 dynamo exporter). It is in the `gpu` extra, so any image built after
 `8c642f2` carries it — on an older image the export dies with

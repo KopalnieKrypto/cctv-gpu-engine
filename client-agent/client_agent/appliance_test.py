@@ -2651,3 +2651,28 @@ def test_heartbeat_status_carries_recording_health_when_healthy() -> None:
         "recordingStatus": "recording",
         "reason": None,
     }
+
+
+# ----- annotation poller wiring (gpu-exchange#302) -----
+
+
+def test_the_annotation_poller_runs_only_where_the_installer_set_both_directories(tmp_path) -> None:
+    """The windows and projects directories come from the appliance installer
+    (gpu-exchange#298); a box without zone-annotator never claims a window."""
+    from client_agent.annotation_poller import AnnotationPoller
+    from client_agent.appliance import build_annotation_poller
+
+    dirs = {
+        "ANNOTATION_WINDOWS_DIR": str(tmp_path / "windows"),
+        "ANNOTATION_PROJECTS_DIR": str(tmp_path / "projects"),
+    }
+    one = {"ANNOTATION_WINDOWS_DIR": str(tmp_path / "windows")}
+
+    def build(environ):
+        return build_annotation_poller(
+            platform_client=object(), buffer_dir=tmp_path / "buffer", environ=environ
+        )
+
+    assert build({}) is None
+    assert build(one) is None
+    assert isinstance(build(dirs), AnnotationPoller)

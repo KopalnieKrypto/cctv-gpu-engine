@@ -32,6 +32,7 @@ from urllib.parse import urlparse
 from waitress import serve
 
 from client_agent.agent import build_app
+from client_agent.annotation_poller import AnnotationPoller
 from client_agent.buffer import RollingBuffer
 from client_agent.build_info import build_payload
 from client_agent.discovery import (
@@ -638,6 +639,29 @@ def start_poller_thread(
     return thread
 
 
+def build_annotation_poller(
+    *,
+    platform_client: Any,
+    buffer_dir: Path,
+    environ: Mapping[str, str],
+) -> AnnotationPoller | None:
+    """The zone-annotator window poller (gpu-exchange#302), or ``None``.
+
+    Only a box the installer prepared for zone-annotator (gpu-exchange#298)
+    names both directories; everywhere else no window is ever claimed.
+    """
+    windows = environ.get("ANNOTATION_WINDOWS_DIR")
+    projects = environ.get("ANNOTATION_PROJECTS_DIR")
+    if not windows or not projects:
+        return None
+    return AnnotationPoller(
+        platform=platform_client,
+        buffer=_build_rolling_buffer(buffer_dir, environ),
+        windows_dir=Path(windows),
+        projects_dir=Path(projects),
+    )
+
+
 def _build_rolling_buffer(buffer_dir: Path, environ: Mapping[str, str]) -> RollingBuffer:
     """The one :class:`RollingBuffer` the appliance uses in platform mode.
 
@@ -1003,6 +1027,16 @@ def main(argv: Sequence[str] | None = None) -> None:
             http_put=SnapshotPoller.default_http_put,
         )
         _threading.Thread(target=snapshot_poller.run, daemon=True, name="snapshot-poller").start()
+
+        # Windows for zone-annotator projects (gpu-exchange#302), on boxes the
+        # installer prepared for it.
+        annotation_poller = build_annotation_poller(
+            platform_client=platform_client, buffer_dir=buffer_dir, environ=os.environ
+        )
+        if annotation_poller is not None:
+            _threading.Thread(
+                target=annotation_poller.run, daemon=True, name="annotation-poller"
+            ).start()
 
     logger.info(
         "client-agent appliance starting on http://0.0.0.0:8080 "

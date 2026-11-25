@@ -50,6 +50,13 @@ normalisation.
       --arm tcn-pixel-518 --direct-arm tcn-pixel-518-delivered \
       --version 1.0.0 --out-dir models
 
+    # from a zone-annotator package (#301): folds, geometry and the comparison
+    # come from the package and this run; see station_package.py
+    python benchmarks/activity/tools/train_station_head.py \
+      --package hala-paczka --station hala-lewe-v1 --collapse pozostale=postoj,... \
+      --zone-annotator-python /opt/zone-annotator/current/.venv/bin/python \
+      --version 1.0.0 --out-dir models
+
 ## Correcting a card without retraining
 
 The training is NOT reproducible - `torch.manual_seed` does not cover cuDNN's
@@ -75,25 +82,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from evaluate_arms import collapse_classes, resolve_collapse  # noqa: E402
-from run_pixel_probe_arm import BACKBONE, embed_windows  # noqa: E402
-from run_tcn_arm import (  # noqa: E402
-    CHANNELS,
-    DILATIONS,
-    EPOCHS,
-    KERNEL,
-    LR,
-    SEED,
-    WEIGHT_DECAY,
-    WINDOW,
-    fit_model,
-)
+from run_pixel_probe_arm import BACKBONE, embed_files, embed_windows, load_backbone  # noqa: E402
+from run_tcn_arm import WINDOW, fit_model  # noqa: E402
 from station_head import (  # noqa: E402
     artifact_record,
     assert_single_file,
     build_card,
     choose_vocabulary,
+    head_hyperparameters,
     remap_labels,
 )
+from station_package import train_package  # noqa: E402
 
 from pipeline.station_classifier import model_input_for_rect  # noqa: E402
 
@@ -213,19 +212,7 @@ def _card_only(args, manifest: dict) -> int:
         "output_classes": output_classes,
         "trained_as": comparison["ships"],
         "comparison": comparison,
-        "hyperparameters": {
-            "window": WINDOW,
-            "channels": CHANNELS,
-            "dilations": list(DILATIONS),
-            "kernel": KERNEL,
-            "epochs": EPOCHS,
-            "lr": LR,
-            "weight_decay": WEIGHT_DECAY,
-            "seed": SEED,
-            "receptive_field_frames": 1 + (KERNEL - 1) * sum(DILATIONS),
-            "feature_width": n_feat,
-            "normalisation": "baked into the exported graph as a leading layer",
-        },
+        "hyperparameters": head_hyperparameters(n_feat),
         "artifact": artifact_record(
             onnx_path,
             version=args.version,
@@ -243,15 +230,122 @@ def _card_only(args, manifest: dict) -> int:
     return 0
 
 
+def fit_and_export(train_clips, n_class: int, onnx_path: Path, version: str, device: str) -> dict:
+    """Fit on every window, export the head as one ONNX file, return its `artifact` block."""
+    import torch
+
+    model, mu, sd = fit_model(train_clips, n_class, device)
+    exportable = build_exportable(model, mu, sd).to(device)
+    n_feat = train_clips[0][0].shape[1]
+    dummy = torch.zeros(1, n_feat, WINDOW, device=device)
+    onnx_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.onnx.export(
+        exportable,
+        dummy,
+        str(onnx_path),
+        input_names=["embeddings"],
+        output_names=["logits"],
+        # Batch and time both vary: a clip is longer than the training window and
+        # is scored with overlapping segments.
+        dynamic_axes={"embeddings": {0: "batch", 2: "time"}, "logits": {0: "batch", 2: "time"}},
+        opset_version=OPSET,
+        # One file: setup-models.sh verifies one sha256 per model.
+        external_data=False,
+    )
+    assert_single_file(onnx_path)
+    digest = hashlib.sha256(onnx_path.read_bytes()).hexdigest()
+    size = onnx_path.stat().st_size
+    print(f"wrote {onnx_path} ({size / 1024:.0f} KiB, sha256 {digest[:16]}…)")
+    return {
+        "name": onnx_path.name,
+        "version": version,
+        "sha256": digest,
+        "bytes": size,
+        "opset": OPSET,
+        "input": f"embeddings (batch, {n_feat}, time) - frozen {BACKBONE} CLS vectors",
+        "output": f"logits (batch, {n_class}, time)",
+    }
+
+
+def _cuda() -> str:
+    import torch
+
+    if not torch.cuda.is_available():
+        sys.exit("no CUDA device - the backbone pass needs a fleet GPU")
+    return "cuda"
+
+
+def _from_package(args) -> int:
+    """Train from a zone-annotator package (#301); `station_package` does everything but the GPU.
+
+    The backbone and the GPU are reached only on the first embedding, so
+    `check_export` runs before anything else, as the package path promises.
+    """
+    from run_tcn_arm import predict
+
+    loaded: dict = {}
+
+    def gpu() -> dict:
+        if not loaded:
+            loaded["device"] = _cuda()
+            loaded["processor"], loaded["model"] = load_backbone(loaded["device"])
+        return loaded
+
+    def embed(files, model_input):
+        g = gpu()
+        return embed_files(files, model_input, g["processor"], g["model"], g["device"])
+
+    def fit_predict(train_clips, tests, n_class):
+        device = gpu()["device"]
+        model, mu, sd = fit_model(train_clips, n_class, device)
+        return [predict(model, mu, sd, x, n_class, device) for x in tests]
+
+    card_path = train_package(
+        args.package,
+        station=args.station,
+        version=args.version,
+        collapse=args.collapse,
+        zone=args.zone,
+        out_dir=args.out_dir,
+        check_cmd=[args.zone_annotator_python, "-m", "zone_annotator.check_export"],
+        embed=embed,
+        fit_predict=fit_predict,
+        fit_export=lambda clips, n, path: fit_and_export(
+            clips, n, path, args.version, gpu()["device"]
+        ),
+    )
+    print(f"wrote {card_path}")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--manifest", required=True, type=Path)
-    ap.add_argument("--crops-root", required=True, type=Path)
+    source = ap.add_mutually_exclusive_group(required=True)
+    source.add_argument("--manifest", type=Path)
+    source.add_argument(
+        "--package",
+        type=Path,
+        help="a zone-annotator export directory (#301): samples, folds and zone geometry "
+        "come from it, and its own check_export must pass first",
+    )
+    ap.add_argument("--station", help="--package: the station id the head and card are named by")
+    ap.add_argument(
+        "--collapse",
+        metavar="BUCKET=A,B",
+        help="--package: the delivered vocabulary, as in evaluate_arms.py; a package "
+        "declares none, and a head is not shipped without one",
+    )
+    ap.add_argument("--zone", help="--package: the zone to train on, when it holds several")
+    ap.add_argument(
+        "--zone-annotator-python",
+        default=sys.executable,
+        help="--package: a Python with the pinned zone-annotator installed, for check_export",
+    )
+    ap.add_argument("--crops-root", type=Path)
     ap.add_argument("--cache-dir", type=Path)
-    ap.add_argument("--report", required=True, type=Path, help="C0-report.json (collapsed floor)")
+    ap.add_argument("--report", type=Path, help="C0-report.json (collapsed floor)")
     ap.add_argument(
         "--direct-report",
-        required=True,
         type=Path,
         help="the delivered-vocabulary arm's report, for the comparison #122 requires",
     )
@@ -273,15 +367,28 @@ def main() -> int:
     )
     args = ap.parse_args()
 
+    if args.package:
+        missing = [f"--{f}" for f in ("station", "collapse") if getattr(args, f) is None]
+        if missing or args.card_only:
+            ap.error(
+                f"--package needs {', '.join(missing)}"
+                if missing
+                else "--card-only is manifest-only"
+            )
+        return _from_package(args)
+    missing = [
+        f"--{f.replace('_', '-')}"
+        for f in ("crops_root", "report", "direct_report")
+        if getattr(args, f) is None
+    ]
+    if missing:
+        ap.error(f"--manifest needs {', '.join(missing)}")
+
     manifest = json.loads(args.manifest.read_text())
     if args.card_only:
         return _card_only(args, manifest)
 
-    import torch
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    if device != "cuda":
-        sys.exit("no CUDA device - the backbone pass needs a fleet GPU")
+    device = _cuda()
 
     collapse = resolve_collapse(manifest, None)
     if collapse is None:
@@ -320,60 +427,18 @@ def main() -> int:
         f"{sum(len(y) for _, y in train_clips)} samples, {len(output_classes)} classes",
         file=sys.stderr,
     )
-    model, mu, sd = fit_model(train_clips, len(output_classes), device)
-
-    exportable = build_exportable(model, mu, sd).to(device)
-    n_feat = train_clips[0][0].shape[1]
-    dummy = torch.zeros(1, n_feat, WINDOW, device=device)
-    args.out_dir.mkdir(parents=True, exist_ok=True)
     name = f"station-head-{manifest['fixture']}-v{args.version}.onnx"
-    onnx_path = args.out_dir / name
-    torch.onnx.export(
-        exportable,
-        dummy,
-        str(onnx_path),
-        input_names=["embeddings"],
-        output_names=["logits"],
-        # Batch and time both vary: a clip is longer than the training window and
-        # is scored with overlapping segments.
-        dynamic_axes={"embeddings": {0: "batch", 2: "time"}, "logits": {0: "batch", 2: "time"}},
-        opset_version=OPSET,
-        # One file: setup-models.sh verifies one sha256 per model.
-        external_data=False,
+    artifact = fit_and_export(
+        train_clips, len(output_classes), args.out_dir / name, args.version, device
     )
-    assert_single_file(onnx_path)
-    digest = hashlib.sha256(onnx_path.read_bytes()).hexdigest()
-    size = onnx_path.stat().st_size
-    print(f"wrote {onnx_path} ({size / 1024:.0f} KiB, sha256 {digest[:16]}…)")
-
     training = {
         "backbone": BACKBONE,
         "preprocessing": _preprocessing_contract(_rect(manifest), args.image_size),
         "output_classes": output_classes,
         "trained_as": comparison["ships"],
         "comparison": comparison,
-        "hyperparameters": {
-            "window": WINDOW,
-            "channels": CHANNELS,
-            "dilations": list(DILATIONS),
-            "kernel": KERNEL,
-            "epochs": EPOCHS,
-            "lr": LR,
-            "weight_decay": WEIGHT_DECAY,
-            "seed": SEED,
-            "receptive_field_frames": 1 + (KERNEL - 1) * sum(DILATIONS),
-            "feature_width": int(n_feat),
-            "normalisation": "baked into the exported graph as a leading layer",
-        },
-        "artifact": {
-            "name": name,
-            "version": args.version,
-            "sha256": digest,
-            "bytes": size,
-            "opset": OPSET,
-            "input": f"embeddings (batch, {n_feat}, time) - frozen {BACKBONE} CLS vectors",
-            "output": f"logits (batch, {len(output_classes)}, time)",
-        },
+        "hyperparameters": head_hyperparameters(train_clips[0][0].shape[1]),
+        "artifact": artifact,
     }
     card = build_card(manifest, report, args.arm, training)
     card_path = args.out_dir / f"station-head-{manifest['fixture']}-v{args.version}.card.json"

@@ -1333,3 +1333,337 @@ def test_report_task_progress_is_one_attempt_that_never_raises() -> None:
     assert results == [False, False, False, False]
     assert route.call_count == len(outcomes)
     assert sleeps == []
+
+
+# ----- annotation jobs (gpu-exchange#302) -----
+
+
+def _id(n: int) -> str:
+    """A platform id: every one the box puts into a path is a lowercase UUID."""
+    return f"{n:08d}-0000-4000-8000-000000000000"
+
+
+JOB, WINDOW, PROJECT, EXPORT, SPLIT, W1, W2 = (_id(n) for n in range(1, 8))
+
+
+def test_claim_next_annotation_job_parses_the_window_and_is_none_when_idle() -> None:
+    from datetime import UTC, datetime
+
+    from client_agent.platform import PlatformClient
+
+    body = {
+        "job_id": JOB,
+        "window_id": WINDOW,
+        "project_id": PROJECT,
+        "camera_id": "cam-1",
+        "start": "2026-11-23T09:00:00.000Z",
+        "end": "2026-11-23T09:20:00.000Z",
+    }
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.get("/appliance/annotation/next").mock(
+            side_effect=[httpx.Response(200, json=body), httpx.Response(204)]
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        claim = client.claim_next_annotation_job()
+        idle = client.claim_next_annotation_job()
+
+    assert claim is not None
+    assert (claim.job_id, claim.window_id, claim.project_id) == (JOB, WINDOW, PROJECT)
+    assert claim.camera_id == "cam-1"
+    assert claim.start == datetime(2026, 11, 23, 9, 0, tzinfo=UTC)
+    assert claim.end == datetime(2026, 11, 23, 9, 20, tzinfo=UTC)
+    assert (claim.kind, claim.shift, claim.lighting) == ("first", None, None)
+    assert idle is None
+
+
+def test_claim_next_annotation_job_reads_a_later_window_and_its_conditions() -> None:
+    """gpu-exchange#305: a window to ingest with the first window's zones."""
+    from client_agent.platform import PlatformClient
+
+    body = {
+        "job_id": JOB,
+        "window_id": WINDOW,
+        "project_id": PROJECT,
+        "camera_id": "cam-1",
+        "start": "2026-11-23T15:00:00.000Z",
+        "end": "2026-11-23T15:30:00.000Z",
+        "kind": "next",
+        "shift": "popoludnie",
+        "lighting": None,
+    }
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.get("/appliance/annotation/next").mock(return_value=httpx.Response(200, json=body))
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        claim = client.claim_next_annotation_job()
+
+    assert claim is not None
+    assert (claim.kind, claim.shift, claim.lighting) == ("next", "popoludnie", None)
+
+
+def test_report_annotation_job_posts_only_the_fields_of_its_status() -> None:
+    import json
+
+    from client_agent.platform import PlatformClient
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        route = mock.post("/appliance/annotation/job-1/status").mock(
+            return_value=httpx.Response(200, json={"ok": True})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        client.report_annotation_job("job-1", status="awaiting_zones", clip_path="/w/p/w1.mp4")
+        client.report_annotation_job("job-1", status="failed", error="brak nagrań")
+        client.report_annotation_job("job-1", status="ready")
+
+    bodies = [json.loads(call.request.content) for call in route.calls]
+    assert bodies == [
+        {"status": "awaiting_zones", "clip_path": "/w/p/w1.mp4"},
+        {"status": "failed", "error": "brak nagrań"},
+        {"status": "ready"},
+    ]
+
+
+def test_claim_next_annotation_job_reads_an_export_and_its_head() -> None:
+    """gpu-exchange#306: a package to export, check and send to cctv-vps."""
+    from client_agent.platform import AnnotationExportClaim, PlatformClient
+
+    body = {
+        "job_id": JOB,
+        "kind": "export",
+        "export_id": EXPORT,
+        "project_id": PROJECT,
+        "bound_to": "hala-prawe-skrzydlo/v1.0.0",
+    }
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.get("/appliance/annotation/next").mock(return_value=httpx.Response(200, json=body))
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        claim = client.claim_next_annotation_job()
+
+    assert claim == AnnotationExportClaim(
+        job_id=JOB, export_id=EXPORT, project_id=PROJECT, bound_to="hala-prawe-skrzydlo/v1.0.0"
+    )
+
+
+def test_report_annotation_export_posts_only_the_fields_of_its_status() -> None:
+    import json
+
+    from client_agent.platform import PlatformClient
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        route = mock.post("/appliance/annotation/job-3/export-status").mock(
+            return_value=httpx.Response(200, json={"ok": True})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        client.report_annotation_export("job-3", status="checking")
+        client.report_annotation_export("job-3", status="waiting_for_vps", error="timed out")
+        client.report_annotation_export(
+            "job-3", status="on_vps", samples=8, destination="annotation-drop@cctv-vps:export-1/"
+        )
+
+    bodies = [json.loads(call.request.content) for call in route.calls]
+    assert bodies == [
+        {"status": "checking"},
+        {"status": "waiting_for_vps", "error": "timed out"},
+        {"status": "on_vps", "samples": 8, "destination": "annotation-drop@cctv-vps:export-1/"},
+    ]
+
+
+def test_claim_next_annotation_job_reads_a_split_with_its_folds() -> None:
+    """gpu-exchange#308: folds of window ids, and the name and reason an amendment may need."""
+    from client_agent.platform import AnnotationSplitClaim, PlatformClient
+
+    body = {
+        "job_id": JOB,
+        "kind": "split",
+        "split_id": SPLIT,
+        "project_id": PROJECT,
+        "folds": {"train": [W1], "heldout": [W2]},
+        "by": "Anna Kowalska",
+        "reason": None,
+    }
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.get("/appliance/annotation/next").mock(return_value=httpx.Response(200, json=body))
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        claim = client.claim_next_annotation_job()
+
+    assert claim == AnnotationSplitClaim(
+        job_id=JOB,
+        split_id=SPLIT,
+        project_id=PROJECT,
+        folds={"train": [W1], "heldout": [W2]},
+        by="Anna Kowalska",
+        reason=None,
+    )
+
+
+def test_report_annotation_split_posts_the_answer_with_the_ledger() -> None:
+    import json
+
+    from client_agent.platform import PlatformClient
+
+    ledger = {"entries": [{"kind": "model_run", "at": "2026-11-24T11:00:00+00:00", "model": "m"}]}
+    with respx.mock(base_url="https://platform.example") as mock:
+        route = mock.post("/appliance/annotation/job-4/split-status").mock(
+            return_value=httpx.Response(200, json={"ok": True})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        client.report_annotation_split("job-4", status="applied", ledger=ledger)
+        client.report_annotation_split("job-4", status="failed", ledger=ledger, error="needs --by")
+
+    assert [json.loads(call.request.content) for call in route.calls] == [
+        {"status": "applied", "ledger": ledger},
+        {"status": "failed", "ledger": ledger, "error": "needs --by"},
+    ]
+
+
+def test_claim_next_annotation_job_reads_a_head_run_with_its_model() -> None:
+    """gpu-exchange#314: the head published from an export, by the name zone-annotator registers."""
+    from client_agent.platform import AnnotationRegisterRunClaim, PlatformClient
+
+    body = {
+        "job_id": JOB,
+        "kind": "register_run",
+        "export_id": EXPORT,
+        "project_id": PROJECT,
+        "model": "hala/v1.0.0",
+    }
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.get("/appliance/annotation/next").mock(return_value=httpx.Response(200, json=body))
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        claim = client.claim_next_annotation_job()
+
+    assert claim == AnnotationRegisterRunClaim(
+        job_id=JOB, export_id=EXPORT, project_id=PROJECT, model="hala/v1.0.0"
+    )
+
+
+def test_report_annotation_register_run_posts_the_answer_with_the_ledger() -> None:
+    import json
+
+    from client_agent.platform import PlatformClient
+
+    ledger = {"entries": [{"kind": "model_run", "at": "2026-11-24T11:00:00+00:00", "model": "m"}]}
+    with respx.mock(base_url="https://platform.example") as mock:
+        route = mock.post("/appliance/annotation/job-5/register-status").mock(
+            return_value=httpx.Response(200, json={"ok": True})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        client.report_annotation_register_run("job-5", status="registered", ledger=ledger)
+        client.report_annotation_register_run(
+            "job-5", status="failed", ledger=ledger, error="no split declared"
+        )
+
+    assert [json.loads(call.request.content) for call in route.calls] == [
+        {"status": "registered", "ledger": ledger},
+        {"status": "failed", "ledger": ledger, "error": "no split declared"},
+    ]
+
+
+def _claimed(body: object, status: int = 200):
+    from client_agent.platform import PlatformClient
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.get("/appliance/annotation/next").mock(return_value=httpx.Response(status, json=body))
+        return PlatformClient(
+            base_url="https://platform.example", token="tok"
+        ).claim_next_annotation_job()
+
+
+WINDOW_BODY = {
+    "job_id": JOB,
+    "window_id": WINDOW,
+    "project_id": PROJECT,
+    "camera_id": "cam-1",
+    "start": "2026-11-23T09:00:00.000Z",
+    "end": "2026-11-23T09:20:00.000Z",
+}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {**WINDOW_BODY, "project_id": "../../.ssh"},
+        {**WINDOW_BODY, "window_id": "w/../../x"},
+        {**WINDOW_BODY, "job_id": "ABCDEF01-0000-4000-8000-000000000000"},
+        {
+            "job_id": JOB,
+            "kind": "export",
+            "export_id": "..",
+            "project_id": PROJECT,
+            "bound_to": "h/v1",
+        },
+        {
+            "job_id": JOB,
+            "kind": "split",
+            "split_id": SPLIT,
+            "project_id": PROJECT,
+            "folds": {"train": ["../w1"]},
+        },
+        {
+            "job_id": JOB,
+            "kind": "register_run",
+            "export_id": EXPORT,
+            "project_id": "",
+            "model": "m",
+        },
+        {**WINDOW_BODY, "window_id": None},
+        {"job_id": JOB, "kind": "export", "project_id": PROJECT},
+        {"job_id": JOB, "kind": "delete_project", "project_id": PROJECT, "export_ids": [".."]},
+        {"job_id": JOB, "kind": "delete_project", "project_id": PROJECT, "export_ids": EXPORT},
+        ["not", "a", "claim"],
+    ],
+)
+def test_a_claim_with_an_id_that_is_not_a_uuid_or_a_missing_field_is_skipped(body, caplog) -> None:
+    """Ids become paths on the box and reach rmtree: nothing but a UUID gets that far."""
+    assert _claimed(body) is None
+    assert "skipping annotation claim" in caplog.text
+
+
+def test_a_claim_of_a_kind_this_box_does_not_know_is_skipped_not_glued_as_a_window(caplog) -> None:
+    assert _claimed({**WINDOW_BODY, "kind": "reindex"}) is None
+    assert "reindex" in caplog.text
+
+
+def test_a_refused_claim_raises_the_platforms_words_not_a_key_error() -> None:
+    from client_agent.platform import PlatformRequestError
+
+    with pytest.raises(PlatformRequestError, match=r"annotation next \(403\): appliance revoked"):
+        _claimed({"error": "appliance revoked"}, status=403)
+
+
+def test_claim_next_annotation_job_reads_a_project_to_delete_with_its_exports() -> None:
+    from client_agent.platform import AnnotationDeleteProjectClaim
+
+    body = {"job_id": JOB, "kind": "delete_project", "project_id": PROJECT, "export_ids": [EXPORT]}
+
+    assert _claimed(body) == AnnotationDeleteProjectClaim(
+        job_id=JOB, project_id=PROJECT, export_ids=[EXPORT]
+    )
+
+
+def test_report_annotation_delete_posts_deleted_or_failed_with_the_reason() -> None:
+    import json
+
+    from client_agent.platform import PlatformClient
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        route = mock.post(f"/appliance/annotation/{JOB}/delete-status").mock(
+            return_value=httpx.Response(200, json={"ok": True})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        client.report_annotation_delete(JOB, status="deleted")
+        client.report_annotation_delete(JOB, status="failed", error="Permission denied")
+
+    assert [json.loads(call.request.content) for call in route.calls] == [
+        {"status": "deleted"},
+        {"status": "failed", "error": "Permission denied"},
+    ]

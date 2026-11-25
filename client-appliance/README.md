@@ -130,6 +130,58 @@ otwierałoby je wszystkie naraz, a `RTSP_DEFAULT_*` appliance podaje każdemu
 urządzeniu w LAN z otwartym portem 554, więc nie używaj hasła, które działa gdzie
 indziej (np. konta administratora klienta).
 
+### Oznaczanie stref: `install-annotator.sh` (gpu-exchange#298, każdy layout)
+
+Instaluje zone-annotator w trybie za proxy panelu i tunel boxa. Kolejność: tunel,
+paczka, instalator.
+
+1. W gpu-exchange skrypt `scripts/provision/appliance-tunnel.ts` zakłada tunel
+   boxa i przez ssh zostawia token w `~/.config/cctv-client/zone-annotator-tunnel.token`.
+2. Repo zone-annotatora jest prywatne, więc paczkę robisz u siebie, z commita
+   z `zone-annotator.pin`, i kopiujesz na box:
+
+   ```bash
+   git -c core.autocrlf=false -C ../zone-annotator archive -o zone-annotator.tar "$(head -n1 client-appliance/zone-annotator.pin | tr -d '\r')"
+   scp zone-annotator.tar BOX:
+   ```
+
+3. Na boxie: `sudo client-appliance/install-annotator.sh $(id -un) ~/zone-annotator.tar <uuid appliance>`.
+   UUID jest ten sam, co w panelu. Box sam go nigdzie nie zapisuje.
+   Instalator przerywa bez zmian, gdy:
+   - nie ma wyjścia TCP na 7844;
+   - nie ma `rsync` albo `git`;
+   - root pod sudo nie widzi `uv` (secure_path zwykle nie ma `~/.local/bin`);
+   - paczka jest z innego commita;
+   - pliki paczki nie dają drzewa z drugiej linii pinu albo paczka ma `.git`,
+     `.gitattributes`, `.gitmodules` lub bity set-id czy zapis dla wszystkich.
+
+   Commit w nagłówku taru może wpisać każdy, więc instalator liczy `git write-tree`
+   z rozpakowanej kopii i porównuje z drzewem commita, zanim `uv sync` uruchomi
+   cokolwiek z paczki. Porównanie jest bajt w bajt: Git for Windows ma
+   `core.autocrlf=true`, a paczka z CRLF to nie jest przypięte drzewo, stąd
+   `-c core.autocrlf=false` w poleceniu wyżej. Ograniczenie: drzewo git nie widzi
+   pustych katalogów, właściciela ani bitów poza wykonywaniem. Puste katalogi nie
+   uruchamiają kodu, właściciela narzuca `tar --no-same-owner`, a set-id i zapis
+   dla wszystkich są odrzucane osobno. Commit z `export-ignore` albo `export-subst`
+   w `.gitattributes` dałby inne drzewo niż commit; c93f3da nie ma `.gitattributes`.
+
+   W katalogu domowym agenta instalator działa jako agent (`runuser`), więc nie
+   idzie za dowiązaniami, które tam zostawiono. Paczkę czyta raz, jako agent, do
+   katalogu tymczasowego roota i dopiero tę kopię sprawdza i rozpakowuje, a smoke
+   paczki uruchamia jako agent. Paczka musi więc być czytelna dla agenta.
+
+   Na końcu wypisuje dwie rzeczy. Pierwsza to dwie linie `ANNOTATION_*` do `platform.env` agenta,
+   bez nich agent nie wycina okien. Druga to linia
+   `annotation-drop.sh add <uuid> "ssh-ed25519 …"`. Uruchamiasz ją na cctv-vps
+   (gpu-exchange `scripts/provision`), żeby zarejestrować klucz wysyłki
+   `~/.ssh/annotation-drop` (gpu-exchange#300).
+
+Nowa wersja narzędzia to nowy pin
+(`git -C ../zone-annotator rev-parse <commit> '<commit>^{tree}' >client-appliance/zone-annotator.pin`),
+nowa paczka i ten sam
+instalator. Ponowne uruchomienie niczego nie zmienia, a przy rozjeździe z audytu
+(checki 7–10, 12 i 13) jest naprawą.
+
 ## Instalacja user-mode (bez roota) — issue #84
 
 Jeśli na urządzeniu **nie masz hasła sudo**, użyj `install-user.sh` zamiast
@@ -360,6 +412,24 @@ Naprawa obu: `sudo client-appliance/harden-appliance.sh <user-appliance>`.
 Incydent: `cameraboy` 2026-11-09, ufw nieaktywny i SSH na hasło przy
 zielonych check 1-4.
 
+**check 7–13 — zone-annotator, tunel boxa i wysyłka paczek (gpu-exchange#298, #300).**
+- 7: wersja równa `zone-annotator.pin`, a pliki wydania (bez `.venv`) dają drzewo z jego
+  drugiej linii, więc audyt widzi też zmianę plików po instalacji;
+- 8: usługa działa i słucha tylko na `127.0.0.1:8713`;
+- 9: efektywny unit nadal ma ograniczenia sieci i ścieżek, więc drop-in też się liczy;
+- 10: tunel działa, a plik tokenu należy do roota i ma prawa 0600;
+- 11: jest wyjście TCP na 7844;
+- 12: klucz wysyłki `~/.ssh/annotation-drop` istnieje i ma prawa 0600;
+- 13: `~/.ssh/annotation-drop.known_hosts` jest identyczny z
+  `client-appliance/annotation-drop.known_hosts`. To przypięty klucz hosta
+  cctv-vps; poller ufa tylko jemu (`StrictHostKeyChecking=yes`), bo nazwa
+  `cctv-vps` może się rozwiązać w LAN-ie klienta. Po zmianie klucza na cctv-vps
+  nowy wpis trafia do repo, a na boxy z ponownym instalatorem.
+
+Box bez zone-annotatora dostaje jedną linię SKIP i nie zmienia kodu wyjścia.
+Naprawa 7–10, 12 i 13 to ponowny `install-annotator.sh`. Przy 11 trzeba otworzyć port
+u klienta.
+
 Incydenty źródłowe. **check 1 + 2** (cameraboy, 2026-07-17 → 20): stray proces
 z `nohup` trzymał :8080, unit crash-loopował **4484 razy**, a box obsługiwał
 produkcję kodem sprzed trzech dni. **check 3** (cameraboy, 2026-07-14 → 16):
@@ -460,6 +530,10 @@ sekcji Troubleshooting.
 | `platform.env.example` | template dla `/etc/cctv-client/platform.env` (platform credentials + cold-start runtime fallbacks) |
 | `audit-appliance.sh` | read-only audit zdalnego boxa — wykrywa double-run, restart-loop, brak reboot-survival, wyłączony ufw i SSH na hasło (patrz niżej) |
 | `harden-appliance.sh` | krok root dla nowego boxa — ufw tylko z Tailscale, SSH na klucz, linger |
+| `install-annotator.sh` | idempotentny installer **root** zone-annotatora za proxy i tunelu boxa (gpu-exchange#298) |
+| `zone-annotator.pin` | jedyne miejsce z wersją zone-annotatora: pełny commit i jego drzewo |
+| `zone-annotator.service` | systemd unit zone-annotatora — tylko localhost, bez dostępu do konfiguracji agenta i `~/.ssh`, niższy priorytet niż nagrywanie |
+| `zone-annotator-tunnel.service` | systemd unit `cloudflared` — token przez `LoadCredential`, nigdy w argv |
 
 ## Tryby pracy: standalone vs platform mode (issue #30)
 

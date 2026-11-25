@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -542,6 +543,109 @@ class PlatformClient:
             body["error"] = error
         self._post(f"/appliance/snapshot/{request_id}/status", json=body)
 
+    def claim_next_annotation_job(
+        self,
+    ) -> (
+        AnnotationJobClaim
+        | AnnotationExportClaim
+        | AnnotationSplitClaim
+        | AnnotationRegisterRunClaim
+        | AnnotationDeleteProjectClaim
+        | None
+    ):
+        """GET ``/appliance/annotation/next`` — claim the oldest window to glue
+        for a zone-annotator project (gpu-exchange#302), package to export
+        (gpu-exchange#306), split to apply (gpu-exchange#308), trained head to
+        register (gpu-exchange#314) or deleted project to clear. ``None`` on 204."""
+        response = self._get("/appliance/annotation/next")
+        if response.status_code == 204:
+            return None
+        _raise_if_refused(response, "annotation next")
+        data = response.json()
+        try:
+            return _annotation_claim(data)
+        except (KeyError, TypeError, ValueError, AttributeError) as exc:
+            # The server has marked it claimed; its sweeper fails it, nothing here touches the disk.
+            job = data.get("job_id") if isinstance(data, dict) else None
+            logger.warning("skipping annotation claim %r: %s", job, exc)
+            return None
+
+    def report_annotation_job(
+        self,
+        job_id: str,
+        *,
+        status: str,
+        clip_path: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        """POST ``/appliance/annotation/{job_id}/status``: ``awaiting_zones``
+        with the glued clip's absolute path, ``ready`` for a later window
+        zone-annotator has ingested, or ``failed`` with a sentence."""
+        body: dict = {"status": status}
+        if clip_path is not None:
+            body["clip_path"] = clip_path
+        if error is not None:
+            body["error"] = error
+        response = self._post(f"/appliance/annotation/{job_id}/status", json=body)
+        _raise_if_refused(response, "annotation status")
+
+    def report_annotation_export(
+        self,
+        job_id: str,
+        *,
+        status: str,
+        samples: int | None = None,
+        destination: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        """POST ``/appliance/annotation/{job_id}/export-status`` (gpu-exchange#306):
+        ``checking``, ``sending``, ``waiting_for_vps`` or ``failed`` with a sentence,
+        ``on_vps`` with the sample count and where the package landed."""
+        body: dict = {"status": status}
+        if samples is not None:
+            body["samples"] = samples
+        if destination is not None:
+            body["destination"] = destination
+        if error is not None:
+            body["error"] = error
+        response = self._post(f"/appliance/annotation/{job_id}/export-status", json=body)
+        _raise_if_refused(response, "annotation export status")
+
+    def report_annotation_split(
+        self, job_id: str, *, status: str, ledger: dict, error: str | None = None
+    ) -> None:
+        """POST ``/appliance/annotation/{job_id}/split-status`` (gpu-exchange#308):
+        ``applied`` or ``failed`` with zone-annotator's sentence, and the split
+        ledger as the box read it afterwards either way."""
+        body: dict = {"status": status, "ledger": ledger}
+        if error is not None:
+            body["error"] = error
+        response = self._post(f"/appliance/annotation/{job_id}/split-status", json=body)
+        _raise_if_refused(response, "annotation split status")
+
+    def report_annotation_register_run(
+        self, job_id: str, *, status: str, ledger: dict, error: str | None = None
+    ) -> None:
+        """POST ``/appliance/annotation/{job_id}/register-status`` (gpu-exchange#314):
+        ``registered`` or ``failed`` with zone-annotator's sentence, and the split
+        ledger as the box read it afterwards either way."""
+        body: dict = {"status": status, "ledger": ledger}
+        if error is not None:
+            body["error"] = error
+        response = self._post(f"/appliance/annotation/{job_id}/register-status", json=body)
+        _raise_if_refused(response, "annotation register-run status")
+
+    def report_annotation_delete(
+        self, job_id: str, *, status: str, error: str | None = None
+    ) -> None:
+        """POST ``/appliance/annotation/{job_id}/delete-status``: ``deleted``, or
+        ``failed`` with the reason the box could not clear the project."""
+        body: dict = {"status": status}
+        if error is not None:
+            body["error"] = error
+        response = self._post(f"/appliance/annotation/{job_id}/delete-status", json=body)
+        _raise_if_refused(response, "annotation delete status")
+
     def _get(self, path: str, *, params: dict | None = None) -> httpx.Response:
         """GET ``path`` with Bearer auth, 5xx retry, and typed errors.
 
@@ -642,6 +746,137 @@ class Task:
     camera_id: str
     start_time: datetime
     end_time: datetime
+
+
+@dataclass(frozen=True)
+class AnnotationJobClaim:
+    """One window the platform wants glued from this appliance's buffer for a
+    zone-annotator project (gpu-exchange#302). Times are aware UTC."""
+
+    job_id: str
+    window_id: str
+    project_id: str
+    camera_id: str
+    start: datetime
+    end: datetime
+    #: ``first`` is glued for zones to be drawn on it; ``next`` is glued and
+    #: ingested with the first window's zones (gpu-exchange#305). A platform
+    #: from before #305 sends no kind, and every window it knows is a first one.
+    kind: Literal["first", "next"] = "first"
+    #: zone-annotator's spelling, from the panel's fixed list; ``None`` when not given.
+    shift: str | None = None
+    lighting: str | None = None
+
+
+@dataclass(frozen=True)
+class AnnotationExportClaim:
+    """A project's package to export, check and send to cctv-vps (gpu-exchange#306),
+    bound to the head it leaves for (zone-annotator's ``--bound-to``)."""
+
+    job_id: str
+    export_id: str
+    project_id: str
+    bound_to: str
+
+
+@dataclass(frozen=True)
+class AnnotationRegisterRunClaim:
+    """A head trained on cctv-vps from one of the project's exports (gpu-exchange#314),
+    to be registered by the name zone-annotator knows it under, freezing the split."""
+
+    job_id: str
+    export_id: str
+    project_id: str
+    model: str
+
+
+@dataclass(frozen=True)
+class AnnotationDeleteProjectClaim:
+    """A project deleted in the panel: its directory, its glued windows and the
+    packages of ``export_ids`` still on the box all go."""
+
+    job_id: str
+    project_id: str
+    export_ids: list[str]
+
+
+@dataclass(frozen=True)
+class AnnotationSplitClaim:
+    """Folds for a zone-annotator project's windows (gpu-exchange#308): fold name
+    → window ids. ``by`` and ``reason`` are for an amendment after a registered run."""
+
+    job_id: str
+    split_id: str
+    project_id: str
+    folds: dict[str, list[str]]
+    by: str | None = None
+    reason: str | None = None
+
+
+_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
+def _uuid(value: object) -> str:
+    """A platform id before it names a directory on the box: a lowercase UUID, nothing else."""
+    if not isinstance(value, str) or not _UUID.fullmatch(value):
+        raise ValueError(f"{value!r} is not a UUID")
+    return value
+
+
+def _annotation_claim(
+    data: dict,
+) -> (
+    AnnotationJobClaim
+    | AnnotationExportClaim
+    | AnnotationSplitClaim
+    | AnnotationRegisterRunClaim
+    | AnnotationDeleteProjectClaim
+):
+    """One claim from ``/appliance/annotation/next``, its ids checked; ValueError otherwise."""
+    kind = data.get("kind")
+    if kind == "delete_project":
+        return AnnotationDeleteProjectClaim(
+            job_id=_uuid(data["job_id"]),
+            project_id=_uuid(data["project_id"]),
+            export_ids=[_uuid(e) for e in data["export_ids"]],
+        )
+    if kind == "register_run":
+        return AnnotationRegisterRunClaim(
+            job_id=_uuid(data["job_id"]),
+            export_id=_uuid(data["export_id"]),
+            project_id=_uuid(data["project_id"]),
+            model=data["model"],
+        )
+    if kind == "split":
+        return AnnotationSplitClaim(
+            job_id=_uuid(data["job_id"]),
+            split_id=_uuid(data["split_id"]),
+            project_id=_uuid(data["project_id"]),
+            folds={name: [_uuid(w) for w in windows] for name, windows in data["folds"].items()},
+            by=data.get("by"),
+            reason=data.get("reason"),
+        )
+    if kind == "export":
+        return AnnotationExportClaim(
+            job_id=_uuid(data["job_id"]),
+            export_id=_uuid(data["export_id"]),
+            project_id=_uuid(data["project_id"]),
+            bound_to=data["bound_to"],
+        )
+    # A platform from before gpu-exchange#305 sends no kind: every window it knows is a first one.
+    if kind not in (None, "first", "next"):
+        raise ValueError(f"kind {kind!r} is unknown to this box")
+    return AnnotationJobClaim(
+        job_id=_uuid(data["job_id"]),
+        window_id=_uuid(data["window_id"]),
+        project_id=_uuid(data["project_id"]),
+        camera_id=data["camera_id"],
+        start=_parse_iso(data["start"]),
+        end=_parse_iso(data["end"]),
+        kind=kind or "first",
+        shift=data.get("shift"),
+        lighting=data.get("lighting"),
+    )
 
 
 def _parse_iso(s: str) -> datetime:

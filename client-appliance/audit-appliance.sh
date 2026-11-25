@@ -11,6 +11,16 @@
 #   check 4  deployed code does not match the checkout (or was hand-patched)
 #   check 5  ufw is off, so the client LAN reaches the panel (:8080, no login)
 #   check 6  sshd accepts passwords
+#   check 7  zone-annotator is not the commit, or its files not the tree, in zone-annotator.pin
+#   check 8  zone-annotator is down, or listens beyond 127.0.0.1:8713
+#   check 9  its unit lost a network or path restriction
+#   check 10 the box's tunnel is down, or its token file is not root's and 0600
+#   check 11 no outbound TCP to Cloudflare on 7844
+#   check 12 the key packages ship with is missing, or not 0600 (gpu-exchange#300)
+#   check 13 the host key that shipping trusts is not cctv-vps's key pinned in the repo
+#
+# Checks 7-13 print one SKIP line on a box without zone-annotator. Their repair is a re-run of
+# install-annotator.sh, which is idempotent; this audit stays read-only for them too.
 #
 # All are silent by construction. A unit crash-looping under
 # `Restart=on-failure` reports ActiveState=activating / SubState=auto-restart,
@@ -51,6 +61,10 @@ UNIT="${UNIT:-cctv-client}"
 # Paths on the box; overridable so tests can point the real probe at a fake /etc.
 UFW_CONF="${UFW_CONF:-/etc/ufw/ufw.conf}"
 SSHD_CONFIG="${SSHD_CONFIG:-/etc/ssh/sshd_config}"
+PIN_FILE="${PIN_FILE:-$(dirname "${BASH_SOURCE[0]}")/zone-annotator.pin}"
+# Who must own the tunnel token on the box; the tests own their stub token themselves.
+TOKEN_OWNER="${TOKEN_OWNER:-root}"
+KNOWN_HOSTS_FILE="${KNOWN_HOSTS_FILE:-$(dirname "${BASH_SOURCE[0]}")/annotation-drop.known_hosts}"
 ONLY_CHECK=""
 HOSTS_ARG=()
 
@@ -85,6 +99,7 @@ EXIT_WARN=0
 pass() { printf 'PASS  %s  check %s: %s\n' "$1" "$2" "$3"; }
 warn() { printf 'WARN  %s  check %s: %s\n' "$1" "$2" "$3"; EXIT_WARN=1; }
 fail() { printf 'FAIL  %s  check %s: %s\n' "$1" "$2" "$3"; EXIT_FAIL=1; }
+skip() { printf 'SKIP  %s  checks %s: %s\n' "$1" "$2" "$3"; }
 
 # One round trip per host: probe everything, parse locally. Keeps the remote
 # surface tiny (easy to mock, easy to audit) and avoids N ssh handshakes.
@@ -193,6 +208,79 @@ else
 fi
 printf 'SSH_PASSWORD_AUTH=%s\n' "$ssh_pa"
 printf 'SSH_UNREADABLE=%s\n' "$ssh_unreadable"
+
+# zone-annotator and its tunnel (checks 7-11). The overrides exist for the tests only.
+za_release="$(readlink "${ZA_PREFIX:-/opt/zone-annotator}/current" 2>/dev/null)"
+printf 'ZA_COMMIT=%s\n' "${za_release##*/}"
+# The release's files hashed as git hashes a tree, its venv left out: what the installer compared.
+# In Python, because git would have to write objects somewhere and this audit writes nothing.
+za_dir="$(readlink -f "${ZA_PREFIX:-/opt/zone-annotator}/current" 2>/dev/null)"
+if [ -n "$za_release" ] && [ -d "$za_dir" ]; then
+    printf 'ZA_TREE=%s\n' "$(python3 - "$za_dir" <<'PY'
+import hashlib, os, stat, sys
+
+
+class NotAFile(Exception):
+    pass
+
+
+def obj(kind, data):
+    return hashlib.sha1(b"%s %d\0" % (kind, len(data)) + data).digest()
+
+
+def tree(path, top):
+    entries = []
+    for name in os.listdir(path):
+        if top and name == ".venv":
+            continue
+        full, raw = os.path.join(path, name), os.fsencode(name)
+        st = os.lstat(full)
+        if stat.S_ISDIR(st.st_mode):
+            sha, mode = tree(full, False), b"40000"
+            if sha is None:
+                continue  # git keeps no empty directory
+        elif stat.S_ISLNK(st.st_mode):
+            sha, mode = obj(b"blob", os.fsencode(os.readlink(full))), b"120000"
+        elif not stat.S_ISREG(st.st_mode):
+            raise NotAFile(full)  # never opened: a FIFO blocks, /dev/zero never ends
+        else:
+            with open(full, "rb") as f:
+                sha = obj(b"blob", f.read())
+            mode = b"100755" if st.st_mode & stat.S_IXUSR else b"100644"
+        # git orders a directory as if its name ended in a slash
+        key = raw + b"/" if mode == b"40000" else raw
+        entries.append((key, mode + b" " + raw + b"\0" + sha))
+    if not entries and not top:
+        return None
+    return obj(b"tree", b"".join(entry for _, entry in sorted(entries)))
+
+
+try:
+    print(tree(sys.argv[1], True).hex())
+except NotAFile as odd:
+    print(os.path.relpath(str(odd), sys.argv[1]) + " is not a regular file")
+PY
+)"
+fi
+printf 'ZA_LOAD=%s\n' "$(systemctl show zone-annotator.service -p LoadState --value 2>/dev/null)"
+printf 'ZA_ACTIVE=%s\n' "$(systemctl show zone-annotator.service -p ActiveState --value 2>/dev/null)"
+printf 'ZA_LISTEN=%s\n' "$(ss -ltnH 'sport = :8713' 2>/dev/null | awk '{print $4}' | sort -u | tr '\n' ' ')"
+systemctl show zone-annotator.service -p IPAddressDeny -p IPAddressAllow -p NoNewPrivileges \
+    -p ProtectSystem -p InaccessiblePaths 2>/dev/null | sed 's/^/ZA_/'
+printf 'ZT_ACTIVE=%s\n' "$(systemctl show zone-annotator-tunnel.service -p ActiveState --value 2>/dev/null)"
+printf 'ZT_TOKEN_MODE=%s\n' "$(stat -c %a "${ZA_TOKEN:-/etc/zone-annotator/tunnel.token}" 2>/dev/null)"
+printf 'ZT_TOKEN_OWNER=%s\n' "$(stat -c %U "${ZA_TOKEN:-/etc/zone-annotator/tunnel.token}" 2>/dev/null)"
+if timeout 5 bash -c "exec 3<>/dev/tcp/${EGRESS_HOST:-region1.v2.argotunnel.com}/${EGRESS_PORT:-7844}" 2>/dev/null; then
+    echo EGRESS_7844=ok
+else
+    echo EGRESS_7844=fail
+fi
+printf 'ZA_DROP_KEY_MODE=%s\n' "$(stat -c %a "$HOME/.ssh/annotation-drop" 2>/dev/null)"
+# Hashed without carriage returns, as the repo copy is: a Windows checkout has them.
+za_hosts="$HOME/.ssh/annotation-drop.known_hosts"
+if [ -f "$za_hosts" ]; then
+    printf 'ZA_DROP_HOSTS=%s\n' "$(tr -d '\r' <"$za_hosts" | sha256sum | cut -d' ' -f1)"
+fi
 REMOTE
 }
 
@@ -361,8 +449,135 @@ check_6() {
   fail "$host" 6 "SSH accepts passwords (PasswordAuthentication ${pa:-not set, sshd default yes}). Fix: sudo client-appliance/harden-appliance.sh \$(id -un)"
 }
 
+FIX_ANNOTATOR="sudo client-appliance/install-annotator.sh \$(id -un) zone-annotator.tar <appliance uuid>"
+
+# check 7 - the installed zone-annotator is the pinned commit.
+check_7() {
+  local host="$1" commit="$2" tree="$3" pin="$4" pin_tree="$5"
+  if [[ -z "$commit" ]]; then
+    fail "$host" 7 "zone-annotator.service exists but zone-annotator is not installed at /opt/zone-annotator/current. Fix: $FIX_ANNOTATOR"
+    return
+  fi
+  if [[ "$commit" != "$pin" ]]; then
+    fail "$host" 7 "zone-annotator ${commit:0:7} installed, zone-annotator.pin wants ${pin:0:7}. Fix: $FIX_ANNOTATOR"
+    return
+  fi
+  if [[ ! "$tree" =~ ^[0-9a-f]{40}$ ]]; then
+    fail "$host" 7 "the files of zone-annotator ${commit:0:7} cannot be compared with the pin: ${tree:-no tree computed (no python3 on the box?)}. Fix: $FIX_ANNOTATOR"
+    return
+  fi
+  if [[ "$tree" != "$pin_tree" ]]; then
+    fail "$host" 7 "zone-annotator ${commit:0:7} installed, but its files are tree ${tree:0:8}, not the pinned ${pin_tree:0:8} (changed after the install). Fix: $FIX_ANNOTATOR"
+    return
+  fi
+  pass "$host" 7 "zone-annotator ${commit:0:7}, its files the pinned tree"
+}
+
+# check 8 - the service runs and only the tunnel on localhost can reach it.
+#
+# zone-annotator has no login of its own: anything beyond 127.0.0.1 is the client LAN
+# reaching it past Access.
+check_8() {
+  local host="$1" active="$2" listen="$3" addr wide=()
+  if [[ "$active" != "active" ]]; then
+    fail "$host" 8 "zone-annotator.service is ${active:-unknown}, not active. Check: journalctl -u zone-annotator -n 30; fix: $FIX_ANNOTATOR"
+    return
+  fi
+  if [[ -z "${listen// /}" ]]; then
+    fail "$host" 8 "zone-annotator.service is active but nothing listens on 127.0.0.1:8713. Fix: $FIX_ANNOTATOR"
+    return
+  fi
+  for addr in $listen; do
+    [[ "$addr" == "127.0.0.1:8713" ]] || wide+=("$addr")
+  done
+  if [[ ${#wide[@]} -gt 0 ]]; then
+    fail "$host" 8 "port 8713 listens beyond localhost on ${wide[*]} - the client LAN reaches zone-annotator without Access. Fix: $FIX_ANNOTATOR"
+    return
+  fi
+  pass "$host" 8 "zone-annotator active, listening only on 127.0.0.1:8713"
+}
+
+# check 9 - the effective unit still confines the tool (a drop-in can loosen what the file says).
+check_9() {
+  local host="$1" deny="$2" allow="$3" nnp="$4" protect="$5" inaccessible="$6" a problems=()
+  [[ " $deny " == *" 0.0.0.0/0 "* && " $deny " == *" ::/0 "* ]] ||
+    problems+=("IPAddressDeny=${deny:-unset}, not any")
+  for a in $allow; do
+    [[ "$a" == "127.0.0.0/8" || "$a" == "::1/128" ]] || problems+=("IPAddressAllow lets in $a")
+  done
+  [[ "$nnp" == "yes" ]] || problems+=("NoNewPrivileges=${nnp:-unset}")
+  [[ "$protect" == "strict" ]] || problems+=("ProtectSystem=${protect:-unset}, not strict")
+  [[ "$inaccessible" == *"/.config/cctv-client"* ]] ||
+    problems+=("the agent's ~/.config/cctv-client is not in InaccessiblePaths")
+  [[ "$inaccessible" == *"/.ssh"* ]] || problems+=("the agent's .ssh is not in InaccessiblePaths")
+  if [[ ${#problems[@]} -gt 0 ]]; then
+    local joined
+    joined=$(IFS='; '; echo "${problems[*]}")
+    fail "$host" 9 "zone-annotator.service is not confined: ${joined}. Fix: $FIX_ANNOTATOR (and remove any drop-in)"
+    return
+  fi
+  pass "$host" 9 "zone-annotator confined: localhost only, no new privileges, agent config and ~/.ssh out of reach"
+}
+
+# check 10 - the tunnel is up and its token readable by root alone.
+check_10() {
+  local host="$1" active="$2" mode="$3" owner="$4" problems=()
+  [[ "$active" == "active" ]] || problems+=("zone-annotator-tunnel.service is ${active:-unknown}")
+  [[ "$mode" == "600" ]] || problems+=("token file mode ${mode:-missing}, not 600")
+  [[ -z "$mode" || "$owner" == "$TOKEN_OWNER" ]] ||
+    problems+=("token file owned by ${owner:-unknown}, not $TOKEN_OWNER")
+  if [[ ${#problems[@]} -gt 0 ]]; then
+    local joined
+    joined=$(IFS='; '; echo "${problems[*]}")
+    fail "$host" 10 "tunnel: ${joined}. Fix: $FIX_ANNOTATOR (no token on the box: run gpu-exchange's appliance tunnel script first)"
+    return
+  fi
+  pass "$host" 10 "tunnel active, token file $TOKEN_OWNER's and 0600"
+}
+
+# check 11 - cloudflared can reach the edge at all; nothing in the installer can fix this.
+check_11() {
+  local host="$1" egress="$2"
+  if [[ "$egress" == "ok" ]]; then
+    pass "$host" 11 "outbound TCP 7844 to Cloudflare open"
+    return
+  fi
+  fail "$host" 11 "no outbound TCP to Cloudflare on 7844 - the tunnel cannot connect. Open it on the client's router or firewall"
+}
+
+# check 12 - the key annotation packages leave with, readable by the agent user alone.
+check_12() {
+  local host="$1" mode="$2"
+  if [[ -z "$mode" ]]; then
+    fail "$host" 12 "shipping key ~/.ssh/annotation-drop missing - packages cannot reach cctv-vps. Fix: $FIX_ANNOTATOR, then register the key it prints"
+    return
+  fi
+  if [[ "$mode" != "600" ]]; then
+    fail "$host" 12 "shipping key ~/.ssh/annotation-drop has mode $mode, not 600. Fix: $FIX_ANNOTATOR"
+    return
+  fi
+  pass "$host" 12 "shipping key present, 0600"
+}
+
+# check 13 - shipping trusts only cctv-vps's host key from the repo (StrictHostKeyChecking=yes).
+check_13() {
+  local host="$1" got="$2" want="$3"
+  if [[ -z "$got" ]]; then
+    fail "$host" 13 "~/.ssh/annotation-drop.known_hosts missing - packages cannot reach cctv-vps. Fix: $FIX_ANNOTATOR"
+    return
+  fi
+  if [[ "$got" != "$want" ]]; then
+    fail "$host" 13 "~/.ssh/annotation-drop.known_hosts is not the cctv-vps key pinned in client-appliance/annotation-drop.known_hosts. Fix: $FIX_ANNOTATOR"
+    return
+  fi
+  pass "$host" 13 "cctv-vps host key as pinned in the repo"
+}
+
 for host in "${HOSTS_ARG[@]}"; do
   PROC_COUNT=""; ACTIVE_STATE=""; SUB_STATE=""; N_RESTARTS=""; UNIT_ENABLED=""; LINGER=""
+  ZA_COMMIT=""; ZA_TREE=""; ZA_LOAD=""; ZA_ACTIVE=""; ZA_LISTEN=""; ZA_IPAddressDeny=""; ZA_IPAddressAllow=""
+  ZA_NoNewPrivileges=""; ZA_ProtectSystem=""; ZA_InaccessiblePaths=""
+  ZT_ACTIVE=""; ZT_TOKEN_MODE=""; ZT_TOKEN_OWNER=""; EGRESS_7844=""; ZA_DROP_KEY_MODE=""; ZA_DROP_HOSTS=""
   INSTALL_COMMIT=""; CHECKOUT_COMMIT=""; BUILD_MODIFIED=""
   UFW_ENABLED=""; SSHD_STATE=""; SSH_PASSWORD_AUTH=""; SSH_UNREADABLE=""
   while IFS='=' read -r key value; do
@@ -380,6 +595,22 @@ for host in "${HOSTS_ARG[@]}"; do
       SSHD_STATE) SSHD_STATE="$value" ;;
       SSH_PASSWORD_AUTH) SSH_PASSWORD_AUTH="$value" ;;
       SSH_UNREADABLE) SSH_UNREADABLE="$value" ;;
+      ZA_COMMIT) ZA_COMMIT="$value" ;;
+      ZA_TREE) ZA_TREE="$value" ;;
+      ZA_LOAD) ZA_LOAD="$value" ;;
+      ZA_ACTIVE) ZA_ACTIVE="$value" ;;
+      ZA_LISTEN) ZA_LISTEN="$value" ;;
+      ZA_IPAddressDeny) ZA_IPAddressDeny="$value" ;;
+      ZA_IPAddressAllow) ZA_IPAddressAllow="$value" ;;
+      ZA_NoNewPrivileges) ZA_NoNewPrivileges="$value" ;;
+      ZA_ProtectSystem) ZA_ProtectSystem="$value" ;;
+      ZA_InaccessiblePaths) ZA_InaccessiblePaths="$value" ;;
+      ZT_ACTIVE) ZT_ACTIVE="$value" ;;
+      ZT_TOKEN_MODE) ZT_TOKEN_MODE="$value" ;;
+      ZT_TOKEN_OWNER) ZT_TOKEN_OWNER="$value" ;;
+      EGRESS_7844) EGRESS_7844="$value" ;;
+      ZA_DROP_KEY_MODE) ZA_DROP_KEY_MODE="$value" ;;
+      ZA_DROP_HOSTS) ZA_DROP_HOSTS="$value" ;;
     esac
   done < <(probe "$host")
 
@@ -391,6 +622,24 @@ for host in "${HOSTS_ARG[@]}"; do
   [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "5" ]] && check_5 "$host" "$UFW_ENABLED"
   [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "6" ]] &&
     check_6 "$host" "$SSHD_STATE" "$SSH_PASSWORD_AUTH" "$SSH_UNREADABLE"
+
+  if [[ -z "$ZA_COMMIT" && "$ZA_LOAD" != "loaded" ]]; then
+    [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" -ge 7 ]] &&
+      skip "$host" 7-13 "zone-annotator not installed (a box without annotation)"
+  else
+    [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "7" ]] &&
+      check_7 "$host" "$ZA_COMMIT" "$ZA_TREE" "$(sed -n 1p "$PIN_FILE" | tr -d '[:space:]')" \
+        "$(sed -n 2p "$PIN_FILE" | tr -d '[:space:]')"
+    [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "8" ]] && check_8 "$host" "$ZA_ACTIVE" "$ZA_LISTEN"
+    [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "9" ]] &&
+      check_9 "$host" "$ZA_IPAddressDeny" "$ZA_IPAddressAllow" "$ZA_NoNewPrivileges" \
+        "$ZA_ProtectSystem" "$ZA_InaccessiblePaths"
+    [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "10" ]] && check_10 "$host" "$ZT_ACTIVE" "$ZT_TOKEN_MODE" "$ZT_TOKEN_OWNER"
+    [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "11" ]] && check_11 "$host" "$EGRESS_7844"
+    [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "12" ]] && check_12 "$host" "$ZA_DROP_KEY_MODE"
+    [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "13" ]] &&
+      check_13 "$host" "$ZA_DROP_HOSTS" "$(tr -d '\r' <"$KNOWN_HOSTS_FILE" | sha256sum | cut -d' ' -f1)"
+  fi
 done
 
 if [[ "$EXIT_FAIL" -eq 1 ]]; then exit 1; fi
