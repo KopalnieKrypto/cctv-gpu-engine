@@ -1338,15 +1338,23 @@ def test_report_task_progress_is_one_attempt_that_never_raises() -> None:
 # ----- annotation jobs (gpu-exchange#302) -----
 
 
+def _id(n: int) -> str:
+    """A platform id: every one the box puts into a path is a lowercase UUID."""
+    return f"{n:08d}-0000-4000-8000-000000000000"
+
+
+JOB, WINDOW, PROJECT, EXPORT, SPLIT, W1, W2 = (_id(n) for n in range(1, 8))
+
+
 def test_claim_next_annotation_job_parses_the_window_and_is_none_when_idle() -> None:
     from datetime import UTC, datetime
 
     from client_agent.platform import PlatformClient
 
     body = {
-        "job_id": "job-1",
-        "window_id": "window-1",
-        "project_id": "project-1",
+        "job_id": JOB,
+        "window_id": WINDOW,
+        "project_id": PROJECT,
         "camera_id": "cam-1",
         "start": "2026-11-23T09:00:00.000Z",
         "end": "2026-11-23T09:20:00.000Z",
@@ -1361,7 +1369,8 @@ def test_claim_next_annotation_job_parses_the_window_and_is_none_when_idle() -> 
         idle = client.claim_next_annotation_job()
 
     assert claim is not None
-    assert (claim.job_id, claim.project_id, claim.camera_id) == ("job-1", "project-1", "cam-1")
+    assert (claim.job_id, claim.window_id, claim.project_id) == (JOB, WINDOW, PROJECT)
+    assert claim.camera_id == "cam-1"
     assert claim.start == datetime(2026, 11, 23, 9, 0, tzinfo=UTC)
     assert claim.end == datetime(2026, 11, 23, 9, 20, tzinfo=UTC)
     assert (claim.kind, claim.shift, claim.lighting) == ("first", None, None)
@@ -1373,9 +1382,9 @@ def test_claim_next_annotation_job_reads_a_later_window_and_its_conditions() -> 
     from client_agent.platform import PlatformClient
 
     body = {
-        "job_id": "job-2",
-        "window_id": "window-2",
-        "project_id": "project-1",
+        "job_id": JOB,
+        "window_id": WINDOW,
+        "project_id": PROJECT,
         "camera_id": "cam-1",
         "start": "2026-11-23T15:00:00.000Z",
         "end": "2026-11-23T15:30:00.000Z",
@@ -1421,10 +1430,10 @@ def test_claim_next_annotation_job_reads_an_export_and_its_head() -> None:
     from client_agent.platform import AnnotationExportClaim, PlatformClient
 
     body = {
-        "job_id": "job-3",
+        "job_id": JOB,
         "kind": "export",
-        "export_id": "export-1",
-        "project_id": "project-1",
+        "export_id": EXPORT,
+        "project_id": PROJECT,
         "bound_to": "hala-prawe-skrzydlo/v1.0.0",
     }
     with respx.mock(base_url="https://platform.example") as mock:
@@ -1434,10 +1443,7 @@ def test_claim_next_annotation_job_reads_an_export_and_its_head() -> None:
         claim = client.claim_next_annotation_job()
 
     assert claim == AnnotationExportClaim(
-        job_id="job-3",
-        export_id="export-1",
-        project_id="project-1",
-        bound_to="hala-prawe-skrzydlo/v1.0.0",
+        job_id=JOB, export_id=EXPORT, project_id=PROJECT, bound_to="hala-prawe-skrzydlo/v1.0.0"
     )
 
 
@@ -1471,11 +1477,11 @@ def test_claim_next_annotation_job_reads_a_split_with_its_folds() -> None:
     from client_agent.platform import AnnotationSplitClaim, PlatformClient
 
     body = {
-        "job_id": "job-4",
+        "job_id": JOB,
         "kind": "split",
-        "split_id": "split-1",
-        "project_id": "project-1",
-        "folds": {"train": ["w1"], "heldout": ["w2"]},
+        "split_id": SPLIT,
+        "project_id": PROJECT,
+        "folds": {"train": [W1], "heldout": [W2]},
         "by": "Anna Kowalska",
         "reason": None,
     }
@@ -1486,10 +1492,10 @@ def test_claim_next_annotation_job_reads_a_split_with_its_folds() -> None:
         claim = client.claim_next_annotation_job()
 
     assert claim == AnnotationSplitClaim(
-        job_id="job-4",
-        split_id="split-1",
-        project_id="project-1",
-        folds={"train": ["w1"], "heldout": ["w2"]},
+        job_id=JOB,
+        split_id=SPLIT,
+        project_id=PROJECT,
+        folds={"train": [W1], "heldout": [W2]},
         by="Anna Kowalska",
         reason=None,
     )
@@ -1521,10 +1527,10 @@ def test_claim_next_annotation_job_reads_a_head_run_with_its_model() -> None:
     from client_agent.platform import AnnotationRegisterRunClaim, PlatformClient
 
     body = {
-        "job_id": "job-5",
+        "job_id": JOB,
         "kind": "register_run",
-        "export_id": "export-1",
-        "project_id": "project-1",
+        "export_id": EXPORT,
+        "project_id": PROJECT,
         "model": "hala/v1.0.0",
     }
     with respx.mock(base_url="https://platform.example") as mock:
@@ -1534,7 +1540,7 @@ def test_claim_next_annotation_job_reads_a_head_run_with_its_model() -> None:
         claim = client.claim_next_annotation_job()
 
     assert claim == AnnotationRegisterRunClaim(
-        job_id="job-5", export_id="export-1", project_id="project-1", model="hala/v1.0.0"
+        job_id=JOB, export_id=EXPORT, project_id=PROJECT, model="hala/v1.0.0"
     )
 
 
@@ -1559,3 +1565,73 @@ def test_report_annotation_register_run_posts_the_answer_with_the_ledger() -> No
         {"status": "registered", "ledger": ledger},
         {"status": "failed", "ledger": ledger, "error": "no split declared"},
     ]
+
+
+def _claimed(body: object, status: int = 200):
+    from client_agent.platform import PlatformClient
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        mock.get("/appliance/annotation/next").mock(return_value=httpx.Response(status, json=body))
+        return PlatformClient(
+            base_url="https://platform.example", token="tok"
+        ).claim_next_annotation_job()
+
+
+WINDOW_BODY = {
+    "job_id": JOB,
+    "window_id": WINDOW,
+    "project_id": PROJECT,
+    "camera_id": "cam-1",
+    "start": "2026-11-23T09:00:00.000Z",
+    "end": "2026-11-23T09:20:00.000Z",
+}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {**WINDOW_BODY, "project_id": "../../.ssh"},
+        {**WINDOW_BODY, "window_id": "w/../../x"},
+        {**WINDOW_BODY, "job_id": "ABCDEF01-0000-4000-8000-000000000000"},
+        {
+            "job_id": JOB,
+            "kind": "export",
+            "export_id": "..",
+            "project_id": PROJECT,
+            "bound_to": "h/v1",
+        },
+        {
+            "job_id": JOB,
+            "kind": "split",
+            "split_id": SPLIT,
+            "project_id": PROJECT,
+            "folds": {"train": ["../w1"]},
+        },
+        {
+            "job_id": JOB,
+            "kind": "register_run",
+            "export_id": EXPORT,
+            "project_id": "",
+            "model": "m",
+        },
+        {**WINDOW_BODY, "window_id": None},
+        {"job_id": JOB, "kind": "export", "project_id": PROJECT},
+        ["not", "a", "claim"],
+    ],
+)
+def test_a_claim_with_an_id_that_is_not_a_uuid_or_a_missing_field_is_skipped(body, caplog) -> None:
+    """Ids become paths on the box and reach rmtree: nothing but a UUID gets that far."""
+    assert _claimed(body) is None
+    assert "skipping annotation claim" in caplog.text
+
+
+def test_a_claim_of_a_kind_this_box_does_not_know_is_skipped_not_glued_as_a_window(caplog) -> None:
+    assert _claimed({**WINDOW_BODY, "kind": "reindex"}) is None
+    assert "reindex" in caplog.text
+
+
+def test_a_refused_claim_raises_the_platforms_words_not_a_key_error() -> None:
+    from client_agent.platform import PlatformRequestError
+
+    with pytest.raises(PlatformRequestError, match=r"annotation next \(403\): appliance revoked"):
+        _claimed({"error": "appliance revoked"}, status=403)

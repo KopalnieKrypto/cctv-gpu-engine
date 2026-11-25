@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -558,41 +559,15 @@ class PlatformClient:
         response = self._get("/appliance/annotation/next")
         if response.status_code == 204:
             return None
+        _raise_if_refused(response, "annotation next")
         data = response.json()
-        if data.get("kind") == "register_run":
-            return AnnotationRegisterRunClaim(
-                job_id=data["job_id"],
-                export_id=data["export_id"],
-                project_id=data["project_id"],
-                model=data["model"],
-            )
-        if data.get("kind") == "split":
-            return AnnotationSplitClaim(
-                job_id=data["job_id"],
-                split_id=data["split_id"],
-                project_id=data["project_id"],
-                folds=data["folds"],
-                by=data.get("by"),
-                reason=data.get("reason"),
-            )
-        if data.get("kind") == "export":
-            return AnnotationExportClaim(
-                job_id=data["job_id"],
-                export_id=data["export_id"],
-                project_id=data["project_id"],
-                bound_to=data["bound_to"],
-            )
-        return AnnotationJobClaim(
-            job_id=data["job_id"],
-            window_id=data["window_id"],
-            project_id=data["project_id"],
-            camera_id=data["camera_id"],
-            start=_parse_iso(data["start"]),
-            end=_parse_iso(data["end"]),
-            kind="next" if data.get("kind") == "next" else "first",
-            shift=data.get("shift"),
-            lighting=data.get("lighting"),
-        )
+        try:
+            return _annotation_claim(data)
+        except (KeyError, TypeError, ValueError, AttributeError) as exc:
+            # The server has marked it claimed; its sweeper fails it, nothing here touches the disk.
+            job = data.get("job_id") if isinstance(data, dict) else None
+            logger.warning("skipping annotation claim %r: %s", job, exc)
+            return None
 
     def report_annotation_job(
         self,
@@ -814,6 +789,60 @@ class AnnotationSplitClaim:
     folds: dict[str, list[str]]
     by: str | None = None
     reason: str | None = None
+
+
+_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
+def _uuid(value: object) -> str:
+    """A platform id before it names a directory on the box: a lowercase UUID, nothing else."""
+    if not isinstance(value, str) or not _UUID.fullmatch(value):
+        raise ValueError(f"{value!r} is not a UUID")
+    return value
+
+
+def _annotation_claim(
+    data: dict,
+) -> AnnotationJobClaim | AnnotationExportClaim | AnnotationSplitClaim | AnnotationRegisterRunClaim:
+    """One claim from ``/appliance/annotation/next``, its ids checked; ValueError otherwise."""
+    kind = data.get("kind")
+    if kind == "register_run":
+        return AnnotationRegisterRunClaim(
+            job_id=_uuid(data["job_id"]),
+            export_id=_uuid(data["export_id"]),
+            project_id=_uuid(data["project_id"]),
+            model=data["model"],
+        )
+    if kind == "split":
+        return AnnotationSplitClaim(
+            job_id=_uuid(data["job_id"]),
+            split_id=_uuid(data["split_id"]),
+            project_id=_uuid(data["project_id"]),
+            folds={name: [_uuid(w) for w in windows] for name, windows in data["folds"].items()},
+            by=data.get("by"),
+            reason=data.get("reason"),
+        )
+    if kind == "export":
+        return AnnotationExportClaim(
+            job_id=_uuid(data["job_id"]),
+            export_id=_uuid(data["export_id"]),
+            project_id=_uuid(data["project_id"]),
+            bound_to=data["bound_to"],
+        )
+    # A platform from before gpu-exchange#305 sends no kind: every window it knows is a first one.
+    if kind not in (None, "first", "next"):
+        raise ValueError(f"kind {kind!r} is unknown to this box")
+    return AnnotationJobClaim(
+        job_id=_uuid(data["job_id"]),
+        window_id=_uuid(data["window_id"]),
+        project_id=_uuid(data["project_id"]),
+        camera_id=data["camera_id"],
+        start=_parse_iso(data["start"]),
+        end=_parse_iso(data["end"]),
+        kind=kind or "first",
+        shift=data.get("shift"),
+        lighting=data.get("lighting"),
+    )
 
 
 def _parse_iso(s: str) -> datetime:
