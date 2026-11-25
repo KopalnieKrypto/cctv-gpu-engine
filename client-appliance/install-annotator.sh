@@ -92,9 +92,10 @@ TREE="$WORK/tree"
 mkdir "$TREE"
 tar --no-same-owner -xf "$TAR" -C "$TREE"
 # git archive writes none of these, and a tree cannot show them: .git and attribute files
-# would steer git itself, a set-id or world-writable bit would pass the comparison.
+# would steer git itself; a set-id or world-writable bit, a device node or a FIFO (git add
+# skips both, root's tar makes them for real) would pass the comparison.
 odd="$(find "$TREE" \( -name .git -o -name .gitattributes -o -name .gitmodules \
-    -o \( ! -type l -perm /7002 \) \) -print -quit)"
+    -o \( ! -type f ! -type d ! -type l \) -o \( ! -type l -perm /7002 \) \) -print -quit)"
 [[ -z "$odd" ]] || die "package holds ${odd#"$TREE"/}, which git archive never writes, so it is not the pinned tree"
 # Only git's defaults: no filter or line-ending rule from root's config touches the comparison.
 verify_git() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 "$GIT" --git-dir="$WORK/git" --work-tree="$TREE" "$@"; }

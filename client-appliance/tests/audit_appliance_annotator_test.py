@@ -11,6 +11,7 @@ annotation and gets SKIP, which leaves the exit code alone.
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
 import socket
 import subprocess
@@ -80,6 +81,8 @@ def _audit(
             **env,
         },
         check=False,
+        # A probe that blocks (a FIFO opened for its tree) fails here instead of hanging.
+        timeout=60,
     )
 
 
@@ -219,3 +222,25 @@ def test_the_real_probe_reads_a_stubbed_annotation_box(tmp_path: Path) -> None:
 
     for check in range(7, 14):
         assert _line(result.stdout, check).startswith("PASS"), result.stdout + result.stderr
+
+
+def test_a_release_holding_something_other_than_files_fails_check_7_without_opening_it(
+    tmp_path: Path,
+) -> None:
+    """A FIFO would block the probe for ever and /dev/zero fill its memory; neither is a file."""
+    prefix = tmp_path / "opt" / "zone-annotator"
+    release = prefix / "releases" / PIN
+    release.mkdir(parents=True)
+    (prefix / "current").symlink_to(f"releases/{PIN}")
+    os.mkfifo(release / "fifo")
+    ssh = tmp_path / "fake-ssh"
+    ssh.write_text(
+        f'#!/usr/bin/env bash\ncmd="${{@: -1}}"\nexport ZA_PREFIX="{prefix}" EGRESS_PORT=1\n'
+        'eval "$cmd"\n'
+    )
+    ssh.chmod(0o755)
+
+    result = _audit(tmp_path, "", ssh=ssh)
+
+    line = _line(result.stdout, 7)
+    assert line.startswith("FAIL") and "fifo is not a regular file" in line, result.stdout

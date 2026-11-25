@@ -220,6 +220,10 @@ if [ -n "$za_release" ] && [ -d "$za_dir" ]; then
 import hashlib, os, stat, sys
 
 
+class NotAFile(Exception):
+    pass
+
+
 def obj(kind, data):
     return hashlib.sha1(b"%s %d\0" % (kind, len(data)) + data).digest()
 
@@ -237,6 +241,8 @@ def tree(path, top):
                 continue  # git keeps no empty directory
         elif stat.S_ISLNK(st.st_mode):
             sha, mode = obj(b"blob", os.fsencode(os.readlink(full))), b"120000"
+        elif not stat.S_ISREG(st.st_mode):
+            raise NotAFile(full)  # never opened: a FIFO blocks, /dev/zero never ends
         else:
             with open(full, "rb") as f:
                 sha = obj(b"blob", f.read())
@@ -249,7 +255,10 @@ def tree(path, top):
     return obj(b"tree", b"".join(entry for _, entry in sorted(entries)))
 
 
-print(tree(sys.argv[1], True).hex())
+try:
+    print(tree(sys.argv[1], True).hex())
+except NotAFile as odd:
+    print(os.path.relpath(str(odd), sys.argv[1]) + " is not a regular file")
 PY
 )"
 fi
@@ -453,8 +462,12 @@ check_7() {
     fail "$host" 7 "zone-annotator ${commit:0:7} installed, zone-annotator.pin wants ${pin:0:7}. Fix: $FIX_ANNOTATOR"
     return
   fi
+  if [[ ! "$tree" =~ ^[0-9a-f]{40}$ ]]; then
+    fail "$host" 7 "the files of zone-annotator ${commit:0:7} cannot be compared with the pin: ${tree:-no tree computed (no python3 on the box?)}. Fix: $FIX_ANNOTATOR"
+    return
+  fi
   if [[ "$tree" != "$pin_tree" ]]; then
-    fail "$host" 7 "zone-annotator ${commit:0:7} installed, but its files are tree ${tree:0:8}, not the pinned ${pin_tree:0:8} (changed after the install, or no python3 on the box). Fix: $FIX_ANNOTATOR"
+    fail "$host" 7 "zone-annotator ${commit:0:7} installed, but its files are tree ${tree:0:8}, not the pinned ${pin_tree:0:8} (changed after the install). Fix: $FIX_ANNOTATOR"
     return
   fi
   pass "$host" 7 "zone-annotator ${commit:0:7}, its files the pinned tree"

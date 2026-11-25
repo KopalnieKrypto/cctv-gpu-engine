@@ -453,7 +453,10 @@ def test_the_package_is_read_once_as_the_agent_and_its_smoke_runs_as_the_agent(
 
 
 def _forged(tar: Path, out: Path, *, add: dict[str, bytes]) -> Path:
-    """``tar`` with files added and replaced, under the same commit id in its header."""
+    """``tar`` with files added and replaced, under the same commit id in its header.
+
+    A one-byte tar type (``tarfile.FIFOTYPE``, ``CHRTYPE``) adds an entry of that kind.
+    """
     with (
         tarfile.open(tar) as original,
         tarfile.open(
@@ -465,7 +468,12 @@ def _forged(tar: Path, out: Path, *, add: dict[str, bytes]) -> Path:
                 forged.addfile(member, original.extractfile(member))
         for name, content in add.items():
             info = tarfile.TarInfo(name)
-            info.size, info.mode = len(content), 0o644
+            info.mode = 0o644
+            if content in (tarfile.FIFOTYPE, tarfile.CHRTYPE):
+                info.type, info.devmajor, info.devminor = content, 1, 3  # /dev/null
+                forged.addfile(info)
+                continue
+            info.size = len(content)
             forged.addfile(info, io.BytesIO(content))
     return out
 
@@ -476,8 +484,16 @@ def _forged(tar: Path, out: Path, *, add: dict[str, bytes]) -> Path:
         {"zone_annotator/smoke_phase1.py": b'print("FORGED CODE RAN")\n'},
         # Not in any tree git computes, so the comparison alone would let it through.
         {".git/config": b"[core]\n\tfsmonitor = /bin/false\n"},
+        # git add skips both, so they too would pass the comparison, and tar makes them for real.
+        {"zone_annotator/fifo": tarfile.FIFOTYPE},
+        pytest.param(
+            {"zone_annotator/disk": tarfile.CHRTYPE},
+            marks=pytest.mark.skipif(
+                getattr(os, "geteuid", lambda: -1)() != 0, reason="only root makes a device node"
+            ),
+        ),
     ],
-    ids=["changed-file", "git-metadata"],
+    ids=["changed-file", "git-metadata", "fifo", "device-node"],
 )
 def test_refuses_a_package_that_is_not_the_pinned_tree_before_running_any_of_it(
     tmp_path: Path, tunnel_port: int, add: dict[str, bytes]
