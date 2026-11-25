@@ -163,7 +163,7 @@ paczka, instalator.
    pustych katalogów, właściciela ani bitów poza wykonywaniem. Puste katalogi nie
    uruchamiają kodu, właściciela narzuca `tar --no-same-owner`, a set-id i zapis
    dla wszystkich są odrzucane osobno. Commit z `export-ignore` albo `export-subst`
-   w `.gitattributes` dałby inne drzewo niż commit; 15ddc8d nie ma `.gitattributes`.
+   w `.gitattributes` dałby inne drzewo niż commit; c93f3da nie ma `.gitattributes`.
 
    W katalogu domowym agenta instalator działa jako agent (`runuser`), więc nie
    idzie za dowiązaniami, które tam zostawiono. Paczkę czyta raz, jako agent, do
