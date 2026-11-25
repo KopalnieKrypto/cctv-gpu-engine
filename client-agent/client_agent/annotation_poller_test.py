@@ -24,6 +24,8 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from client_agent import annotation_poller
 from client_agent.annotation_poller import AnnotationPoller
 from client_agent.buffer import BufferChunk
@@ -32,6 +34,8 @@ from client_agent.platform import (
     AnnotationJobClaim,
     AnnotationRegisterRunClaim,
     AnnotationSplitClaim,
+    PlatformRequestError,
+    PlatformUnavailableError,
 )
 
 START = datetime(2026, 11, 23, 9, 0, tzinfo=UTC)
@@ -43,21 +47,28 @@ GIB = 1024**3
 class FakePlatform:
     claims: list[AnnotationJobClaim] = field(default_factory=list)
     reports: list[dict] = field(default_factory=list)
+    #: status -> what its next reports raise, one each, after the report is recorded.
+    errors: dict[str, list[Exception]] = field(default_factory=dict)
 
     def claim_next_annotation_job(self) -> AnnotationJobClaim | None:
         return self.claims.pop(0) if self.claims else None
 
-    def report_annotation_job(self, job_id: str, **body: object) -> None:
+    def _report(self, job_id: str, body: dict) -> None:
         self.reports.append({"job_id": job_id, **body})
+        if self.errors.get(body["status"]):
+            raise self.errors[body["status"]].pop(0)
+
+    def report_annotation_job(self, job_id: str, **body: object) -> None:
+        self._report(job_id, body)
 
     def report_annotation_export(self, job_id: str, **body: object) -> None:
-        self.reports.append({"job_id": job_id, **body})
+        self._report(job_id, body)
 
     def report_annotation_split(self, job_id: str, **body: object) -> None:
-        self.reports.append({"job_id": job_id, **body})
+        self._report(job_id, body)
 
     def report_annotation_register_run(self, job_id: str, **body: object) -> None:
-        self.reports.append({"job_id": job_id, **body})
+        self._report(job_id, body)
 
 
 @dataclass
@@ -504,6 +515,146 @@ def test_a_package_waiting_from_before_a_restart_is_sent_by_the_next_poller(tmp_
     assert tools.named("zone_annotator.export") == []
     assert [r["status"] for r in platform.reports] == ["sending", "on_vps"]
     assert platform.reports[-1]["job_id"] == "job-3"
+
+
+DOWN = PlatformUnavailableError("platform timed out after retries")
+GONE = PlatformRequestError(409, "platform refused annotation export status (409): failed")
+
+
+def a_waiting_package(tmp_path: Path, *, at: float = 0.0) -> None:
+    """An export whose rsync failed at ``at``: its checked package waits on the box."""
+    a_project(tmp_path)
+    a_poller(
+        tmp_path,
+        platform=FakePlatform(claims=[an_export_claim()]),
+        buffer=FakeBuffer(),
+        runner=Tools(rsync_codes=[255]),
+        clock=lambda: at,
+    ).run_once()
+
+
+def test_a_waiting_package_the_platform_cannot_take_never_holds_up_new_claims(tmp_path):
+    a_waiting_package(tmp_path)
+    platform = FakePlatform(claims=[a_claim()], errors={"sending": [DOWN]})
+    now = [1000.0]
+    poller = a_poller(
+        tmp_path,
+        platform=platform,
+        buffer=FakeBuffer([a_chunk(tmp_path)]),
+        runner=Tools(),
+        clock=lambda: now[0],
+    )
+
+    assert poller.run_once() is True
+    assert platform.reports[-1]["status"] == "awaiting_zones"
+
+    now[0] += 60
+    poller.run_once()
+    assert [r["status"] for r in platform.reports].count("sending") == 1, "backoff before the try"
+    assert (tmp_path / "exports" / "export-1.waiting").is_file()
+
+
+def test_a_waiting_package_the_platform_has_moved_on_from_is_deleted(tmp_path, caplog):
+    """A 409 means the export is settled elsewhere (e.g. the sweeper failed it): drop it here."""
+    a_waiting_package(tmp_path)
+    platform = FakePlatform(claims=[a_claim()], errors={"sending": [GONE]})
+    poller = a_poller(
+        tmp_path, platform=platform, buffer=FakeBuffer([a_chunk(tmp_path)]), runner=Tools()
+    )
+
+    assert poller.run_once() is True
+
+    assert not list((tmp_path / "exports").iterdir())
+    assert "job-3" in caplog.text
+    assert platform.reports[-1]["status"] == "awaiting_zones"
+
+
+def test_a_package_sent_whose_on_vps_report_was_lost_is_reported_again(tmp_path):
+    a_project(tmp_path)
+    platform = FakePlatform(claims=[an_export_claim()], errors={"on_vps": [DOWN]})
+    tools = Tools()
+    marker = tmp_path / "exports" / "export-1.waiting"
+    marked_at_rsync: list[bool] = []
+
+    def runner(cmd, **kw):
+        if "rsync" in cmd:
+            marked_at_rsync.append(marker.is_file())
+        return tools(cmd, **kw)
+
+    now = [1000.0]
+    poller = a_poller(
+        tmp_path, platform=platform, buffer=FakeBuffer(), runner=runner, clock=lambda: now[0]
+    )
+
+    with pytest.raises(PlatformUnavailableError):
+        poller.run_once()
+    assert marked_at_rsync == [True]
+    assert json.loads(marker.read_text(encoding="utf-8")) == {"job_id": "job-3", "created": 1000.0}
+
+    now[0] += 300
+    poller.run_once()
+    assert [r["status"] for r in platform.reports] == [
+        "checking",
+        "sending",
+        "on_vps",
+        "sending",
+        "on_vps",
+    ]
+    assert not list((tmp_path / "exports").iterdir())
+
+
+def test_a_broken_marker_is_deleted_with_its_package_and_the_queue_goes_on(tmp_path, caplog):
+    a_waiting_package(tmp_path)
+    (tmp_path / "exports" / "export-1.waiting").write_text('{"job_', encoding="utf-8")
+    platform = FakePlatform(claims=[a_claim()])
+    tools = Tools()
+    poller = a_poller(
+        tmp_path, platform=platform, buffer=FakeBuffer([a_chunk(tmp_path)]), runner=tools
+    )
+
+    assert poller.run_once() is True
+
+    assert not list((tmp_path / "exports").iterdir())
+    assert tools.named("rsync") == []
+    assert "export-1" in caplog.text
+    assert platform.reports[-1]["status"] == "awaiting_zones"
+
+
+def test_a_package_cctv_vps_has_not_taken_for_seven_days_is_failed_and_deleted(tmp_path):
+    a_waiting_package(tmp_path, at=1000.0)
+    platform = FakePlatform()
+    tools = Tools()
+
+    a_poller(
+        tmp_path,
+        platform=platform,
+        buffer=FakeBuffer(),
+        runner=tools,
+        clock=lambda: 1000.0 + 7 * 86400,
+    ).run_once()
+
+    assert platform.reports == [
+        {
+            "job_id": "job-3",
+            "status": "failed",
+            "error": "cctv-vps nieosiągalny przez 7 dni, paczka usunięta z boxa",
+        }
+    ]
+    assert tools.named("rsync") == []
+    assert not list((tmp_path / "exports").iterdir())
+
+
+def test_a_package_left_by_an_interrupted_export_is_deleted_on_the_next_round(tmp_path):
+    a_project(tmp_path)
+    platform = FakePlatform(claims=[an_export_claim()], errors={"checking": [DOWN]})
+    poller = a_poller(tmp_path, platform=platform, buffer=FakeBuffer(), runner=Tools())
+
+    with pytest.raises(PlatformUnavailableError):
+        poller.run_once()
+    assert (tmp_path / "exports" / "export-1").is_dir()
+
+    poller.run_once()
+    assert not list((tmp_path / "exports").iterdir())
 
 
 def test_a_disk_below_the_floor_refuses_an_export_before_anything_is_written(tmp_path):

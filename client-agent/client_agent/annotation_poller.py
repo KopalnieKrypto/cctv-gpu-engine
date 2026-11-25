@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import subprocess
 import time
@@ -48,6 +49,7 @@ from client_agent.platform import (
     AnnotationJobClaim,
     AnnotationRegisterRunClaim,
     AnnotationSplitClaim,
+    PlatformRequestError,
 )
 
 logger = logging.getLogger(__name__)
@@ -72,6 +74,9 @@ DROP_TARGET = "annotation-drop@cctv-vps"
 
 #: How long a checked package waits on the box before cctv-vps is tried again.
 RETRY_AFTER_S = 300.0
+
+#: A package cctv-vps has not taken in this long is failed and deleted: it is a copy of crops.
+WAITING_LIMIT_S = 7 * 86400.0
 
 
 class _PlatformLike(Protocol):
@@ -142,7 +147,8 @@ class AnnotationPoller:
         exports_dir: Path | None = None,
         drop_target: str = DROP_TARGET,
         drop_key: Path = DROP_KEY,
-        clock: Callable[[], float] = time.monotonic,
+        # Wall time: a marker's age must survive a restart.
+        clock: Callable[[], float] = time.time,
         retry_after_s: float = RETRY_AFTER_S,
     ) -> None:
         self._platform = platform
@@ -380,22 +386,35 @@ class AnnotationPoller:
             shutil.rmtree(package, ignore_errors=True)
             self._export_failed(claim.job_id, _said(checked, "check_export"))
             return
+        self._mark_waiting(claim.job_id, claim.export_id)
         self._send(claim.job_id, claim.export_id)
 
+    def _mark_waiting(self, job_id: str, export_id: str) -> None:
+        """The ``.waiting`` marker, whole or not at all, before the first report or rsync.
+
+        From here until ``on_vps`` is taken the package is retried on its own:
+        after ``retry_after_s``, after a restart, after any report that did not
+        get through.
+        """
+        marker = self._exports_dir / f"{export_id}.waiting"
+        tmp = marker.with_name(f"{marker.name}.tmp")
+        with tmp.open("w", encoding="utf-8") as f:
+            json.dump({"job_id": job_id, "created": self._clock()}, f)
+            f.flush()
+            os.fsync(f.fileno())
+        tmp.replace(marker)
+
     def _send(self, job_id: str, export_id: str) -> None:
-        """rsync a checked package to this box's directory on cctv-vps, or wait for it.
+        """rsync a marked package to this box's directory on cctv-vps, or leave it waiting.
 
-        A package that could not be sent stays on the box with a ``.waiting``
-        marker beside it, so it is retried after ``retry_after_s`` and after a
-        restart too, without the client asking again.
-
-        shortcut: a crash between check_export and the first rsync answer leaves the
-        export in ``sending`` with its package on disk; clean it by hand if it happens.
+        The backoff is set before the try, so neither a refused rsync nor a
+        report that does not get through brings the package back before
+        ``retry_after_s``. The marker goes only once ``on_vps`` is taken, or
+        when the platform answers 409: it settled this export without the box.
         """
         package = self._exports_dir / export_id
-        marker = self._exports_dir / f"{export_id}.waiting"
         destination = f"{self._drop_target}:{export_id}/"
-        self._platform.report_annotation_export(job_id, status="sending")
+        self._retry_at[export_id] = self._clock() + self._retry_after_s
         ssh = (
             f"ssh -i {self._drop_key} -o IdentitiesOnly=yes -o BatchMode=yes "
             # The first connection learns cctv-vps's key over the tailnet; later changes are refused
@@ -404,31 +423,67 @@ class AnnotationPoller:
             # Errors only: the client reads this sentence, not ssh's notes.
             "-o LogLevel=ERROR"
         )
-        sent = self._run(["rsync", "-rt", "-e", ssh, f"{package}/", destination])
-        if sent.returncode != 0:
-            marker.write_text(json.dumps({"job_id": job_id}), encoding="utf-8")
-            self._retry_at[export_id] = self._clock() + self._retry_after_s
+        try:
+            self._platform.report_annotation_export(job_id, status="sending")
+            sent = self._run(["rsync", "-rt", "-e", ssh, f"{package}/", destination])
+            if sent.returncode != 0:
+                self._platform.report_annotation_export(
+                    job_id, status="waiting_for_vps", error=_said(sent, "rsync")
+                )
+                return
+            document = json.loads((package / "export.json").read_text(encoding="utf-8"))
             self._platform.report_annotation_export(
-                job_id, status="waiting_for_vps", error=_said(sent, "rsync")
+                job_id, status="on_vps", samples=len(document["samples"]), destination=destination
             )
-            return
-        document = json.loads((package / "export.json").read_text(encoding="utf-8"))
-        self._platform.report_annotation_export(
-            job_id, status="on_vps", samples=len(document["samples"]), destination=destination
-        )
-        shutil.rmtree(package, ignore_errors=True)
-        marker.unlink(missing_ok=True)
-        self._retry_at.pop(export_id, None)
+        except PlatformRequestError as exc:
+            if exc.status_code != 409:
+                raise
+            logger.warning("annotation export %s settled without this box (%s)", job_id, exc)
+        self._drop_package(export_id)
 
     def _retry_waiting_exports(self) -> None:
+        """Every waiting package on its own, so none of them ever holds up the next claim.
+
+        Between iterations only a package with its marker belongs here; anything
+        else was left by an export the agent did not finish, and goes.
+        """
         if not self._exports_dir.is_dir():
             return
-        for marker in sorted(self._exports_dir.glob("*.waiting")):
-            export_id = marker.stem
-            if self._clock() < self._retry_at.get(export_id, float("-inf")):
-                continue
-            job_id = json.loads(marker.read_text(encoding="utf-8"))["job_id"]
-            self._send(job_id, export_id)
+        for entry in sorted(self._exports_dir.iterdir()):
+            try:
+                if entry.suffix == ".waiting":
+                    self._retry(entry)
+                elif not entry.with_name(f"{entry.name}.waiting").exists():
+                    logger.warning("deleting %s, left by an interrupted export", entry)
+                    _remove(entry)
+            except Exception as exc:  # noqa: BLE001 — retried after its backoff
+                logger.warning("annotation package %s: %s", entry.name, exc)
+
+    def _retry(self, marker: Path) -> None:
+        export_id = marker.stem
+        if self._clock() < self._retry_at.get(export_id, float("-inf")):
+            return
+        try:
+            waiting = json.loads(marker.read_text(encoding="utf-8"))
+            job_id, created = waiting["job_id"], float(waiting["created"])
+            if not (self._exports_dir / export_id).is_dir():
+                raise ValueError("no package beside it")
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            logger.warning(
+                "annotation package %s has a broken marker (%s); deleted", export_id, exc
+            )
+            self._drop_package(export_id)
+            return
+        if self._clock() - created >= WAITING_LIMIT_S:
+            self._export_failed(job_id, "cctv-vps nieosiągalny przez 7 dni, paczka usunięta z boxa")
+            self._drop_package(export_id)
+            return
+        self._send(job_id, export_id)
+
+    def _drop_package(self, export_id: str) -> None:
+        shutil.rmtree(self._exports_dir / export_id, ignore_errors=True)
+        (self._exports_dir / f"{export_id}.waiting").unlink(missing_ok=True)
+        self._retry_at.pop(export_id, None)
 
     def _zone_annotator(self, tool: str, *args: str) -> subprocess.CompletedProcess:
         return self._run([self._python, "-m", f"zone_annotator.{tool}", *args])
@@ -485,6 +540,13 @@ class AnnotationPoller:
 
     def _lowered(self, cmd: list[str], **kwargs: object) -> object:
         return self._runner([*_LOWER_PRIORITY, *cmd], **kwargs)
+
+
+def _remove(path: Path) -> None:
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink(missing_ok=True)
 
 
 def _said(result: subprocess.CompletedProcess, tool: str) -> str:
