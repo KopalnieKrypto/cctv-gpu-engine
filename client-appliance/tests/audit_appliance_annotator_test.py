@@ -1,4 +1,4 @@
-"""Checks 7-12 of audit-appliance.sh: zone-annotator, its tunnel, its shipping key (#298, #300).
+"""Checks 7-13 of audit-appliance.sh: zone-annotator, its tunnel, its shipping key and host key.
 
 The audit stays read-only. Repair is a re-run of install-annotator.sh, so "FAIL then repair then
 PASS" is a probe blob with the drift, then the same blob as the installer leaves it.
@@ -10,6 +10,7 @@ annotation and gets SKIP, which leaves the exit code alone.
 
 from __future__ import annotations
 
+import hashlib
 import shutil
 import socket
 import subprocess
@@ -20,6 +21,8 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 AUDIT = ROOT / "audit-appliance.sh"
 PIN = "d800ae42d8ed45ee5346e13c3f3e2561001bcc34"
+KNOWN_HOSTS = "# cctv-vps\ncctv-vps,100.64.0.1 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItest\n"
+KNOWN_HOSTS_SHA = hashlib.sha256(KNOWN_HOSTS.encode()).hexdigest()
 
 pytestmark = pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
 
@@ -46,12 +49,16 @@ HEALTHY = {
     "ZT_TOKEN_MODE": "600",
     "EGRESS_7844": "ok",
     "ZA_DROP_KEY_MODE": "600",
+    "ZA_DROP_HOSTS": KNOWN_HOSTS_SHA,
 }
 
 
 def _audit(tmp_path: Path, blob: str, ssh: Path | None = None) -> subprocess.CompletedProcess[str]:
     pin = tmp_path / "zone-annotator.pin"
     pin.write_text(PIN + "\n")
+    # As a Windows checkout has it: the audit compares without carriage returns.
+    known = tmp_path / "annotation-drop.known_hosts"
+    known.write_bytes(KNOWN_HOSTS.replace("\n", "\r\n").encode())
     if ssh is None:
         ssh = tmp_path / "fake-ssh"
         ssh.write_text(f"#!/usr/bin/env bash\ncat <<'BLOB'\n{blob}\nBLOB\n")
@@ -60,7 +67,12 @@ def _audit(tmp_path: Path, blob: str, ssh: Path | None = None) -> subprocess.Com
         [str(AUDIT), "cameraboy"],
         capture_output=True,
         text=True,
-        env={"PATH": "/usr/bin:/bin:/usr/local/bin", "SSH": str(ssh), "PIN_FILE": str(pin)},
+        env={
+            "PATH": "/usr/bin:/bin:/usr/local/bin",
+            "SSH": str(ssh),
+            "PIN_FILE": str(pin),
+            "KNOWN_HOSTS_FILE": str(known),
+        },
         check=False,
     )
 
@@ -73,11 +85,11 @@ def _line(stdout: str, check: int) -> str:
     return next((ln for ln in stdout.splitlines() if f"check {check}:" in ln), "")
 
 
-def test_a_healthy_annotation_box_passes_checks_7_to_11(tmp_path: Path) -> None:
+def test_a_healthy_annotation_box_passes_checks_7_to_13(tmp_path: Path) -> None:
     result = _audit(tmp_path, _blob())
 
     assert result.returncode == 0, result.stdout + result.stderr
-    for check in range(7, 13):
+    for check in range(7, 14):
         assert _line(result.stdout, check).startswith("PASS"), result.stdout
 
 
@@ -86,7 +98,7 @@ def test_a_box_without_annotation_skips_and_keeps_its_exit_code(tmp_path: Path) 
 
     assert result.returncode == 0, result.stdout
     assert "SKIP" in result.stdout and "zone-annotator not installed" in result.stdout
-    assert not any(_line(result.stdout, c) for c in range(7, 13))
+    assert not any(_line(result.stdout, c) for c in range(7, 14))
 
 
 @pytest.mark.parametrize(
@@ -104,6 +116,8 @@ def test_a_box_without_annotation_skips_and_keeps_its_exit_code(tmp_path: Path) 
         (11, {"EGRESS_7844": "fail"}, "7844"),
         (12, {"ZA_DROP_KEY_MODE": ""}, "missing"),
         (12, {"ZA_DROP_KEY_MODE": "644"}, "644"),
+        (13, {"ZA_DROP_HOSTS": ""}, "missing"),
+        (13, {"ZA_DROP_HOSTS": "0" * 64}, "not the cctv-vps key pinned"),
     ],
 )
 def test_drift_fails_with_its_name_and_the_installer_state_passes(
@@ -134,6 +148,7 @@ def test_the_real_probe_reads_a_stubbed_annotation_box(tmp_path: Path) -> None:
     (home / ".ssh").mkdir(parents=True)
     (home / ".ssh" / "annotation-drop").write_text("k")
     (home / ".ssh" / "annotation-drop").chmod(0o600)
+    (home / ".ssh" / "annotation-drop.known_hosts").write_text(KNOWN_HOSTS)
     names = ("IPAddressDeny", "IPAddressAllow", "NoNewPrivileges", "ProtectSystem")
     props = "\n".join(f"{n}={HEALTHY[f'ZA_{n}']}" for n in (*names, "InaccessiblePaths"))
     (stub / "systemctl").write_text(
@@ -166,5 +181,5 @@ def test_the_real_probe_reads_a_stubbed_annotation_box(tmp_path: Path) -> None:
 
         result = _audit(tmp_path, "", ssh=ssh)
 
-    for check in range(7, 13):
+    for check in range(7, 14):
         assert _line(result.stdout, check).startswith("PASS"), result.stdout + result.stderr

@@ -464,8 +464,9 @@ class AnnotationPoller:
         self._retry_at[export_id] = self._clock() + self._retry_after_s
         ssh = (
             f"ssh -i {self._drop_key} -o IdentitiesOnly=yes -o BatchMode=yes "
-            # The first connection learns cctv-vps's key over the tailnet; later changes are refused
-            "-o StrictHostKeyChecking=accept-new "
+            # Only the key install-annotator.sh pinned from the repo: "cctv-vps" may resolve in
+            # the client's LAN, so a key learned on first use could be anybody's.
+            "-o StrictHostKeyChecking=yes "
             f"-o UserKnownHostsFile={self._drop_key}.known_hosts -o ConnectTimeout=15 "
             # Errors only: the client reads this sentence, not ssh's notes.
             "-o LogLevel=ERROR"

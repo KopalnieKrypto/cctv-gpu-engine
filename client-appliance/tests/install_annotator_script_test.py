@@ -159,6 +159,25 @@ def test_creates_the_shipping_key_and_prints_the_line_to_register_it(
     assert key.read_text() not in result.stdout + result.stderr
 
 
+def test_pins_cctv_vps_host_key_for_the_agent_and_replaces_one_learned_on_first_use(
+    tmp_path: Path, tunnel_port: int
+) -> None:
+    """The poller connects with StrictHostKeyChecking=yes, so this file is all ssh trusts."""
+    tar, commit = _package(tmp_path)
+    pinned = (ROOT / "annotation-drop.known_hosts").read_text()
+    assert re.search(r"^cctv-vps,100\.[0-9.]+ ssh-ed25519 \S+$", pinned, re.MULTILINE), pinned
+    known = tmp_path / "home" / ".ssh" / "annotation-drop.known_hosts"
+    known.parent.mkdir(parents=True)
+    known.write_text("cctv-vps ssh-ed25519 AAAAlearnedFromWhoeverAnswered\n")
+
+    result = _run(tmp_path, tar, commit, egress_port=tunnel_port)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert known.read_text() == pinned
+    assert known.stat().st_mode & 0o777 == 0o644
+    assert "annotation-drop.known_hosts" in (tmp_path / "runuser.log").read_text()
+
+
 def test_installs_the_pinned_package_and_its_smoke_passes(tmp_path: Path, tunnel_port: int) -> None:
     tar, commit = _package(tmp_path)
 
@@ -374,5 +393,11 @@ def test_root_changes_the_agents_home_only_as_the_agent(tmp_path: Path, tunnel_p
     calls = (tmp_path / "runuser.log").read_text().splitlines()
     assert all(c.startswith(f"-u {user} -- ") for c in calls), calls
     ran = "\n".join(calls)
-    for step in ("install -d -m 0750", "ssh-keygen", "chmod 0600", f"cat {staged}", f"rm -f {staged}"):
+    for step in (
+        "install -d -m 0750",
+        "ssh-keygen",
+        "chmod 0600",
+        f"cat {staged}",
+        f"rm -f {staged}",
+    ):
         assert step in ran, calls

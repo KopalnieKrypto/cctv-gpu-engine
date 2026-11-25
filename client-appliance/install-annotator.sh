@@ -181,6 +181,13 @@ if [[ ! -f "$DROP_KEY" ]]; then
     as_agent ssh-keygen -q -t ed25519 -N "" -C "appliance-$APPLIANCE" -f "$DROP_KEY"
 fi
 as_agent chmod 0600 "$DROP_KEY"
+# cctv-vps's host key as pinned in the repo: the poller trusts nothing else (StrictHostKeyChecking=yes),
+# so a key learned on first use, possibly from the client's LAN, is replaced.
+KNOWN="$DROP_KEY.known_hosts"
+if ! as_agent cmp -s - "$KNOWN" <"$SCRIPT_DIR/annotation-drop.known_hosts"; then
+    log "installing cctv-vps's pinned host key $KNOWN"
+    as_agent install -m 0644 /dev/stdin "$KNOWN" <"$SCRIPT_DIR/annotation-drop.known_hosts"
+fi
 read -r _type DROP_PUB _comment < <(as_agent cat "$DROP_KEY.pub")
 log "register this box's shipping key on cctv-vps (gpu-exchange scripts/provision):"
 log "  sudo scripts/provision/annotation-drop.sh add $APPLIANCE \"ssh-ed25519 $DROP_PUB\""

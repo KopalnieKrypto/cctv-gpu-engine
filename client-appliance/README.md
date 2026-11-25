@@ -164,7 +164,7 @@ paczka, instalator.
 
 Nowa wersja narzędzia to nowy commit w `zone-annotator.pin`, nowa paczka i ten sam
 instalator. Ponowne uruchomienie niczego nie zmienia, a przy rozjeździe z audytu
-(checki 7–11) jest naprawą.
+(checki 7–10, 12 i 13) jest naprawą.
 
 ## Instalacja user-mode (bez roota) — issue #84
 
@@ -396,16 +396,21 @@ Naprawa obu: `sudo client-appliance/harden-appliance.sh <user-appliance>`.
 Incydent: `cameraboy` 2026-11-09, ufw nieaktywny i SSH na hasło przy
 zielonych check 1-4.
 
-**check 7–12 — zone-annotator, tunel boxa i klucz wysyłki (gpu-exchange#298, #300).**
+**check 7–13 — zone-annotator, tunel boxa i wysyłka paczek (gpu-exchange#298, #300).**
 - 7: wersja równa `zone-annotator.pin`;
 - 8: usługa działa i słucha tylko na `127.0.0.1:8713`;
 - 9: efektywny unit nadal ma ograniczenia sieci i ścieżek, więc drop-in też się liczy;
 - 10: tunel działa, a plik tokenu ma prawa 0600;
 - 11: jest wyjście TCP na 7844;
-- 12: klucz wysyłki `~/.ssh/annotation-drop` istnieje i ma prawa 0600.
+- 12: klucz wysyłki `~/.ssh/annotation-drop` istnieje i ma prawa 0600;
+- 13: `~/.ssh/annotation-drop.known_hosts` jest identyczny z
+  `client-appliance/annotation-drop.known_hosts`. To przypięty klucz hosta
+  cctv-vps; poller ufa tylko jemu (`StrictHostKeyChecking=yes`), bo nazwa
+  `cctv-vps` może się rozwiązać w LAN-ie klienta. Po zmianie klucza na cctv-vps
+  nowy wpis trafia do repo, a na boxy z ponownym instalatorem.
 
 Box bez zone-annotatora dostaje jedną linię SKIP i nie zmienia kodu wyjścia.
-Naprawa 7–10 i 12 to ponowny `install-annotator.sh`. Przy 11 trzeba otworzyć port
+Naprawa 7–10, 12 i 13 to ponowny `install-annotator.sh`. Przy 11 trzeba otworzyć port
 u klienta.
 
 Incydenty źródłowe. **check 1 + 2** (cameraboy, 2026-07-17 → 20): stray proces
