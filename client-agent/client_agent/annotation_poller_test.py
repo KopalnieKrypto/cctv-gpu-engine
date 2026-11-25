@@ -20,7 +20,9 @@ import ast
 import json
 import os
 import re
+import shutil
 import subprocess
+import sys
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -31,6 +33,7 @@ from client_agent import annotation_poller
 from client_agent.annotation_poller import AnnotationPoller
 from client_agent.buffer import BufferChunk
 from client_agent.platform import (
+    AnnotationDeleteProjectClaim,
     AnnotationExportClaim,
     AnnotationJobClaim,
     AnnotationRegisterRunClaim,
@@ -69,6 +72,9 @@ class FakePlatform:
         self._report(job_id, body)
 
     def report_annotation_register_run(self, job_id: str, **body: object) -> None:
+        self._report(job_id, body)
+
+    def report_annotation_delete(self, job_id: str, **body: object) -> None:
         self._report(job_id, body)
 
 
@@ -928,3 +934,88 @@ def test_a_run_the_tool_refuses_is_reported_in_its_words_with_the_ledger(tmp_pat
         "error": said,
         "ledger": {"entries": []},
     }
+
+
+# ----- a project deleted in the panel -----
+
+
+def a_project_on_the_box(tmp_path: Path) -> list[Path]:
+    """All of project-1 on the box: labels, a glued window, a package waiting for cctv-vps."""
+    project = a_project(tmp_path)
+    window = tmp_path / "windows" / "project-1" / "window-1.mp4"
+    window.parent.mkdir(parents=True)
+    window.write_bytes(b"glued")
+    package = tmp_path / "exports" / "export-1"
+    (package / "images").mkdir(parents=True)
+    marker = tmp_path / "exports" / "export-1.waiting"
+    marker.write_text(json.dumps({"job_id": "job-3", "created": 0.0}), encoding="utf-8")
+    return [project, window.parent, package, marker]
+
+
+def a_delete_claim() -> AnnotationDeleteProjectClaim:
+    return AnnotationDeleteProjectClaim(
+        job_id="job-6", project_id="project-1", export_ids=["export-1"]
+    )
+
+
+def test_a_deleted_project_leaves_nothing_of_it_on_the_box_and_nothing_else_goes(tmp_path):
+    doomed = a_project_on_the_box(tmp_path)
+    other = tmp_path / "projects" / "project-2"
+    other.mkdir()
+    platform = FakePlatform(claims=[a_delete_claim()])
+    tools = Tools()
+    poller = a_poller(
+        tmp_path, platform=platform, buffer=FakeBuffer(), runner=tools, clock=lambda: 1.0
+    )
+
+    assert poller.run_once() is True
+
+    assert [p for p in doomed if p.exists()] == []
+    assert other.is_dir()
+    assert platform.reports[-1] == {"job_id": "job-6", "status": "deleted"}
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="flock: the box is Linux")
+def test_a_project_is_deleted_only_while_no_cut_holds_zone_annotators_lock(tmp_path, monkeypatch):
+    import fcntl
+
+    a_project_on_the_box(tmp_path)
+    held: list[bool] = []
+    rmtree = shutil.rmtree
+
+    def spy(path, *args, **kwargs):
+        with open(tmp_path / "projects" / ".cutting.lock", "a+b") as other:
+            try:
+                fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                held.append(False)
+            except BlockingIOError:
+                held.append(True)
+        return rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(annotation_poller.shutil, "rmtree", spy)
+    poller = a_poller(
+        tmp_path, platform=FakePlatform(claims=[a_delete_claim()]), buffer=FakeBuffer()
+    )
+
+    poller.run_once()
+
+    assert held and all(held), held
+
+
+def test_a_project_the_box_cannot_delete_is_reported_failed_in_the_systems_words(
+    tmp_path, monkeypatch
+):
+    a_project_on_the_box(tmp_path)
+
+    def refused(path, *args, **kwargs):
+        raise PermissionError(13, "Permission denied", str(path))
+
+    monkeypatch.setattr(annotation_poller.shutil, "rmtree", refused)
+    platform = FakePlatform(claims=[a_delete_claim()])
+    poller = a_poller(tmp_path, platform=platform, buffer=FakeBuffer())
+
+    poller.run_once()
+
+    report = platform.reports[-1]
+    assert report["job_id"] == "job-6" and report["status"] == "failed", report
+    assert "Permission denied" in report["error"], report

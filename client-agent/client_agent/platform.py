@@ -550,12 +550,13 @@ class PlatformClient:
         | AnnotationExportClaim
         | AnnotationSplitClaim
         | AnnotationRegisterRunClaim
+        | AnnotationDeleteProjectClaim
         | None
     ):
         """GET ``/appliance/annotation/next`` — claim the oldest window to glue
         for a zone-annotator project (gpu-exchange#302), package to export
-        (gpu-exchange#306), split to apply (gpu-exchange#308) or trained head to
-        register (gpu-exchange#314). ``None`` on 204."""
+        (gpu-exchange#306), split to apply (gpu-exchange#308), trained head to
+        register (gpu-exchange#314) or deleted project to clear. ``None`` on 204."""
         response = self._get("/appliance/annotation/next")
         if response.status_code == 204:
             return None
@@ -633,6 +634,17 @@ class PlatformClient:
             body["error"] = error
         response = self._post(f"/appliance/annotation/{job_id}/register-status", json=body)
         _raise_if_refused(response, "annotation register-run status")
+
+    def report_annotation_delete(
+        self, job_id: str, *, status: str, error: str | None = None
+    ) -> None:
+        """POST ``/appliance/annotation/{job_id}/delete-status``: ``deleted``, or
+        ``failed`` with the reason the box could not clear the project."""
+        body: dict = {"status": status}
+        if error is not None:
+            body["error"] = error
+        response = self._post(f"/appliance/annotation/{job_id}/delete-status", json=body)
+        _raise_if_refused(response, "annotation delete status")
 
     def _get(self, path: str, *, params: dict | None = None) -> httpx.Response:
         """GET ``path`` with Bearer auth, 5xx retry, and typed errors.
@@ -779,6 +791,16 @@ class AnnotationRegisterRunClaim:
 
 
 @dataclass(frozen=True)
+class AnnotationDeleteProjectClaim:
+    """A project deleted in the panel: its directory, its glued windows and the
+    packages of ``export_ids`` still on the box all go."""
+
+    job_id: str
+    project_id: str
+    export_ids: list[str]
+
+
+@dataclass(frozen=True)
 class AnnotationSplitClaim:
     """Folds for a zone-annotator project's windows (gpu-exchange#308): fold name
     → window ids. ``by`` and ``reason`` are for an amendment after a registered run."""
@@ -803,9 +825,21 @@ def _uuid(value: object) -> str:
 
 def _annotation_claim(
     data: dict,
-) -> AnnotationJobClaim | AnnotationExportClaim | AnnotationSplitClaim | AnnotationRegisterRunClaim:
+) -> (
+    AnnotationJobClaim
+    | AnnotationExportClaim
+    | AnnotationSplitClaim
+    | AnnotationRegisterRunClaim
+    | AnnotationDeleteProjectClaim
+):
     """One claim from ``/appliance/annotation/next``, its ids checked; ValueError otherwise."""
     kind = data.get("kind")
+    if kind == "delete_project":
+        return AnnotationDeleteProjectClaim(
+            job_id=_uuid(data["job_id"]),
+            project_id=_uuid(data["project_id"]),
+            export_ids=[_uuid(e) for e in data["export_ids"]],
+        )
     if kind == "register_run":
         return AnnotationRegisterRunClaim(
             job_id=_uuid(data["job_id"]),

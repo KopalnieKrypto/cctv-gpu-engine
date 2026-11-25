@@ -47,6 +47,7 @@ from client_agent.buffer import BufferChunk
 from client_agent.discovery import scrub_url_credentials
 from client_agent.ffmpeg_trim import trim_and_concat
 from client_agent.platform import (
+    AnnotationDeleteProjectClaim,
     AnnotationExportClaim,
     AnnotationJobClaim,
     AnnotationRegisterRunClaim,
@@ -95,8 +96,12 @@ class _PlatformLike(Protocol):
         | AnnotationExportClaim
         | AnnotationSplitClaim
         | AnnotationRegisterRunClaim
+        | AnnotationDeleteProjectClaim
         | None
     ): ...
+    def report_annotation_delete(
+        self, job_id: str, *, status: str, error: str | None = None
+    ) -> None: ...
     def report_annotation_split(
         self, job_id: str, *, status: str, ledger: dict, error: str | None = None
     ) -> None: ...
@@ -196,6 +201,9 @@ class AnnotationPoller:
             return True
         if isinstance(claim, AnnotationRegisterRunClaim):
             self._register_run(claim)
+            return True
+        if isinstance(claim, AnnotationDeleteProjectClaim):
+            self._delete_project(claim)
             return True
 
         project_dir = self._projects_dir / claim.project_id
@@ -352,6 +360,25 @@ class AnnotationPoller:
         self._platform.report_annotation_register_run(
             claim.job_id, status="registered", ledger=ledger
         )
+
+    def _delete_project(self, claim: AnnotationDeleteProjectClaim) -> None:
+        """Everything of a project deleted in the panel: crops and labels, glued windows,
+        packages not yet on cctv-vps. Under zone-annotator's cutting lock, so no cut
+        writes into the project while it goes; a link is removed, never followed."""
+        doomed = [self._projects_dir / claim.project_id, self._windows_dir / claim.project_id]
+        for export_id in claim.export_ids:
+            doomed += [self._exports_dir / export_id, self._exports_dir / f"{export_id}.waiting"]
+            self._retry_at.pop(export_id, None)
+        try:
+            with _cutting_lock(self._projects_dir):
+                for path in doomed:
+                    _remove(path)
+        except OSError as exc:
+            self._platform.report_annotation_delete(
+                claim.job_id, status="failed", error=str(exc)[-2000:]
+            )
+            return
+        self._platform.report_annotation_delete(claim.job_id, status="deleted")
 
     def _ledger(self, project: Path) -> dict:
         """zone-annotator's ``split.json``, its clip ids read as clip names from the manifest."""

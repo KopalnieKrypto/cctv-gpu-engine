@@ -1616,6 +1616,8 @@ WINDOW_BODY = {
         },
         {**WINDOW_BODY, "window_id": None},
         {"job_id": JOB, "kind": "export", "project_id": PROJECT},
+        {"job_id": JOB, "kind": "delete_project", "project_id": PROJECT, "export_ids": [".."]},
+        {"job_id": JOB, "kind": "delete_project", "project_id": PROJECT, "export_ids": EXPORT},
         ["not", "a", "claim"],
     ],
 )
@@ -1635,3 +1637,33 @@ def test_a_refused_claim_raises_the_platforms_words_not_a_key_error() -> None:
 
     with pytest.raises(PlatformRequestError, match=r"annotation next \(403\): appliance revoked"):
         _claimed({"error": "appliance revoked"}, status=403)
+
+
+def test_claim_next_annotation_job_reads_a_project_to_delete_with_its_exports() -> None:
+    from client_agent.platform import AnnotationDeleteProjectClaim
+
+    body = {"job_id": JOB, "kind": "delete_project", "project_id": PROJECT, "export_ids": [EXPORT]}
+
+    assert _claimed(body) == AnnotationDeleteProjectClaim(
+        job_id=JOB, project_id=PROJECT, export_ids=[EXPORT]
+    )
+
+
+def test_report_annotation_delete_posts_deleted_or_failed_with_the_reason() -> None:
+    import json
+
+    from client_agent.platform import PlatformClient
+
+    with respx.mock(base_url="https://platform.example") as mock:
+        route = mock.post(f"/appliance/annotation/{JOB}/delete-status").mock(
+            return_value=httpx.Response(200, json={"ok": True})
+        )
+        client = PlatformClient(base_url="https://platform.example", token="tok")
+
+        client.report_annotation_delete(JOB, status="deleted")
+        client.report_annotation_delete(JOB, status="failed", error="Permission denied")
+
+    assert [json.loads(call.request.content) for call in route.calls] == [
+        {"status": "deleted"},
+        {"status": "failed", "error": "Permission denied"},
+    ]
