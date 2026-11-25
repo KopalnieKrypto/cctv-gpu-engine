@@ -154,7 +154,9 @@ paczka, instalator.
    - paczka jest z innego commita.
 
    W katalogu domowym agenta instalator działa jako agent (`runuser`), więc nie
-   idzie za dowiązaniami, które tam zostawiono.
+   idzie za dowiązaniami, które tam zostawiono. Paczkę czyta raz, jako agent, do
+   katalogu tymczasowego roota i dopiero tę kopię sprawdza i rozpakowuje, a smoke
+   paczki uruchamia jako agent. Paczka musi więc być czytelna dla agenta.
 
    Na końcu wypisuje dwie rzeczy. Pierwsza to dwie linie `ANNOTATION_*` do `platform.env` agenta,
    bez nich agent nie wycina okien. Druga to linia

@@ -58,12 +58,26 @@ command -v "$UV" >/dev/null ||
 GIT="${GIT:-git}"
 command -v "$GIT" >/dev/null || die "git not installed: sudo apt-get install git"
 
+# The agent owns its home and may leave links in it, so root changes nothing there itself: as
+# root, ssh-keygen or chown would follow a link anywhere.
+as_agent() { "$RUNUSER" -u "$AGENT" -- "$@"; }
+
 PIN="${ZONE_ANNOTATOR_PIN:-$(tr -d '[:space:]' <"$SCRIPT_DIR/zone-annotator.pin")}"
 PREFIX="$DESTDIR/opt/zone-annotator"
 RELEASE="$PREFIX/releases/$PIN"
 
+# The package usually sits in the agent's home, where the agent can swap it between a check
+# and the unpacking. So it is read once, as the agent, into a directory only root can write,
+# and that copy is what is checked and unpacked.
+WORK="$(mktemp -d)"
+SMOKE=""
+cleanup() { rm -rf "$WORK"; [[ -z "$SMOKE" ]] || as_agent rm -rf "$SMOKE"; }
+trap cleanup EXIT
+TAR="$WORK/zone-annotator.tar"
+as_agent cat "$PACKAGE" >"$TAR" || die "$AGENT cannot read $PACKAGE: copy the package into its home"
+
 # The commit git wrote into the archive itself; a file name can be renamed, this cannot.
-PACKAGE_COMMIT="$("$GIT" get-tar-commit-id <"$PACKAGE" || true)"
+PACKAGE_COMMIT="$("$GIT" get-tar-commit-id <"$TAR" || true)"
 [[ "$PACKAGE_COMMIT" == "$PIN" ]] ||
     die "package is ${PACKAGE_COMMIT:0:7}, zone-annotator.pin wants ${PIN:0:7}; cut it again with git archive"
 
@@ -74,20 +88,18 @@ else
     log "installing zone-annotator ${PIN:0:7}"
     rm -rf "$RELEASE"
     mkdir -p "$RELEASE"
-    tar -xf "$PACKAGE" -C "$RELEASE"
+    tar -xf "$TAR" -C "$RELEASE"
     # System python, never a uv-managed one: uv would download it into root's home, which the
     # service user cannot read.
     UV_PROJECT_ENVIRONMENT="$RELEASE/.venv" UV_PYTHON_DOWNLOADS=never \
         "$UV" sync --project "$RELEASE" --frozen --no-dev --python python3 -q
-    (cd "$RELEASE" && .venv/bin/python -m zone_annotator.smoke_phase1)
+    # Code from the package runs as the agent, the user the service runs as anyway.
+    SMOKE="$(as_agent mktemp -d)"
+    (cd "$RELEASE" && as_agent .venv/bin/python -m zone_annotator.smoke_phase1 --out "$SMOKE/out")
     ln -sfn "releases/$PIN" "$PREFIX/current"
     find "$PREFIX/releases" -mindepth 1 -maxdepth 1 ! -name "$PIN" -exec rm -rf {} +
     CHANGED=1
 fi
-
-# The agent owns its home and may leave links in it, so root changes nothing there itself: as
-# root, ssh-keygen or chown would follow a link anywhere.
-as_agent() { "$RUNUSER" -u "$AGENT" -- "$@"; }
 
 # Footage the agent cuts for the panel, and the projects the tool writes.
 AGENT_HOME="${AGENT_HOME:-$(getent passwd "$AGENT" | cut -d: -f6)}"

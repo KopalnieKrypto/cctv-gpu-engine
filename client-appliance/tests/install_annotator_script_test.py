@@ -55,7 +55,7 @@ def test_installer_is_executable_bash() -> None:
     assert subprocess.run(["bash", "-n", str(INSTALL)], check=False).returncode == 0
 
 
-def _package(tmp_path: Path) -> tuple[Path, str]:
+def _package(tmp_path: Path, smoke: str = 'print("smoke-phase1 OK")') -> tuple[Path, str]:
     """A minimal zone-annotator as a ``git archive`` tar, and the commit it was cut from."""
     src = tmp_path / "zone-annotator-src"
     (src / "zone_annotator").mkdir(parents=True)
@@ -64,7 +64,7 @@ def _package(tmp_path: Path) -> tuple[Path, str]:
         'requires-python = ">=3.11"\ndependencies = []\n'
     )
     (src / "zone_annotator" / "__init__.py").write_text("")
-    (src / "zone_annotator" / "smoke_phase1.py").write_text('print("smoke-phase1 OK")\n')
+    (src / "zone_annotator" / "smoke_phase1.py").write_text(smoke + "\n")
     subprocess.run(["uv", "lock", "--offline", "-q"], cwd=src, check=True)
     git = ["git", "-C", str(src), "-c", "user.name=t", "-c", "user.email=t@example.com"]
     subprocess.run([*git, "init", "-q"], check=True)
@@ -401,3 +401,30 @@ def test_root_changes_the_agents_home_only_as_the_agent(tmp_path: Path, tunnel_p
         f"rm -f {staged}",
     ):
         assert step in ran, calls
+
+
+def test_the_package_is_read_once_as_the_agent_and_its_smoke_runs_as_the_agent(
+    tmp_path: Path, tunnel_port: int
+) -> None:
+    """The tar sits in the agent's home: what root checks and unpacks is one copy of it,
+    and code from it runs as the agent, not as root."""
+    tar, commit = _package(tmp_path)
+    other, _ = _package(tmp_path / "other", smoke='print("ANOTHER PACKAGE RAN")')
+    swapping = tmp_path / "runuser-swapping"
+    swapping.write_text(
+        "#!/usr/bin/env bash\n"
+        f'echo "$*" >>"{tmp_path / "runuser.log"}"\n'
+        "shift 3\n"
+        # The agent swaps its file the moment root has read it.
+        f'if [[ "$*" == "cat {tar}" ]]; then cat "{tar}"; cp "{other}" "{tar}"; exit; fi\n'
+        'exec "$@"\n'
+    )
+    swapping.chmod(0o755)
+
+    result = _run(tmp_path, tar, commit, egress_port=tunnel_port, RUNUSER=str(swapping))
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "smoke-phase1 OK" in result.stdout and "ANOTHER" not in result.stdout
+    calls = (tmp_path / "runuser.log").read_text()
+    assert f"cat {tar}" in calls
+    assert ".venv/bin/python -m zone_annotator.smoke_phase1" in calls
