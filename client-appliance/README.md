@@ -149,8 +149,12 @@ paczka, instalator.
    UUID jest ten sam, co w panelu. Box sam go nigdzie nie zapisuje.
    Instalator przerywa bez zmian, gdy:
    - nie ma wyjścia TCP na 7844;
-   - nie ma `rsync`;
+   - nie ma `rsync` albo `git`;
+   - root pod sudo nie widzi `uv` (secure_path zwykle nie ma `~/.local/bin`);
    - paczka jest z innego commita.
+
+   W katalogu domowym agenta instalator działa jako agent (`runuser`), więc nie
+   idzie za dowiązaniami, które tam zostawiono.
 
    Na końcu wypisuje dwie rzeczy. Pierwsza to dwie linie `ANNOTATION_*` do `platform.env` agenta,
    bez nich agent nie wycina okien. Druga to linia

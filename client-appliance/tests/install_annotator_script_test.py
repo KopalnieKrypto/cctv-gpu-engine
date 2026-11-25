@@ -114,12 +114,19 @@ def _run(
         '#!/usr/bin/env bash\necho "cloudflared version 2026.7.1 (built 2026-07-01-0000 UTC)"\n'
     )
     cloudflared.chmod(0o755)
+    # Drops `-u <agent> --` and runs the rest as the test's own user, keeping a log.
+    runuser = tmp_path / "runuser"
+    runuser.write_text(
+        f'#!/usr/bin/env bash\necho "$*" >>"{tmp_path / "runuser.log"}"\nshift 3\nexec "$@"\n'
+    )
+    runuser.chmod(0o755)
     env = {
         "PATH": os.environ["PATH"],
         "DESTDIR": str(destdir),
         "AGENT_HOME": str(home),
         "ZONE_ANNOTATOR_PIN": pin,
         "SYSTEMCTL": str(systemctl),
+        "RUNUSER": str(runuser),
         "CLOUDFLARED": str(cloudflared),
         "EGRESS_HOST": "127.0.0.1",
         "EGRESS_PORT": str(egress_port),
@@ -305,6 +312,9 @@ def test_stops_before_changing_anything_without_egress_to_7844(tmp_path: Path) -
     ("extra", "named"),
     [
         ({"RSYNC": "/nonexistent/rsync"}, "rsync"),
+        # sudo's secure_path rarely holds the operator's ~/.local/bin, where uv usually is.
+        ({"UV": "/nonexistent/uv"}, "uv not on root's PATH"),
+        ({"GIT": "/nonexistent/git"}, "git not installed"),
         ({"appliance": "../3f2b8c1e"}, "UUID"),
     ],
 )
@@ -334,3 +344,35 @@ def test_a_rerun_keeps_the_shipping_key_and_repairs_its_mode(
 
     assert key.read_bytes() == before
     assert key.stat().st_mode & 0o777 == 0o600
+
+
+def test_a_unit_that_cannot_be_reloaded_stops_the_installer(
+    tmp_path: Path, tunnel_port: int
+) -> None:
+    """put_unit ran in an `&&` list, where set -e is off: a failed reload read as unchanged."""
+    tar, commit = _package(tmp_path)
+    failing = tmp_path / "systemctl-failing"
+    failing.write_text('#!/usr/bin/env bash\n[[ "$1" == daemon-reload ]] && exit 1\nexit 0\n')
+    failing.chmod(0o755)
+
+    result = _run(tmp_path, tar, commit, egress_port=tunnel_port, SYSTEMCTL=str(failing))
+
+    assert result.returncode != 0, result.stdout + result.stderr
+
+
+def test_root_changes_the_agents_home_only_as_the_agent(tmp_path: Path, tunnel_port: int) -> None:
+    """The agent owns its home and may leave links in it; as root, writing there follows them."""
+    tar, commit = _package(tmp_path)
+    staged = tmp_path / "home" / ".config" / "cctv-client" / "zone-annotator-tunnel.token"
+    staged.parent.mkdir(parents=True)
+    staged.write_text(TOKEN)
+
+    result = _run(tmp_path, tar, commit, egress_port=tunnel_port)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    user = subprocess.run(["id", "-un"], capture_output=True, text=True, check=True).stdout.strip()
+    calls = (tmp_path / "runuser.log").read_text().splitlines()
+    assert all(c.startswith(f"-u {user} -- ") for c in calls), calls
+    ran = "\n".join(calls)
+    for step in ("install -d -m 0750", "ssh-keygen", "chmod 0600", f"cat {staged}", f"rm -f {staged}"):
+        assert step in ran, calls
