@@ -400,7 +400,7 @@ zielonych check 1-4.
 - 7: wersja równa `zone-annotator.pin`;
 - 8: usługa działa i słucha tylko na `127.0.0.1:8713`;
 - 9: efektywny unit nadal ma ograniczenia sieci i ścieżek, więc drop-in też się liczy;
-- 10: tunel działa, a plik tokenu ma prawa 0600;
+- 10: tunel działa, a plik tokenu należy do roota i ma prawa 0600;
 - 11: jest wyjście TCP na 7844;
 - 12: klucz wysyłki `~/.ssh/annotation-drop` istnieje i ma prawa 0600;
 - 13: `~/.ssh/annotation-drop.known_hosts` jest identyczny z

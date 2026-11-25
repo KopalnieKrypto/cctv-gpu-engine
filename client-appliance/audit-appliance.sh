@@ -14,7 +14,7 @@
 #   check 7  zone-annotator is not the commit in zone-annotator.pin (gpu-exchange#298)
 #   check 8  zone-annotator is down, or listens beyond 127.0.0.1:8713
 #   check 9  its unit lost a network or path restriction
-#   check 10 the box's tunnel is down, or its token file is not 0600
+#   check 10 the box's tunnel is down, or its token file is not root's and 0600
 #   check 11 no outbound TCP to Cloudflare on 7844
 #   check 12 the key packages ship with is missing, or not 0600 (gpu-exchange#300)
 #   check 13 the host key that shipping trusts is not cctv-vps's key pinned in the repo
@@ -62,6 +62,8 @@ UNIT="${UNIT:-cctv-client}"
 UFW_CONF="${UFW_CONF:-/etc/ufw/ufw.conf}"
 SSHD_CONFIG="${SSHD_CONFIG:-/etc/ssh/sshd_config}"
 PIN_FILE="${PIN_FILE:-$(dirname "${BASH_SOURCE[0]}")/zone-annotator.pin}"
+# Who must own the tunnel token on the box; the tests own their stub token themselves.
+TOKEN_OWNER="${TOKEN_OWNER:-root}"
 KNOWN_HOSTS_FILE="${KNOWN_HOSTS_FILE:-$(dirname "${BASH_SOURCE[0]}")/annotation-drop.known_hosts}"
 ONLY_CHECK=""
 HOSTS_ARG=()
@@ -217,6 +219,7 @@ systemctl show zone-annotator.service -p IPAddressDeny -p IPAddressAllow -p NoNe
     -p ProtectSystem -p InaccessiblePaths 2>/dev/null | sed 's/^/ZA_/'
 printf 'ZT_ACTIVE=%s\n' "$(systemctl show zone-annotator-tunnel.service -p ActiveState --value 2>/dev/null)"
 printf 'ZT_TOKEN_MODE=%s\n' "$(stat -c %a "${ZA_TOKEN:-/etc/zone-annotator/tunnel.token}" 2>/dev/null)"
+printf 'ZT_TOKEN_OWNER=%s\n' "$(stat -c %U "${ZA_TOKEN:-/etc/zone-annotator/tunnel.token}" 2>/dev/null)"
 if timeout 5 bash -c "exec 3<>/dev/tcp/${EGRESS_HOST:-region1.v2.argotunnel.com}/${EGRESS_PORT:-7844}" 2>/dev/null; then
     echo EGRESS_7844=ok
 else
@@ -460,16 +463,18 @@ check_9() {
 
 # check 10 - the tunnel is up and its token readable by root alone.
 check_10() {
-  local host="$1" active="$2" mode="$3" problems=()
+  local host="$1" active="$2" mode="$3" owner="$4" problems=()
   [[ "$active" == "active" ]] || problems+=("zone-annotator-tunnel.service is ${active:-unknown}")
   [[ "$mode" == "600" ]] || problems+=("token file mode ${mode:-missing}, not 600")
+  [[ -z "$mode" || "$owner" == "$TOKEN_OWNER" ]] ||
+    problems+=("token file owned by ${owner:-unknown}, not $TOKEN_OWNER")
   if [[ ${#problems[@]} -gt 0 ]]; then
     local joined
     joined=$(IFS='; '; echo "${problems[*]}")
     fail "$host" 10 "tunnel: ${joined}. Fix: $FIX_ANNOTATOR (no token on the box: run gpu-exchange's appliance tunnel script first)"
     return
   fi
-  pass "$host" 10 "tunnel active, token file 0600"
+  pass "$host" 10 "tunnel active, token file $TOKEN_OWNER's and 0600"
 }
 
 # check 11 - cloudflared can reach the edge at all; nothing in the installer can fix this.
@@ -514,7 +519,7 @@ for host in "${HOSTS_ARG[@]}"; do
   PROC_COUNT=""; ACTIVE_STATE=""; SUB_STATE=""; N_RESTARTS=""; UNIT_ENABLED=""; LINGER=""
   ZA_COMMIT=""; ZA_LOAD=""; ZA_ACTIVE=""; ZA_LISTEN=""; ZA_IPAddressDeny=""; ZA_IPAddressAllow=""
   ZA_NoNewPrivileges=""; ZA_ProtectSystem=""; ZA_InaccessiblePaths=""
-  ZT_ACTIVE=""; ZT_TOKEN_MODE=""; EGRESS_7844=""; ZA_DROP_KEY_MODE=""; ZA_DROP_HOSTS=""
+  ZT_ACTIVE=""; ZT_TOKEN_MODE=""; ZT_TOKEN_OWNER=""; EGRESS_7844=""; ZA_DROP_KEY_MODE=""; ZA_DROP_HOSTS=""
   INSTALL_COMMIT=""; CHECKOUT_COMMIT=""; BUILD_MODIFIED=""
   UFW_ENABLED=""; SSHD_STATE=""; SSH_PASSWORD_AUTH=""; SSH_UNREADABLE=""
   while IFS='=' read -r key value; do
@@ -543,6 +548,7 @@ for host in "${HOSTS_ARG[@]}"; do
       ZA_InaccessiblePaths) ZA_InaccessiblePaths="$value" ;;
       ZT_ACTIVE) ZT_ACTIVE="$value" ;;
       ZT_TOKEN_MODE) ZT_TOKEN_MODE="$value" ;;
+      ZT_TOKEN_OWNER) ZT_TOKEN_OWNER="$value" ;;
       EGRESS_7844) EGRESS_7844="$value" ;;
       ZA_DROP_KEY_MODE) ZA_DROP_KEY_MODE="$value" ;;
       ZA_DROP_HOSTS) ZA_DROP_HOSTS="$value" ;;
@@ -568,7 +574,7 @@ for host in "${HOSTS_ARG[@]}"; do
     [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "9" ]] &&
       check_9 "$host" "$ZA_IPAddressDeny" "$ZA_IPAddressAllow" "$ZA_NoNewPrivileges" \
         "$ZA_ProtectSystem" "$ZA_InaccessiblePaths"
-    [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "10" ]] && check_10 "$host" "$ZT_ACTIVE" "$ZT_TOKEN_MODE"
+    [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "10" ]] && check_10 "$host" "$ZT_ACTIVE" "$ZT_TOKEN_MODE" "$ZT_TOKEN_OWNER"
     [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "11" ]] && check_11 "$host" "$EGRESS_7844"
     [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "12" ]] && check_12 "$host" "$ZA_DROP_KEY_MODE"
     [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "13" ]] &&

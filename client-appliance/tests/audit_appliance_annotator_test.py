@@ -47,13 +47,16 @@ HEALTHY = {
     ),
     "ZT_ACTIVE": "active",
     "ZT_TOKEN_MODE": "600",
+    "ZT_TOKEN_OWNER": "root",
     "EGRESS_7844": "ok",
     "ZA_DROP_KEY_MODE": "600",
     "ZA_DROP_HOSTS": KNOWN_HOSTS_SHA,
 }
 
 
-def _audit(tmp_path: Path, blob: str, ssh: Path | None = None) -> subprocess.CompletedProcess[str]:
+def _audit(
+    tmp_path: Path, blob: str, ssh: Path | None = None, **env: str
+) -> subprocess.CompletedProcess[str]:
     pin = tmp_path / "zone-annotator.pin"
     pin.write_text(PIN + "\n")
     # As a Windows checkout has it: the audit compares without carriage returns.
@@ -72,6 +75,7 @@ def _audit(tmp_path: Path, blob: str, ssh: Path | None = None) -> subprocess.Com
             "SSH": str(ssh),
             "PIN_FILE": str(pin),
             "KNOWN_HOSTS_FILE": str(known),
+            **env,
         },
         check=False,
     )
@@ -112,6 +116,8 @@ def test_a_box_without_annotation_skips_and_keeps_its_exit_code(tmp_path: Path) 
         (9, {"ZA_ProtectSystem": "no"}, "ProtectSystem"),
         (9, {"ZA_InaccessiblePaths": "-/etc/cctv-client"}, "cctv-client"),
         (10, {"ZT_TOKEN_MODE": "644"}, "644"),
+        # 0600 is no guard when the agent owns the file: it reads the tunnel token.
+        (10, {"ZT_TOKEN_OWNER": "cameraboy"}, "owned by cameraboy"),
         (10, {"ZT_ACTIVE": "inactive"}, "inactive"),
         (11, {"EGRESS_7844": "fail"}, "7844"),
         (12, {"ZA_DROP_KEY_MODE": ""}, "missing"),
@@ -179,7 +185,9 @@ def test_the_real_probe_reads_a_stubbed_annotation_box(tmp_path: Path) -> None:
         )
         ssh.chmod(0o755)
 
-        result = _audit(tmp_path, "", ssh=ssh)
+        # The stub token belongs to whoever runs the test, not to root.
+        me = subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip()
+        result = _audit(tmp_path, "", ssh=ssh, TOKEN_OWNER=me)
 
     for check in range(7, 14):
         assert _line(result.stdout, check).startswith("PASS"), result.stdout + result.stderr
