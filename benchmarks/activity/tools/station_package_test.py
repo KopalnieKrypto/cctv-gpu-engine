@@ -176,3 +176,29 @@ def test_geometry_the_engines_rule_disagrees_with_is_refused(tmp_path):
 
     with pytest.raises(SystemExit, match="golden geometry tables have drifted"):
         train(tmp_path, a_package(tmp_path, wider))
+
+
+@pytest.mark.parametrize(
+    "where", ["absolute", "../outside.jpg", "images/../../outside.jpg", "link"]
+)
+def test_a_sample_image_outside_the_package_is_refused(tmp_path, where):
+    """`image` comes from the box; the sha check in check_export only limits what a path can do."""
+    outside = tmp_path / "outside.jpg"
+    shutil.copy(PACKAGE / "images" / "W1-d20fccbd" / "stanowisko-1" / "t00001.jpg", outside)
+    package = a_package(tmp_path, lambda doc: None)
+    if where == "link":
+        link = package / "images" / "link.jpg"
+        try:
+            link.symlink_to(outside)
+        except OSError:
+            pytest.skip("this account cannot create symlinks")
+        image = "images/link.jpg"
+    else:
+        image = str(outside) if where == "absolute" else where
+
+    doc = json.loads((package / "export.json").read_text(encoding="utf-8"))
+    doc["samples"][0]["image"] = image
+    (package / "export.json").write_text(json.dumps(doc), encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="outside the package"):
+        train(tmp_path, package)

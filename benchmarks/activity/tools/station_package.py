@@ -321,12 +321,23 @@ def _window(package_dir: Path, doc: dict, clip: dict, zone: dict, fold: str) -> 
     return Window(
         name=clip["name"],
         fold=fold,
-        images=[package_dir / s["image"] for s in mine],
+        images=[_inside(package_dir, s["image"]) for s in mine],
         labels=[s["label"] for s in mine],
         stride_s=sampling["stride_s"],
         recorded=recorded,
         annotated_at=max((s.get("labelled_at") or "" for s in mine), default="")[:10] or None,
     )
+
+
+def _inside(package_dir: Path, image: str) -> Path:
+    """A sample's picture, read only from inside the package: no absolute path, `..` or link."""
+    root = package_dir.resolve()
+    path = root / image
+    if path.resolve() != path or not path.is_relative_to(root):
+        sys.exit(
+            f"sample image {image!r} is outside the package {package_dir}, so nothing is trained"
+        )
+    return path
 
 
 def _as_manifest(pkg: Package, station: str) -> dict:
