@@ -943,6 +943,8 @@ def test_a_run_the_tool_refuses_is_reported_in_its_words_with_the_ledger(tmp_pat
 def a_project_on_the_box(tmp_path: Path) -> list[Path]:
     """All of project-1 on the box: labels, a glued window, a package waiting for cctv-vps."""
     project = a_project(tmp_path)
+    # zone-annotator's lock around manifest writes (15ddc8d): it goes with the project.
+    (project / ".manifest.lock").write_bytes(b"")
     window = tmp_path / "windows" / "project-1" / "window-1.mp4"
     window.parent.mkdir(parents=True)
     window.write_bytes(b"glued")
