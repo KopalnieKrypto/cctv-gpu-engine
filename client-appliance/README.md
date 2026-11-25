@@ -141,7 +141,7 @@ paczka, instalator.
    z `zone-annotator.pin`, i kopiujesz na box:
 
    ```bash
-   git -C ../zone-annotator archive -o zone-annotator.tar "$(cat client-appliance/zone-annotator.pin)"
+   git -c core.autocrlf=false -C ../zone-annotator archive -o zone-annotator.tar "$(head -n1 client-appliance/zone-annotator.pin | tr -d '\r')"
    scp zone-annotator.tar BOX:
    ```
 
@@ -151,7 +151,19 @@ paczka, instalator.
    - nie ma wyjścia TCP na 7844;
    - nie ma `rsync` albo `git`;
    - root pod sudo nie widzi `uv` (secure_path zwykle nie ma `~/.local/bin`);
-   - paczka jest z innego commita.
+   - paczka jest z innego commita;
+   - pliki paczki nie dają drzewa z drugiej linii pinu albo paczka ma `.git`,
+     `.gitattributes`, `.gitmodules` lub bity set-id czy zapis dla wszystkich.
+
+   Commit w nagłówku taru może wpisać każdy, więc instalator liczy `git write-tree`
+   z rozpakowanej kopii i porównuje z drzewem commita, zanim `uv sync` uruchomi
+   cokolwiek z paczki. Porównanie jest bajt w bajt: Git for Windows ma
+   `core.autocrlf=true`, a paczka z CRLF to nie jest przypięte drzewo, stąd
+   `-c core.autocrlf=false` w poleceniu wyżej. Ograniczenie: drzewo git nie widzi
+   pustych katalogów, właściciela ani bitów poza wykonywaniem. Puste katalogi nie
+   uruchamiają kodu, właściciela narzuca `tar --no-same-owner`, a set-id i zapis
+   dla wszystkich są odrzucane osobno. Commit z `export-ignore` albo `export-subst`
+   w `.gitattributes` dałby inne drzewo niż commit; 15ddc8d nie ma `.gitattributes`.
 
    W katalogu domowym agenta instalator działa jako agent (`runuser`), więc nie
    idzie za dowiązaniami, które tam zostawiono. Paczkę czyta raz, jako agent, do
@@ -164,7 +176,9 @@ paczka, instalator.
    (gpu-exchange `scripts/provision`), żeby zarejestrować klucz wysyłki
    `~/.ssh/annotation-drop` (gpu-exchange#300).
 
-Nowa wersja narzędzia to nowy commit w `zone-annotator.pin`, nowa paczka i ten sam
+Nowa wersja narzędzia to nowy pin
+(`git -C ../zone-annotator rev-parse <commit> '<commit>^{tree}' >client-appliance/zone-annotator.pin`),
+nowa paczka i ten sam
 instalator. Ponowne uruchomienie niczego nie zmienia, a przy rozjeździe z audytu
 (checki 7–10, 12 i 13) jest naprawą.
 
@@ -399,7 +413,8 @@ Incydent: `cameraboy` 2026-11-09, ufw nieaktywny i SSH na hasło przy
 zielonych check 1-4.
 
 **check 7–13 — zone-annotator, tunel boxa i wysyłka paczek (gpu-exchange#298, #300).**
-- 7: wersja równa `zone-annotator.pin`;
+- 7: wersja równa `zone-annotator.pin`, a pliki wydania (bez `.venv`) dają drzewo z jego
+  drugiej linii, więc audyt widzi też zmianę plików po instalacji;
 - 8: usługa działa i słucha tylko na `127.0.0.1:8713`;
 - 9: efektywny unit nadal ma ograniczenia sieci i ścieżek, więc drop-in też się liczy;
 - 10: tunel działa, a plik tokenu należy do roota i ma prawa 0600;
@@ -516,7 +531,7 @@ sekcji Troubleshooting.
 | `audit-appliance.sh` | read-only audit zdalnego boxa — wykrywa double-run, restart-loop, brak reboot-survival, wyłączony ufw i SSH na hasło (patrz niżej) |
 | `harden-appliance.sh` | krok root dla nowego boxa — ufw tylko z Tailscale, SSH na klucz, linger |
 | `install-annotator.sh` | idempotentny installer **root** zone-annotatora za proxy i tunelu boxa (gpu-exchange#298) |
-| `zone-annotator.pin` | jedyne miejsce z wersją zone-annotatora: pełny commit |
+| `zone-annotator.pin` | jedyne miejsce z wersją zone-annotatora: pełny commit i jego drzewo |
 | `zone-annotator.service` | systemd unit zone-annotatora — tylko localhost, bez dostępu do konfiguracji agenta i `~/.ssh`, niższy priorytet niż nagrywanie |
 | `zone-annotator-tunnel.service` | systemd unit `cloudflared` — token przez `LoadCredential`, nigdy w argv |
 

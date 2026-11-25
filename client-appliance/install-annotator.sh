@@ -8,10 +8,11 @@
 # The appliance uuid is the one the panel shows; the box itself keeps no record of it, and it
 # names this box's key on cctv-vps (gpu-exchange#300).
 #
-# The package is `git archive` of the commit in zone-annotator.pin, made on the operator's
-# machine because the zone-annotator repo is private:
+# The package is `git archive` of the commit on the first line of zone-annotator.pin, made on
+# the operator's machine because the zone-annotator repo is private. core.autocrlf=false
+# because Git for Windows sets it to true, and CRLF files are not the pinned tree:
 #
-#     git -C ../zone-annotator archive -o zone-annotator.tar "$(cat client-appliance/zone-annotator.pin)"
+#     git -c core.autocrlf=false -C ../zone-annotator archive -o zone-annotator.tar "$(head -n1 client-appliance/zone-annotator.pin | tr -d '\r')"
 #
 # Layout:
 #
@@ -62,7 +63,10 @@ command -v "$GIT" >/dev/null || die "git not installed: sudo apt-get install git
 # root, ssh-keygen or chown would follow a link anywhere.
 as_agent() { "$RUNUSER" -u "$AGENT" -- "$@"; }
 
-PIN="${ZONE_ANNOTATOR_PIN:-$(tr -d '[:space:]' <"$SCRIPT_DIR/zone-annotator.pin")}"
+# Line 1 the commit, line 2 its tree: `git rev-parse <commit> <commit>^{tree}`.
+PIN="${ZONE_ANNOTATOR_PIN:-$(sed -n 1p "$SCRIPT_DIR/zone-annotator.pin" | tr -d '[:space:]')}"
+PIN_TREE="${ZONE_ANNOTATOR_TREE:-$(sed -n 2p "$SCRIPT_DIR/zone-annotator.pin" | tr -d '[:space:]')}"
+[[ $PIN_TREE =~ ^[0-9a-f]{40}$ ]] || die "zone-annotator.pin has no tree id on its second line"
 PREFIX="$DESTDIR/opt/zone-annotator"
 RELEASE="$PREFIX/releases/$PIN"
 
@@ -81,14 +85,34 @@ PACKAGE_COMMIT="$("$GIT" get-tar-commit-id <"$TAR" || true)"
 [[ "$PACKAGE_COMMIT" == "$PIN" ]] ||
     die "package is ${PACKAGE_COMMIT:0:7}, zone-annotator.pin wants ${PIN:0:7}; cut it again with git archive"
 
+# That id is a header line anybody can write; the files have to be the pinned commit's tree,
+# computed by git from the unpacked copy before anything in it runs (uv sync builds it).
+# Byte for byte, so a package with CRLF lines is refused: cut it with core.autocrlf=false.
+TREE="$WORK/tree"
+mkdir "$TREE"
+tar --no-same-owner -xf "$TAR" -C "$TREE"
+# git archive writes none of these, and a tree cannot show them: .git and attribute files
+# would steer git itself, a set-id or world-writable bit would pass the comparison.
+odd="$(find "$TREE" \( -name .git -o -name .gitattributes -o -name .gitmodules \
+    -o \( ! -type l -perm /7002 \) \) -print -quit)"
+[[ -z "$odd" ]] || die "package holds ${odd#"$TREE"/}, which git archive never writes, so it is not the pinned tree"
+# Only git's defaults: no filter or line-ending rule from root's config touches the comparison.
+verify_git() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 "$GIT" --git-dir="$WORK/git" --work-tree="$TREE" "$@"; }
+verify_git -c init.defaultBranch=main init -q
+(cd "$TREE" && verify_git add -A -f .)
+PACKAGE_TREE="$(verify_git write-tree)"
+[[ "$PACKAGE_TREE" == "$PIN_TREE" ]] ||
+    die "package files are tree ${PACKAGE_TREE:0:7}, zone-annotator.pin wants tree ${PIN_TREE:0:7}: not the pinned commit's content; cut it again with git -c core.autocrlf=false archive"
+
 CHANGED=0
 if [[ "$(readlink "$PREFIX/current" 2>/dev/null)" == "releases/$PIN" && -x "$RELEASE/.venv/bin/python" ]]; then
     log "zone-annotator ${PIN:0:7} already installed"
 else
     log "installing zone-annotator ${PIN:0:7}"
     rm -rf "$RELEASE"
-    mkdir -p "$RELEASE"
-    tar -xf "$TAR" -C "$RELEASE"
+    mkdir -p "$(dirname "$RELEASE")"
+    # The files just compared, not a second unpacking.
+    mv "$TREE" "$RELEASE"
     # System python, never a uv-managed one: uv would download it into root's home, which the
     # service user cannot read.
     UV_PROJECT_ENVIRONMENT="$RELEASE/.venv" UV_PYTHON_DOWNLOADS=never \

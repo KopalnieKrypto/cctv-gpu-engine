@@ -16,6 +16,7 @@ Assumptions these tests encode:
 
 from __future__ import annotations
 
+import io
 import os
 import re
 import shutil
@@ -23,6 +24,7 @@ import socket
 import stat
 import subprocess
 import sys
+import tarfile
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -38,9 +40,24 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def test_the_pin_is_one_full_commit() -> None:
+def test_the_pin_is_a_commit_and_its_tree() -> None:
     """The one place the zone-annotator version lives (PRD stories 16, 20, 21, 23, 24)."""
-    assert re.fullmatch(r"[0-9a-f]{40}\n?", (ROOT / "zone-annotator.pin").read_text())
+    assert re.fullmatch(r"[0-9a-f]{40}\n[0-9a-f]{40}\n?", (ROOT / "zone-annotator.pin").read_text())
+
+
+SIBLING = ROOT.parent.parent / "zone-annotator"
+
+
+@pytest.mark.skipif(not (SIBLING / ".git").exists(), reason="no zone-annotator checkout beside")
+def test_the_pinned_tree_is_the_pinned_commits() -> None:
+    commit, tree = (ROOT / "zone-annotator.pin").read_text().split()
+    actual = subprocess.run(
+        ["git", "-C", str(SIBLING), "rev-parse", f"{commit}^{{tree}}"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert actual == tree
 
 
 def test_cloudflared_is_pinned_and_checked_before_dpkg() -> None:
@@ -75,6 +92,9 @@ def _package(tmp_path: Path, smoke: str = 'print("smoke-phase1 OK")') -> tuple[P
     ).stdout.strip()
     tar = tmp_path / "zone-annotator.tar"
     subprocess.run([*git, "archive", "-o", str(tar), "HEAD"], check=True)
+    # The pin's second line; _run reads it from beside the tar.
+    tree = subprocess.run([*git, "rev-parse", "HEAD^{tree}"], capture_output=True, text=True)
+    tar.with_suffix(".tree").write_text(tree.stdout.strip())
     return tar, commit
 
 
@@ -100,6 +120,7 @@ def _run(
     *,
     egress_port: int,
     appliance: str = APPLIANCE,
+    tree: str | None = None,
     **extra_env: str,
 ) -> subprocess.CompletedProcess[str]:
     destdir = tmp_path / "root"
@@ -125,6 +146,7 @@ def _run(
         "DESTDIR": str(destdir),
         "AGENT_HOME": str(home),
         "ZONE_ANNOTATOR_PIN": pin,
+        "ZONE_ANNOTATOR_TREE": tree or tar.with_suffix(".tree").read_text(),
         "SYSTEMCTL": str(systemctl),
         "RUNUSER": str(runuser),
         "CLOUDFLARED": str(cloudflared),
@@ -428,3 +450,51 @@ def test_the_package_is_read_once_as_the_agent_and_its_smoke_runs_as_the_agent(
     calls = (tmp_path / "runuser.log").read_text()
     assert f"cat {tar}" in calls
     assert ".venv/bin/python -m zone_annotator.smoke_phase1" in calls
+
+
+def _forged(tar: Path, out: Path, *, add: dict[str, bytes]) -> Path:
+    """``tar`` with files added and replaced, under the same commit id in its header."""
+    with (
+        tarfile.open(tar) as original,
+        tarfile.open(
+            out, "w", format=tarfile.PAX_FORMAT, pax_headers=original.pax_headers
+        ) as forged,
+    ):
+        for member in original.getmembers():
+            if member.name not in add:
+                forged.addfile(member, original.extractfile(member))
+        for name, content in add.items():
+            info = tarfile.TarInfo(name)
+            info.size, info.mode = len(content), 0o644
+            forged.addfile(info, io.BytesIO(content))
+    return out
+
+
+@pytest.mark.parametrize(
+    "add",
+    [
+        {"zone_annotator/smoke_phase1.py": b'print("FORGED CODE RAN")\n'},
+        # Not in any tree git computes, so the comparison alone would let it through.
+        {".git/config": b"[core]\n\tfsmonitor = /bin/false\n"},
+    ],
+    ids=["changed-file", "git-metadata"],
+)
+def test_refuses_a_package_that_is_not_the_pinned_tree_before_running_any_of_it(
+    tmp_path: Path, tunnel_port: int, add: dict[str, bytes]
+) -> None:
+    """The commit id in a tar header is one line anybody can write; the tree is the content."""
+    tar, commit = _package(tmp_path)
+    forged = _forged(tar, tmp_path / "forged.tar", add=add)
+    header = subprocess.run(
+        ["git", "get-tar-commit-id"], stdin=forged.open("rb"), capture_output=True
+    )
+    assert header.stdout.decode().strip() == commit, "the forgery keeps the pinned commit id"
+
+    result = _run(
+        tmp_path, forged, commit, egress_port=tunnel_port, tree=tar.with_suffix(".tree").read_text()
+    )
+
+    assert result.returncode != 0
+    assert "tree" in result.stderr, result.stderr
+    assert "FORGED" not in result.stdout + result.stderr
+    assert not (tmp_path / "root").exists()

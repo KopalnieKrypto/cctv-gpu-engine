@@ -11,7 +11,7 @@
 #   check 4  deployed code does not match the checkout (or was hand-patched)
 #   check 5  ufw is off, so the client LAN reaches the panel (:8080, no login)
 #   check 6  sshd accepts passwords
-#   check 7  zone-annotator is not the commit in zone-annotator.pin (gpu-exchange#298)
+#   check 7  zone-annotator is not the commit, or its files not the tree, in zone-annotator.pin
 #   check 8  zone-annotator is down, or listens beyond 127.0.0.1:8713
 #   check 9  its unit lost a network or path restriction
 #   check 10 the box's tunnel is down, or its token file is not root's and 0600
@@ -212,6 +212,47 @@ printf 'SSH_UNREADABLE=%s\n' "$ssh_unreadable"
 # zone-annotator and its tunnel (checks 7-11). The overrides exist for the tests only.
 za_release="$(readlink "${ZA_PREFIX:-/opt/zone-annotator}/current" 2>/dev/null)"
 printf 'ZA_COMMIT=%s\n' "${za_release##*/}"
+# The release's files hashed as git hashes a tree, its venv left out: what the installer compared.
+# In Python, because git would have to write objects somewhere and this audit writes nothing.
+za_dir="$(readlink -f "${ZA_PREFIX:-/opt/zone-annotator}/current" 2>/dev/null)"
+if [ -n "$za_release" ] && [ -d "$za_dir" ]; then
+    printf 'ZA_TREE=%s\n' "$(python3 - "$za_dir" <<'PY'
+import hashlib, os, stat, sys
+
+
+def obj(kind, data):
+    return hashlib.sha1(b"%s %d\0" % (kind, len(data)) + data).digest()
+
+
+def tree(path, top):
+    entries = []
+    for name in os.listdir(path):
+        if top and name == ".venv":
+            continue
+        full, raw = os.path.join(path, name), os.fsencode(name)
+        st = os.lstat(full)
+        if stat.S_ISDIR(st.st_mode):
+            sha, mode = tree(full, False), b"40000"
+            if sha is None:
+                continue  # git keeps no empty directory
+        elif stat.S_ISLNK(st.st_mode):
+            sha, mode = obj(b"blob", os.fsencode(os.readlink(full))), b"120000"
+        else:
+            with open(full, "rb") as f:
+                sha = obj(b"blob", f.read())
+            mode = b"100755" if st.st_mode & stat.S_IXUSR else b"100644"
+        # git orders a directory as if its name ended in a slash
+        key = raw + b"/" if mode == b"40000" else raw
+        entries.append((key, mode + b" " + raw + b"\0" + sha))
+    if not entries and not top:
+        return None
+    return obj(b"tree", b"".join(entry for _, entry in sorted(entries)))
+
+
+print(tree(sys.argv[1], True).hex())
+PY
+)"
+fi
 printf 'ZA_LOAD=%s\n' "$(systemctl show zone-annotator.service -p LoadState --value 2>/dev/null)"
 printf 'ZA_ACTIVE=%s\n' "$(systemctl show zone-annotator.service -p ActiveState --value 2>/dev/null)"
 printf 'ZA_LISTEN=%s\n' "$(ss -ltnH 'sport = :8713' 2>/dev/null | awk '{print $4}' | sort -u | tr '\n' ' ')"
@@ -403,7 +444,7 @@ FIX_ANNOTATOR="sudo client-appliance/install-annotator.sh \$(id -un) zone-annota
 
 # check 7 - the installed zone-annotator is the pinned commit.
 check_7() {
-  local host="$1" commit="$2" pin="$3"
+  local host="$1" commit="$2" tree="$3" pin="$4" pin_tree="$5"
   if [[ -z "$commit" ]]; then
     fail "$host" 7 "zone-annotator.service exists but zone-annotator is not installed at /opt/zone-annotator/current. Fix: $FIX_ANNOTATOR"
     return
@@ -412,7 +453,11 @@ check_7() {
     fail "$host" 7 "zone-annotator ${commit:0:7} installed, zone-annotator.pin wants ${pin:0:7}. Fix: $FIX_ANNOTATOR"
     return
   fi
-  pass "$host" 7 "zone-annotator ${commit:0:7}, as pinned"
+  if [[ "$tree" != "$pin_tree" ]]; then
+    fail "$host" 7 "zone-annotator ${commit:0:7} installed, but its files are tree ${tree:0:8}, not the pinned ${pin_tree:0:8} (changed after the install, or no python3 on the box). Fix: $FIX_ANNOTATOR"
+    return
+  fi
+  pass "$host" 7 "zone-annotator ${commit:0:7}, its files the pinned tree"
 }
 
 # check 8 - the service runs and only the tunnel on localhost can reach it.
@@ -517,7 +562,7 @@ check_13() {
 
 for host in "${HOSTS_ARG[@]}"; do
   PROC_COUNT=""; ACTIVE_STATE=""; SUB_STATE=""; N_RESTARTS=""; UNIT_ENABLED=""; LINGER=""
-  ZA_COMMIT=""; ZA_LOAD=""; ZA_ACTIVE=""; ZA_LISTEN=""; ZA_IPAddressDeny=""; ZA_IPAddressAllow=""
+  ZA_COMMIT=""; ZA_TREE=""; ZA_LOAD=""; ZA_ACTIVE=""; ZA_LISTEN=""; ZA_IPAddressDeny=""; ZA_IPAddressAllow=""
   ZA_NoNewPrivileges=""; ZA_ProtectSystem=""; ZA_InaccessiblePaths=""
   ZT_ACTIVE=""; ZT_TOKEN_MODE=""; ZT_TOKEN_OWNER=""; EGRESS_7844=""; ZA_DROP_KEY_MODE=""; ZA_DROP_HOSTS=""
   INSTALL_COMMIT=""; CHECKOUT_COMMIT=""; BUILD_MODIFIED=""
@@ -538,6 +583,7 @@ for host in "${HOSTS_ARG[@]}"; do
       SSH_PASSWORD_AUTH) SSH_PASSWORD_AUTH="$value" ;;
       SSH_UNREADABLE) SSH_UNREADABLE="$value" ;;
       ZA_COMMIT) ZA_COMMIT="$value" ;;
+      ZA_TREE) ZA_TREE="$value" ;;
       ZA_LOAD) ZA_LOAD="$value" ;;
       ZA_ACTIVE) ZA_ACTIVE="$value" ;;
       ZA_LISTEN) ZA_LISTEN="$value" ;;
@@ -569,7 +615,8 @@ for host in "${HOSTS_ARG[@]}"; do
       skip "$host" 7-13 "zone-annotator not installed (a box without annotation)"
   else
     [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "7" ]] &&
-      check_7 "$host" "$ZA_COMMIT" "$(tr -d '[:space:]' <"$PIN_FILE")"
+      check_7 "$host" "$ZA_COMMIT" "$ZA_TREE" "$(sed -n 1p "$PIN_FILE" | tr -d '[:space:]')" \
+        "$(sed -n 2p "$PIN_FILE" | tr -d '[:space:]')"
     [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "8" ]] && check_8 "$host" "$ZA_ACTIVE" "$ZA_LISTEN"
     [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "9" ]] &&
       check_9 "$host" "$ZA_IPAddressDeny" "$ZA_IPAddressAllow" "$ZA_NoNewPrivileges" \

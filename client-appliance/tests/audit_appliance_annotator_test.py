@@ -21,6 +21,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 AUDIT = ROOT / "audit-appliance.sh"
 PIN = "d800ae42d8ed45ee5346e13c3f3e2561001bcc34"
+TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 KNOWN_HOSTS = "# cctv-vps\ncctv-vps,100.64.0.1 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItest\n"
 KNOWN_HOSTS_SHA = hashlib.sha256(KNOWN_HOSTS.encode()).hexdigest()
 
@@ -35,6 +36,7 @@ BASE = (
 
 HEALTHY = {
     "ZA_COMMIT": PIN,
+    "ZA_TREE": TREE,
     "ZA_LOAD": "loaded",
     "ZA_ACTIVE": "active",
     "ZA_LISTEN": "127.0.0.1:8713",
@@ -55,10 +57,10 @@ HEALTHY = {
 
 
 def _audit(
-    tmp_path: Path, blob: str, ssh: Path | None = None, **env: str
+    tmp_path: Path, blob: str, ssh: Path | None = None, tree: str = TREE, **env: str
 ) -> subprocess.CompletedProcess[str]:
     pin = tmp_path / "zone-annotator.pin"
-    pin.write_text(PIN + "\n")
+    pin.write_text(f"{PIN}\n{tree}\n")
     # As a Windows checkout has it: the audit compares without carriage returns.
     known = tmp_path / "annotation-drop.known_hosts"
     known.write_bytes(KNOWN_HOSTS.replace("\n", "\r\n").encode())
@@ -110,6 +112,8 @@ def test_a_box_without_annotation_skips_and_keeps_its_exit_code(tmp_path: Path) 
     [
         (7, {"ZA_COMMIT": "1" * 40}, "1111111"),
         (7, {"ZA_COMMIT": ""}, "not installed"),
+        # Files changed in the release after the install: the directory name still says PIN.
+        (7, {"ZA_TREE": "f" * 40}, "tree ffffffff"),
         (8, {"ZA_LISTEN": "0.0.0.0:8713"}, "0.0.0.0:8713"),
         (8, {"ZA_ACTIVE": "failed", "ZA_LISTEN": ""}, "failed"),
         (9, {"ZA_IPAddressDeny": ""}, "IPAddressDeny"),
@@ -139,6 +143,28 @@ def test_drift_fails_with_its_name_and_the_installer_state_passes(
     assert _line(repaired.stdout, check).startswith("PASS")
 
 
+def _release_like_the_installers(release: Path) -> str:
+    """Files whose tree is easy to get wrong, and the tree git itself gives them."""
+    (release / "pkg" / "sub").mkdir(parents=True)
+    (release / "pkg" / "b.py").write_text("b\n")
+    (release / "pkg-x").write_text("ordered before pkg/\n")
+    (release / "pkg.txt").write_text("and so is this\n")
+    (release / "run.sh").write_text("#!/bin/sh\n")
+    (release / "run.sh").chmod(0o755)
+    (release / "empty").mkdir()
+    (release / "link").symlink_to("pkg-x")
+    (release / ".venv" / "bin").mkdir(parents=True)
+    (release / ".venv" / "bin" / "python").write_text("the venv is not in the tree")
+    copy = release.parent / "for-git"
+    shutil.copytree(release, copy, symlinks=True, ignore=shutil.ignore_patterns(".venv"))
+    git = ["git", "-C", str(copy)]
+    subprocess.run([*git, "init", "-q"], check=True)
+    subprocess.run([*git, "add", "-A"], check=True)
+    tree = subprocess.run([*git, "write-tree"], capture_output=True, text=True, check=True)
+    shutil.rmtree(copy)
+    return tree.stdout.strip()
+
+
 def test_the_real_probe_reads_a_stubbed_annotation_box(tmp_path: Path) -> None:
     """Runs the probe itself, so a quoting slip in the new lines fails here and not on a box."""
     stub = tmp_path / "bin"
@@ -146,6 +172,8 @@ def test_the_real_probe_reads_a_stubbed_annotation_box(tmp_path: Path) -> None:
     prefix = tmp_path / "opt" / "zone-annotator"
     (prefix / "releases" / PIN).mkdir(parents=True)
     (prefix / "current").symlink_to(f"releases/{PIN}")
+    release = prefix / "releases" / PIN
+    tree = _release_like_the_installers(release)
     token = tmp_path / "etc" / "zone-annotator" / "tunnel.token"
     token.parent.mkdir(parents=True)
     token.write_text("t")
@@ -187,7 +215,7 @@ def test_the_real_probe_reads_a_stubbed_annotation_box(tmp_path: Path) -> None:
 
         # The stub token belongs to whoever runs the test, not to root.
         me = subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip()
-        result = _audit(tmp_path, "", ssh=ssh, TOKEN_OWNER=me)
+        result = _audit(tmp_path, "", ssh=ssh, tree=tree, TOKEN_OWNER=me)
 
     for check in range(7, 14):
         assert _line(result.stdout, check).startswith("PASS"), result.stdout + result.stderr
