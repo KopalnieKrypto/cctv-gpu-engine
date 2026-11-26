@@ -225,6 +225,17 @@ if ! as_agent cmp -s - "$KNOWN" <"$SCRIPT_DIR/annotation-drop.known_hosts"; then
     log "installing cctv-vps's pinned host key $KNOWN"
     as_agent install -m 0644 /dev/stdin "$KNOWN" <"$SCRIPT_DIR/annotation-drop.known_hosts"
 fi
+# "cctv-vps" is a name no client network knows: without this line the poller's rsync cannot
+# resolve it. Pinned to the tailnet address the host key above is pinned with, so no resolver
+# in the client's LAN is asked either.
+DROP_ADDR="$(awk '!/^#/ && NF { split($1, names, ","); print names[2]; exit }' "$SCRIPT_DIR/annotation-drop.known_hosts" | tr -d '\r')"
+[[ "$DROP_ADDR" =~ ^[0-9.]+$ ]] || die "annotation-drop.known_hosts names no address for cctv-vps"
+HOSTS="$DESTDIR/etc/hosts"
+if ! grep -qxF "$DROP_ADDR cctv-vps" "$HOSTS" 2>/dev/null; then
+    log "pinning cctv-vps to $DROP_ADDR in $HOSTS"
+    if [[ -f "$HOSTS" ]]; then sed -i '/[[:space:]]cctv-vps$/d' "$HOSTS"; fi
+    printf '%s cctv-vps\n' "$DROP_ADDR" >>"$HOSTS"
+fi
 read -r _type DROP_PUB _comment < <(as_agent cat "$DROP_KEY.pub")
 log "register this box's shipping key on cctv-vps (gpu-exchange scripts/provision):"
 log "  sudo scripts/provision/annotation-drop.sh add $APPLIANCE \"ssh-ed25519 $DROP_PUB\""

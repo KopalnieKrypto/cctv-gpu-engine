@@ -1,4 +1,4 @@
-"""Checks 7-13 of audit-appliance.sh: zone-annotator, its tunnel, its shipping key and host key.
+"""Checks 7-14 of audit-appliance.sh: zone-annotator, its tunnel, and what shipping needs.
 
 The audit stays read-only. Repair is a re-run of install-annotator.sh, so "FAIL then repair then
 PASS" is a probe blob with the drift, then the same blob as the installer leaves it.
@@ -54,6 +54,7 @@ HEALTHY = {
     "EGRESS_7844": "ok",
     "ZA_DROP_KEY_MODE": "600",
     "ZA_DROP_HOSTS": KNOWN_HOSTS_SHA,
+    "ZA_DROP_ADDR": "100.64.0.1",
 }
 
 
@@ -94,11 +95,11 @@ def _line(stdout: str, check: int) -> str:
     return next((ln for ln in stdout.splitlines() if f"check {check}:" in ln), "")
 
 
-def test_a_healthy_annotation_box_passes_checks_7_to_13(tmp_path: Path) -> None:
+def test_a_healthy_annotation_box_passes_checks_7_to_14(tmp_path: Path) -> None:
     result = _audit(tmp_path, _blob())
 
     assert result.returncode == 0, result.stdout + result.stderr
-    for check in range(7, 14):
+    for check in range(7, 15):
         assert _line(result.stdout, check).startswith("PASS"), result.stdout
 
 
@@ -107,7 +108,7 @@ def test_a_box_without_annotation_skips_and_keeps_its_exit_code(tmp_path: Path) 
 
     assert result.returncode == 0, result.stdout
     assert "SKIP" in result.stdout and "zone-annotator not installed" in result.stdout
-    assert not any(_line(result.stdout, c) for c in range(7, 14))
+    assert not any(_line(result.stdout, c) for c in range(7, 15))
 
 
 @pytest.mark.parametrize(
@@ -131,6 +132,9 @@ def test_a_box_without_annotation_skips_and_keeps_its_exit_code(tmp_path: Path) 
         (12, {"ZA_DROP_KEY_MODE": "644"}, "644"),
         (13, {"ZA_DROP_HOSTS": ""}, "missing"),
         (13, {"ZA_DROP_HOSTS": "0" * 64}, "not the cctv-vps key pinned"),
+        # Seen on the first box: the key and host key were right and rsync still had no host.
+        (14, {"ZA_DROP_ADDR": ""}, "does not resolve"),
+        (14, {"ZA_DROP_ADDR": "192.168.1.20"}, "192.168.1.20"),
     ],
 )
 def test_drift_fails_with_its_name_and_the_installer_state_passes(
