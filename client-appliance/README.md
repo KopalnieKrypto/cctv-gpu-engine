@@ -180,7 +180,7 @@ Nowa wersja narzędzia to nowy pin
 (`git -C ../zone-annotator rev-parse <commit> '<commit>^{tree}' >client-appliance/zone-annotator.pin`),
 nowa paczka i ten sam
 instalator. Ponowne uruchomienie niczego nie zmienia, a przy rozjeździe z audytu
-(checki 7–10, 12 i 13) jest naprawą.
+(checki 7–10 i 12–14) jest naprawą.
 
 ## Instalacja user-mode (bez roota) — issue #84
 
@@ -412,7 +412,7 @@ Naprawa obu: `sudo client-appliance/harden-appliance.sh <user-appliance>`.
 Incydent: `cameraboy` 2026-11-09, ufw nieaktywny i SSH na hasło przy
 zielonych check 1-4.
 
-**check 7–13 — zone-annotator, tunel boxa i wysyłka paczek (gpu-exchange#298, #300).**
+**check 7–14 — zone-annotator, tunel boxa i wysyłka paczek (gpu-exchange#298, #300).**
 - 7: wersja równa `zone-annotator.pin`, a pliki wydania (bez `.venv`) dają drzewo z jego
   drugiej linii, więc audyt widzi też zmianę plików po instalacji;
 - 8: usługa działa i słucha tylko na `127.0.0.1:8713`;
@@ -424,10 +424,13 @@ zielonych check 1-4.
   `client-appliance/annotation-drop.known_hosts`. To przypięty klucz hosta
   cctv-vps; poller ufa tylko jemu (`StrictHostKeyChecking=yes`), bo nazwa
   `cctv-vps` może się rozwiązać w LAN-ie klienta. Po zmianie klucza na cctv-vps
-  nowy wpis trafia do repo, a na boxy z ponownym instalatorem.
+  nowy wpis trafia do repo, a na boxy z ponownym instalatorem;
+- 14: nazwa `cctv-vps` rozwiązuje się na adres z tego samego pliku. Instalator
+  wpisuje ją do `/etc/hosts`, bo sieć klienta jej nie zna i rsync paczki
+  kończył się na samej nazwie.
 
 Box bez zone-annotatora dostaje jedną linię SKIP i nie zmienia kodu wyjścia.
-Naprawa 7–10, 12 i 13 to ponowny `install-annotator.sh`. Przy 11 trzeba otworzyć port
+Naprawa 7–10 i 12–14 to ponowny `install-annotator.sh`. Przy 11 trzeba otworzyć port
 u klienta.
 
 Incydenty źródłowe. **check 1 + 2** (cameraboy, 2026-07-17 → 20): stray proces

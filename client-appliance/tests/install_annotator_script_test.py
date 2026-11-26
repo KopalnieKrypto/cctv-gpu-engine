@@ -200,6 +200,26 @@ def test_pins_cctv_vps_host_key_for_the_agent_and_replaces_one_learned_on_first_
     assert "annotation-drop.known_hosts" in (tmp_path / "runuser.log").read_text()
 
 
+def test_pins_the_name_cctv_vps_to_the_address_of_the_pinned_host_key(
+    tmp_path: Path, tunnel_port: int
+) -> None:
+    """No client network resolves "cctv-vps"; the first box's rsync failed on the name alone."""
+    tar, commit = _package(tmp_path)
+    address = re.search(
+        r"^cctv-vps,(\S+) ", (ROOT / "annotation-drop.known_hosts").read_text(), re.MULTILINE
+    )
+    assert address
+    hosts = tmp_path / "root" / "etc" / "hosts"
+    hosts.parent.mkdir(parents=True, exist_ok=True)
+    hosts.write_text("127.0.0.1 localhost\n192.168.1.20 cctv-vps\n")
+
+    for _ in range(2):
+        result = _run(tmp_path, tar, commit, egress_port=tunnel_port)
+        assert result.returncode == 0, result.stdout + result.stderr
+
+    assert hosts.read_text() == f"127.0.0.1 localhost\n{address[1]} cctv-vps\n"
+
+
 def test_installs_the_pinned_package_and_its_smoke_passes(tmp_path: Path, tunnel_port: int) -> None:
     tar, commit = _package(tmp_path)
 

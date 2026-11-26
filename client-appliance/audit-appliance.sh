@@ -18,8 +18,9 @@
 #   check 11 no outbound TCP to Cloudflare on 7844
 #   check 12 the key packages ship with is missing, or not 0600 (gpu-exchange#300)
 #   check 13 the host key that shipping trusts is not cctv-vps's key pinned in the repo
+#   check 14 the name cctv-vps does not resolve to the address pinned with that key
 #
-# Checks 7-13 print one SKIP line on a box without zone-annotator. Their repair is a re-run of
+# Checks 7-14 print one SKIP line on a box without zone-annotator. Their repair is a re-run of
 # install-annotator.sh, which is idempotent; this audit stays read-only for them too.
 #
 # All are silent by construction. A unit crash-looping under
@@ -281,6 +282,7 @@ za_hosts="$HOME/.ssh/annotation-drop.known_hosts"
 if [ -f "$za_hosts" ]; then
     printf 'ZA_DROP_HOSTS=%s\n' "$(tr -d '\r' <"$za_hosts" | sha256sum | cut -d' ' -f1)"
 fi
+printf 'ZA_DROP_ADDR=%s\n' "$(getent hosts cctv-vps 2>/dev/null | awk '{print $1; exit}')"
 REMOTE
 }
 
@@ -573,11 +575,26 @@ check_13() {
   pass "$host" 13 "cctv-vps host key as pinned in the repo"
 }
 
+# check 14 - the name the poller ships to resolves, and to the address pinned with the host key.
+check_14() {
+  local host="$1" got="$2" want="$3"
+  if [[ -z "$got" ]]; then
+    fail "$host" 14 "the name cctv-vps does not resolve - no package can be sent. Fix: $FIX_ANNOTATOR"
+    return
+  fi
+  if [[ "$got" != "$want" ]]; then
+    fail "$host" 14 "cctv-vps resolves to $got, not the pinned $want - packages go to another host or nowhere. Fix: $FIX_ANNOTATOR"
+    return
+  fi
+  pass "$host" 14 "cctv-vps resolves to the pinned $want"
+}
+
 for host in "${HOSTS_ARG[@]}"; do
   PROC_COUNT=""; ACTIVE_STATE=""; SUB_STATE=""; N_RESTARTS=""; UNIT_ENABLED=""; LINGER=""
   ZA_COMMIT=""; ZA_TREE=""; ZA_LOAD=""; ZA_ACTIVE=""; ZA_LISTEN=""; ZA_IPAddressDeny=""; ZA_IPAddressAllow=""
   ZA_NoNewPrivileges=""; ZA_ProtectSystem=""; ZA_InaccessiblePaths=""
   ZT_ACTIVE=""; ZT_TOKEN_MODE=""; ZT_TOKEN_OWNER=""; EGRESS_7844=""; ZA_DROP_KEY_MODE=""; ZA_DROP_HOSTS=""
+  ZA_DROP_ADDR=""
   INSTALL_COMMIT=""; CHECKOUT_COMMIT=""; BUILD_MODIFIED=""
   UFW_ENABLED=""; SSHD_STATE=""; SSH_PASSWORD_AUTH=""; SSH_UNREADABLE=""
   while IFS='=' read -r key value; do
@@ -611,6 +628,7 @@ for host in "${HOSTS_ARG[@]}"; do
       EGRESS_7844) EGRESS_7844="$value" ;;
       ZA_DROP_KEY_MODE) ZA_DROP_KEY_MODE="$value" ;;
       ZA_DROP_HOSTS) ZA_DROP_HOSTS="$value" ;;
+      ZA_DROP_ADDR) ZA_DROP_ADDR="$value" ;;
     esac
   done < <(probe "$host")
 
@@ -625,7 +643,7 @@ for host in "${HOSTS_ARG[@]}"; do
 
   if [[ -z "$ZA_COMMIT" && "$ZA_LOAD" != "loaded" ]]; then
     [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" -ge 7 ]] &&
-      skip "$host" 7-13 "zone-annotator not installed (a box without annotation)"
+      skip "$host" 7-14 "zone-annotator not installed (a box without annotation)"
   else
     [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "7" ]] &&
       check_7 "$host" "$ZA_COMMIT" "$ZA_TREE" "$(sed -n 1p "$PIN_FILE" | tr -d '[:space:]')" \
@@ -639,6 +657,9 @@ for host in "${HOSTS_ARG[@]}"; do
     [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "12" ]] && check_12 "$host" "$ZA_DROP_KEY_MODE"
     [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "13" ]] &&
       check_13 "$host" "$ZA_DROP_HOSTS" "$(tr -d '\r' <"$KNOWN_HOSTS_FILE" | sha256sum | cut -d' ' -f1)"
+    [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "14" ]] &&
+      check_14 "$host" "$ZA_DROP_ADDR" \
+        "$(tr -d '\r' <"$KNOWN_HOSTS_FILE" | awk '!/^#/ && NF { split($1, names, ","); print names[2]; exit }')"
   fi
 done
 
