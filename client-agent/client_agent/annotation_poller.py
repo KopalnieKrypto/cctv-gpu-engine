@@ -4,7 +4,9 @@ The panel asks for a window of one camera's buffer for a zone-annotator
 project. This box glues it from its own segments, without re-encoding and
 below the recorder's priority, and leaves it where zone-annotator behind the
 proxy is allowed to read it: ``<windows>/<project>/<window>.mp4``. The client
-then draws zones on it in the panel, and zone-annotator cuts the crops.
+then draws zones on it in the panel, and zone-annotator cuts the crops. Once
+the project's manifest lists the clip the window is reported ``ready``, under
+the job kept in a note beside it, so the panel stops asking for zones.
 
 The clip is a copy of footage, so it lives only until zone-annotator has
 ingested it: once the project's manifest lists the file, this deletes it, and
@@ -268,6 +270,8 @@ class AnnotationPoller:
         # serve behind the proxy answers 404 until the project has its directory.
         project_dir.mkdir(parents=True, exist_ok=True)
         self._report("job", claim.job_id, status="awaiting_zones", clip_path=str(output.resolve()))
+        # The job this window says `ready` under once its zones are drawn; it goes with the clip.
+        _write_whole(_job_note(output), {"job_id": claim.job_id})
         return True
 
     def run(self) -> None:
@@ -669,6 +673,12 @@ class AnnotationPoller:
                 for c in clips.get("clips") or []
             }
             if str(window.resolve()) in ingested:
+                # Reported before the clip goes: a crash in between repeats it, never loses it.
+                note = _job_note(window)
+                if note.is_file():
+                    job_id = json.loads(note.read_text(encoding="utf-8"))["job_id"]
+                    self._report("job", job_id, status="ready")
+                    note.unlink()
                 window.unlink(missing_ok=True)
             elif self._clock() - window.stat().st_mtime >= COPY_LIMIT_S:
                 stale.append(window)
@@ -704,6 +714,11 @@ class AnnotationPoller:
 
     def _lowered(self, cmd: list[str], **kwargs: object) -> object:
         return self._runner([*_LOWER_PRIORITY, *cmd], **kwargs)
+
+
+def _job_note(window: Path) -> Path:
+    """Beside a first window's clip: the job its ``ready`` is reported under."""
+    return window.with_name(f"{window.name}.job")
 
 
 def _write_whole(path: Path, data: dict) -> None:

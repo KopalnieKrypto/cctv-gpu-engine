@@ -165,6 +165,29 @@ def test_a_claimed_window_is_glued_into_the_projects_windows_dir_and_reported(tm
     assert (tmp_path / "projects" / "project-1").is_dir()
 
 
+def test_a_first_window_is_reported_ready_once_its_zones_are_drawn(tmp_path):
+    """The panel kept saying "czeka na strefy" on a window labelled long ago: nothing told
+    the platform. The manifest listing the clip is zone-annotator's word that the crops are cut."""
+    platform = FakePlatform(claims=[a_claim()])
+    poller = a_poller(tmp_path, platform=platform, buffer=FakeBuffer([a_chunk(tmp_path)]))
+    assert poller.run_once() is True
+    window = (tmp_path / "windows" / "project-1" / "window-1.mp4").resolve()
+
+    # Nobody has drawn yet: nothing more is said.
+    poller.run_once()
+    assert [r["status"] for r in platform.reports] == ["awaiting_zones"]
+
+    manifest = {"clips": [{"clip": {"path": str(window)}}]}
+    (tmp_path / "projects" / "project-1" / "manifest.json").write_text(
+        json.dumps(manifest), encoding="utf-8"
+    )
+    poller.run_once()
+    poller.run_once()
+
+    assert platform.reports[1:] == [{"job_id": "job-1", "status": "ready"}]
+    assert list(window.parent.iterdir()) == []
+
+
 def test_a_first_window_the_platform_has_moved_on_from_is_deleted(tmp_path, caplog):
     platform = FakePlatform(claims=[a_claim()], errors={"awaiting_zones": [GONE]})
     poller = a_poller(tmp_path, platform=platform, buffer=FakeBuffer([a_chunk(tmp_path)]))
