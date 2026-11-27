@@ -120,6 +120,20 @@ def test_publishes_the_head_and_card_and_reports_done_with_the_card(tmp_path):
     assert "Authorization" not in h2 and "Authorization" not in h3
 
 
+def test_names_itself_to_the_platform_not_as_python_urllib(tmp_path):
+    # 2026-11-27: Cloudflare in front of api-panel answered `error code: 1010` to the
+    # default `Python-urllib/3.12` and the request never reached data-service.
+    head, card_path, _ = a_head(tmp_path)
+    http = FakeHttp()
+
+    pub.publish(EXPORT, head, card_path, platform_url=PLATFORM, token="agt_secret", http=http)
+
+    platform = [h for _, url, h, _ in http.calls if url.startswith(PLATFORM)]
+    assert len(platform) == 2
+    for h in platform:
+        assert h.get("User-Agent", "").startswith("cctv-gpu-engine/"), h
+
+
 def test_refuses_a_card_that_describes_another_file_before_any_request(tmp_path):
     head, card_path, _ = a_head(tmp_path)
     head.write_bytes(b"onnx-bytez")  # same size, other bytes: only the digest can tell
