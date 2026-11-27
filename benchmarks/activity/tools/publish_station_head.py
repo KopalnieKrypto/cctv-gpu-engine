@@ -124,7 +124,12 @@ def publish(
             "train_station_head.py --package is published for an export"
         )
     base = f"{platform_url.rstrip('/')}/agent/station-heads/{export_id}"
-    auth = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    auth = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        # Cloudflare in front of the platform refuses urllib's default agent (error 1010).
+        "User-Agent": "cctv-gpu-engine/publish_station_head",
+    }
 
     status, body = http("POST", f"{base}/upload-urls", auth, b"{}")
     if status != 200:
