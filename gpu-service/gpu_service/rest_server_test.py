@@ -628,3 +628,29 @@ class TestStationModeWarmsNoPoseModel:
         )
 
         assert pose.call_count == 1
+
+
+class TestStationHeadFromEnvReachesTheRun:
+    """gpu-exchange#278: the gpu-agent mounts a client's own head and names it by env.
+
+    The warm-up read `STATION_HEAD_PATH`, the run did not: `pipeline_fn` called the
+    analysis with the pipeline's defaults, so a mounted head would have been loaded
+    once and then never measured with, while the report named the image's head.
+    """
+
+    def test_the_run_measures_with_the_head_the_env_names(self, mocker, monkeypatch):
+        monkeypatch.setenv("STATION_HEAD_PATH", "/config/station-head.onnx")
+        monkeypatch.setenv("STATION_CARD_PATH", "/config/station-head.card.json")
+        mocker.patch("pipeline.station_classifier.load_station_classifier")
+        run = mocker.patch("pipeline.analyze.run_full_video_to_json", return_value=b"{}")
+
+        pipeline = _warm_up_pipeline(
+            model_path="/app/models/yolo11s-pose.onnx",
+            classifier="station",
+            activity_model_path="/app/models/activity-mlp-v1.0.0.onnx",
+            activity_model_metadata_path="/app/models/activity-mlp-v1.0.0.json",
+        )
+        pipeline([Path("chunk.mp4")], lambda _pct: None)
+
+        assert run.call_args.kwargs["station_head_path"] == "/config/station-head.onnx"
+        assert run.call_args.kwargs["station_card_path"] == "/config/station-head.card.json"

@@ -226,6 +226,16 @@ def _warm_up_pipeline(
     # Canonical artifact is result.json (issue #72); the gpu-agent uploads
     # these bytes to the presigned result URL for the platform to render.
     from pipeline.analyze import run_full_video_to_json
+    from pipeline.station_classifier import (
+        DEFAULT_STATION_CARD_PATH,
+        DEFAULT_STATION_HEAD_PATH,
+    )
+
+    # Read once, for the warm-up and the run alike: the gpu-agent mounts a client's own
+    # head and names it here (gpu-exchange#278). The run used to take the defaults, so a
+    # mounted head was warmed and then never measured with.
+    station_head_path = os.environ.get("STATION_HEAD_PATH", DEFAULT_STATION_HEAD_PATH)
+    station_card_path = os.environ.get("STATION_CARD_PATH", DEFAULT_STATION_CARD_PATH)
 
     def pipeline_fn(
         chunks: list[Path],
@@ -242,6 +252,8 @@ def _warm_up_pipeline(
             activity_model_metadata_path=activity_model_metadata_path,
             zones=zones,
             pose_mode=pose_mode,
+            station_head_path=station_head_path,
+            station_card_path=station_card_path,
         )
 
     # Touch the model once to warm CUDA / cuDNN — fail fast if the GPU is
@@ -259,15 +271,11 @@ def _warm_up_pipeline(
         # the shape dangerous: a default that is only reached off the happy path is
         # a default nobody checks. The pipeline's own constants are the one place
         # the shipped version is written down.
-        from pipeline.station_classifier import (
-            DEFAULT_STATION_CARD_PATH,
-            DEFAULT_STATION_HEAD_PATH,
-            load_station_classifier,
-        )
+        from pipeline.station_classifier import load_station_classifier
 
         load_station_classifier(
-            os.environ.get("STATION_HEAD_PATH", DEFAULT_STATION_HEAD_PATH),
-            os.environ.get("STATION_CARD_PATH", DEFAULT_STATION_CARD_PATH),
+            station_head_path,
+            station_card_path,
             os.environ.get("BACKBONE_PATH", "/app/models/dinov2-base.onnx"),
         )
         return pipeline_fn
