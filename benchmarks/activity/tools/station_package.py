@@ -155,6 +155,17 @@ def read_package(package_dir: Path, zone: str | None = None) -> Package:
             f"training needs at least two folds with answers, so every figure on the "
             f"card is measured on material its model did not see; {why}."
         )
+    # Answered in one fold only, an activity is either never trained on or never measured:
+    # each card figure for it would come from a model that did not see it.
+    for c in classes:
+        seen_in = sorted({w.fold for w in windows if c in w.labels})
+        if c != NON_ACTIVITY and len(seen_in) < 2:
+            sys.exit(
+                f"`{c}` has answers only in {', '.join(seen_in) or 'no fold'}: every "
+                "activity needs answers in at least two folds, or the card measures it on "
+                "a model that never saw it. Annotate it in another window, or move a "
+                "window to another fold, and export again."
+            )
     return Package(
         classes=classes,
         windows=[w for w in windows if w.labels],

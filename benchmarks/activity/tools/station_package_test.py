@@ -160,6 +160,18 @@ def test_a_fold_without_answers_is_refused(tmp_path):
         train(tmp_path, a_package(tmp_path, unanswer_w2))
 
 
+def test_an_activity_answered_in_one_fold_only_is_refused(tmp_path):
+    # hala-prawe-skrzydlo/v1.0.2 (2026-11-27): the held-out window was all `nierozpoznane`,
+    # the card measured spawanie at recall 0 on a model that never saw it.
+    def no_welding_in_w2(doc):
+        for s in doc["samples"]:
+            if s["clip_id"] == 2 and s["label"] == "spawanie":
+                s["label"] = "nierozpoznane"
+
+    with pytest.raises(SystemExit, match="`spawanie` has answers only in fold-1"):
+        train(tmp_path, a_package(tmp_path, no_welding_in_w2))
+
+
 def test_an_unanswered_sample_inside_a_window_is_refused(tmp_path):
     def drop_second_of_w1(doc):
         w1 = [s["id"] for s in doc["samples"] if s["clip_id"] == 1]
